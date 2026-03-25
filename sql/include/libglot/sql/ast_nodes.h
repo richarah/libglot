@@ -994,18 +994,28 @@ struct ExplainStmt : SQLNode {
 };
 
 struct AnalyzeStmt : SQLNode {
-    std::string_view table;
+    std::vector<TableRef*> tables;             // Tables to analyze (can be multiple)
+    std::vector<std::string_view> columns;     // Column specifications for single table
     bool verbose;
+    bool local;                                 // MySQL: LOCAL
+    bool no_write_to_binlog;                   // MySQL: NO_WRITE_TO_BINLOG
+    bool use_table_keyword;                     // MySQL: ANALYZE TABLE vs PostgreSQL: ANALYZE
 
-    AnalyzeStmt() : SQLNode(SQLNodeKind::ANALYZE_STMT), verbose(false) {}
+    AnalyzeStmt() : SQLNode(SQLNodeKind::ANALYZE_STMT), verbose(false), local(false),
+                    no_write_to_binlog(false), use_table_keyword(false) {}
 };
 
 struct VacuumStmt : SQLNode {
-    std::string_view table;
+    std::vector<TableRef*> tables;             // Tables to vacuum (can be multiple)
+    std::vector<std::string_view> columns;     // Column specifications for single table
     bool full;
+    bool freeze;
+    bool verbose;
     bool analyze;
+    std::vector<std::pair<std::string_view, std::string_view>> paren_options;  // Parenthesized options like (PARALLEL 4)
 
-    VacuumStmt() : SQLNode(SQLNodeKind::VACUUM_STMT), full(false), analyze(false) {}
+    VacuumStmt() : SQLNode(SQLNodeKind::VACUUM_STMT), full(false), freeze(false),
+                   verbose(false), analyze(false) {}
 };
 
 struct GrantStmt : SQLNode {
@@ -1014,9 +1024,12 @@ struct GrantStmt : SQLNode {
     std::string_view object_name;
     std::vector<std::string_view> grantees;
     bool with_grant_option;
+    bool with_admin_option;
+    bool with_hierarchy_option;
 
     GrantStmt()
-        : SQLNode(SQLNodeKind::GRANT_STMT), with_grant_option(false) {}
+        : SQLNode(SQLNodeKind::GRANT_STMT), with_grant_option(false),
+          with_admin_option(false), with_hierarchy_option(false) {}
 };
 
 struct RevokeStmt : SQLNode {
@@ -1025,18 +1038,30 @@ struct RevokeStmt : SQLNode {
     std::string_view object_name;
     std::vector<std::string_view> grantees;
     bool cascade;
+    bool restrict;
+    bool grant_option_for;
+    bool admin_option_for;
 
     RevokeStmt()
-        : SQLNode(SQLNodeKind::REVOKE_STMT), cascade(false) {}
+        : SQLNode(SQLNodeKind::REVOKE_STMT), cascade(false), restrict(false),
+          grant_option_for(false), admin_option_for(false) {}
 };
 
 /// ============================================================================
 /// Stored Procedures & Functions (Simplified for Phase A)
 /// ============================================================================
 
+// Procedure/Function parameter (not an AST node, just a data struct)
+struct ProcedureParameter {
+    std::string_view mode;       // IN, OUT, INOUT (empty = IN)
+    std::string_view name;
+    std::string_view type;
+};
+
 struct CreateProcedureStmt : SQLNode {
     bool is_function;
     std::string_view name;
+    std::vector<ProcedureParameter> parameters;
     std::string_view return_type;  // For functions
     std::string_view language;
     std::vector<SQLNode*> body;
@@ -1073,10 +1098,11 @@ struct DeclareVarStmt : SQLNode {
 
 struct DeclareCursorStmt : SQLNode {
     std::string_view cursor_name;
+    bool scroll;              // SCROLL cursor (allows backward fetch)
     SelectStmt* query;
 
     DeclareCursorStmt()
-        : SQLNode(SQLNodeKind::DECLARE_CURSOR_STMT), query(nullptr) {}
+        : SQLNode(SQLNodeKind::DECLARE_CURSOR_STMT), scroll(false), query(nullptr) {}
 };
 
 struct AssignmentStmt : SQLNode {
@@ -1142,8 +1168,9 @@ struct BeginEndBlock : SQLNode {
 };
 
 struct DoBlock : SQLNode {
-    std::string_view language;
-    std::vector<SQLNode*> statements;
+    std::string_view language;     // Optional LANGUAGE clause
+    std::string_view code_block;    // Raw code block (including delimiters like $$...$$)
+    std::vector<SQLNode*> statements;  // Parsed statements (optional, for future use)
 
     DoBlock() : SQLNode(SQLNodeKind::DO_BLOCK) {}
 };
@@ -1171,6 +1198,7 @@ struct OpenCursorStmt : SQLNode {
 
 struct FetchCursorStmt : SQLNode {
     std::string_view cursor_name;
+    std::string_view direction;  // NEXT, PRIOR, FIRST, LAST, or empty
     std::vector<std::string_view> into_variables;
 
     FetchCursorStmt() : SQLNode(SQLNodeKind::FETCH_CURSOR_STMT) {}
