@@ -6,7 +6,7 @@ using namespace libglot::sql;
 
 static std::string test_round_trip(const std::string& sql, SQLDialect dialect = SQLDialect::PostgreSQL) {
     libglot::Arena arena;
-    SQLParser parser(arena, sql);
+    SQLParser parser(arena, sql, dialect);  // Pass dialect to parser
     auto ast = parser.parse_top_level();
     SQLGenerator gen(dialect);
     return gen.generate(ast);
@@ -29,6 +29,7 @@ TEST_CASE("JSON operations - PostgreSQL", "[json][postgresql]") {
     SECTION("JSON path operator (#>)") {
         std::string sql = "SELECT data #> '{address,city}' FROM users";
         std::string result = test_round_trip(sql);
+        INFO("Generated: " << result);
         REQUIRE(result.find("#>") != std::string::npos);
     }
 
@@ -84,7 +85,9 @@ TEST_CASE("JSON functions - PostgreSQL", "[json][functions][postgresql]") {
 
     SECTION("JSON_OBJECTAGG aggregate function") {
         std::string sql = "SELECT JSON_OBJECTAGG(name, value) FROM settings";
+        INFO("Input SQL: " << sql);
         std::string result = test_round_trip(sql);
+        INFO("Generated SQL: " << result);
         REQUIRE(result.find("JSON_OBJECTAGG") != std::string::npos);
     }
 
@@ -175,12 +178,16 @@ TEST_CASE("JSON operations - Snowflake", "[json][snowflake]") {
     SECTION("Colon notation for JSON access") {
         std::string sql = "SELECT data:name FROM users";
         std::string result = test_round_trip(sql, SQLDialect::Snowflake);
+        INFO("Input: " << sql);
+        INFO("Output: " << result);
         REQUIRE(result.find(":") != std::string::npos);
     }
 
     SECTION("Bracket notation for JSON arrays") {
         std::string sql = "SELECT data:items[0] FROM orders";
         std::string result = test_round_trip(sql, SQLDialect::Snowflake);
+        INFO("Input: " << sql);
+        INFO("Output: " << result);
         REQUIRE(result.find("[0]") != std::string::npos);
     }
 

@@ -4,6 +4,7 @@
 #include "../../../../libsqlglot/include/libsqlglot/tokenizer.h"
 #include "grammar.h"
 #include "ast_nodes.h"
+#include "dialect_traits.h"
 #include <memory>
 #include <algorithm>
 #include <iostream>
@@ -31,8 +32,8 @@ public:
     // Construction
     // ========================================================================
 
-    explicit SQLParser(libglot::Arena& arena, std::string_view source)
-        : SQLParser(arena, tokenize_and_copy(arena, source))
+    explicit SQLParser(libglot::Arena& arena, std::string_view source, SQLDialect dialect = SQLDialect::PostgreSQL)
+        : SQLParser(arena, tokenize_and_copy(arena, source, dialect), dialect)
     {}
 
     // ========================================================================
@@ -154,8 +155,50 @@ public:
             return this->template create_node<ExistsExpr>(static_cast<SelectStmt*>(subquery));
         }
 
+        // ANY (subquery or expression)
+        // For now, parse as a function call - the AST structure expects comparison operator
+        // TODO: Properly handle as ANY expression with left operand and operator
+        if (match(TK::ANY)) {
+            expect(TK::LPAREN);
+            std::vector<SQLNode*> args;
+            if (check(TK::SELECT)) {
+                args.push_back(parse_select());
+            } else if (!check(TK::RPAREN)) {
+                args.push_back(parse_expression());
+            }
+            expect(TK::RPAREN);
+            return this->template create_node<FunctionCall>("ANY", args);
+        }
+
+        // ALL (subquery or expression)
+        if (match(TK::ALL)) {
+            expect(TK::LPAREN);
+            std::vector<SQLNode*> args;
+            if (check(TK::SELECT)) {
+                args.push_back(parse_select());
+            } else if (!check(TK::RPAREN)) {
+                args.push_back(parse_expression());
+            }
+            expect(TK::RPAREN);
+            return this->template create_node<FunctionCall>("ALL", args);
+        }
+
         // Array literal: ARRAY[1, 2, 3]
+        // Note: The tokenizer may lex [elements] as a single quoted identifier token in SQL Server mode
         if (match(TK::ARRAY)) {
+            // Check if we have a bracket-quoted identifier (SQL Server style) vs separate bracket tokens
+            if (check(TK::IDENTIFIER) && current().text.starts_with('[') && current().text.ends_with(']')) {
+                // Tokenizer lexed [node_id] as a single identifier - need to parse the interior
+                // This is a limitation of the generic tokenizer
+                // For now, create a simple array with the unquoted identifier
+                std::string_view interior = current().text.substr(1, current().text.length() - 2);
+                (void)advance();
+                // Parse the interior as a simple identifier
+                auto elem = this->template create_node<Column>(interior);
+                return this->template create_node<ArrayLiteral>(std::vector<SQLNode*>{elem});
+            }
+
+            // Normal array literal with separate bracket tokens
             expect(TK::LBRACKET);
             std::vector<SQLNode*> elements;
             if (!check(TK::RBRACKET)) {
@@ -253,6 +296,56 @@ public:
             auto arg2 = parse_expression();
             expect(TK::RPAREN);
             return this->template create_node<NullifExpr>(arg1, arg2);
+        }
+
+        // Typed literals: DATE 'string', TIMESTAMP 'string', TIME 'string'
+        // Check if it's a typed literal pattern before treating as function
+        if (match(TK::DATE)) {
+            if (check(TK::STRING)) {
+                auto lit = advance();
+                auto lit_node = this->template create_node<Literal>(lit.text);
+                return this->template create_node<CastExpr>(lit_node, "DATE");
+            }
+            // Not followed by string, backtrack by creating identifier for DATE
+            return this->template create_node<Column>("DATE");
+        }
+
+        if (match(TK::TIMESTAMP)) {
+            if (check(TK::STRING)) {
+                auto lit = advance();
+                auto lit_node = this->template create_node<Literal>(lit.text);
+                return this->template create_node<CastExpr>(lit_node, "TIMESTAMP");
+            }
+            return this->template create_node<Column>("TIMESTAMP");
+        }
+
+        if (match(TK::TIME)) {
+            if (check(TK::STRING)) {
+                auto lit = advance();
+                auto lit_node = this->template create_node<Literal>(lit.text);
+                return this->template create_node<CastExpr>(lit_node, "TIME");
+            }
+            return this->template create_node<Column>("TIME");
+        }
+
+        // INTERVAL expressions: INTERVAL <value> <unit>
+        // Example: INTERVAL 7 DAY, INTERVAL '2 days' DAY TO SECOND
+        if (match(TK::INTERVAL)) {
+            // Parse the value (can be number or string)
+            SQLNode* value = parse_expression();
+            // Parse the unit (DAY, HOUR, MINUTE, SECOND, YEAR, MONTH, etc.)
+            // The unit is typically an identifier
+            std::string_view unit = "";
+            if (check(TK::IDENTIFIER)) {
+                unit = advance().text;
+            }
+            // Create an interval expression node (we'll treat it as a function call for now)
+            std::vector<SQLNode*> args;
+            args.push_back(value);
+            if (!unit.empty()) {
+                args.push_back(this->template create_node<Literal>(unit));
+            }
+            return this->template create_node<FunctionCall>("INTERVAL", args);
         }
 
         if (match(TK::CAST)) {
@@ -360,14 +453,15 @@ public:
         }
 
         // Function call or column reference (including keywords used as identifiers)
-        if (check(TK::IDENTIFIER) || check(TK::RANK) || check(TK::ORDER) || check(TK::TEMP) ||
+        if (check(TK::IDENTIFIER) || check(TK::RANK) || check(TK::ORDER) || check(TK::TEMP) || check(TK::LEVEL) ||
             check(TK::COUNT) || check(TK::SUM) || check(TK::AVG) || check(TK::MIN) || check(TK::MAX) ||
             check(TK::DENSE_RANK) || check(TK::ROW_NUMBER) || check(TK::NTILE) ||
             check(TK::LEAD) || check(TK::LAG) || check(TK::FIRST_VALUE) || check(TK::LAST_VALUE) || check(TK::NTH_VALUE) ||
             check(TK::SUBSTRING) || check(TK::SUBSTR) || check(TK::CONCAT_KW) || check(TK::CONCAT_WS) || check(TK::LENGTH) || check(TK::TRIM) ||
             check(TK::UPPER) || check(TK::LOWER) || check(TK::REPLACE) || check(TK::REPLACE_KW) || check(TK::REPLACE_DDB) || check(TK::SPLIT) ||
             check(TK::ROUND) || check(TK::FLOOR) || check(TK::CEIL) || check(TK::ABS) || check(TK::POWER) || check(TK::SQRT) ||
-            check(TK::TIMESTAMP) || check(TK::DATE) || check(TK::TIME)) {
+            check(TK::TIMESTAMP) || check(TK::DATE) || check(TK::TIME) ||
+            check(TK::GENERATE_SERIES) || check(TK::UNNEST)) {
             auto first = advance();
             std::string_view name = first.text;
 
@@ -383,7 +477,9 @@ public:
                     (void)advance();  // Acknowledge nodiscard warning
                     return this->template create_node<Star>(name);
                 }
-                if (!check(TK::IDENTIFIER)) {
+                // Allow keywords as column names (SQL permits this)
+                if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                    check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
                     error("Expected column name after '.'");
                 }
                 auto second = advance();
@@ -453,6 +549,22 @@ public:
                 continue;
             }
 
+            // Snowflake colon notation: data:field or data:field[0]
+            // Only in Snowflake dialect to avoid conflicts with other uses of colon
+            if (dialect_ == SQLDialect::Snowflake && match(TK::COLON)) {
+                // The next token should be an identifier (field name)
+                if (!check(TK::IDENTIFIER)) {
+                    error("Expected field name after ':' in Snowflake JSON access");
+                }
+                auto field_name = advance().text;
+                auto field_node = this->template create_node<Column>(field_name);
+                // Create the colon access node
+                base = this->template create_node<BinaryOp>(TK::COLON, base, field_node);
+                // Continue loop to handle potential [0] bracket notation
+                // (the continue will loop back and check for [ at the top of the while)
+                continue;
+            }
+
             // No more postfix operators
             break;
         }
@@ -482,6 +594,28 @@ public:
         // DISTINCT?
         if (match(TK::DISTINCT)) {
             stmt->distinct = true;
+        }
+
+        // TOP n (SQL Server, Access)
+        if (match(TK::TOP)) {
+            stmt->limit = parse_expression();
+            // Optional: PERCENT, WITH TIES
+            if (match(TK::PERCENT)) {
+                // Store that this is a percentage (we'd need to track this in AST)
+            }
+            // WITH TIES would require tracking in AST as well
+            // For now, we'll skip these modifiers and just parse the TOP value
+        }
+
+        // FIRST n [SKIP m] (Firebird, Informix)
+        bool has_first = false;
+        if (match(TK::FIRST)) {
+            has_first = true;
+            stmt->limit = parse_prefix(); // Parse just the number
+            // Optional: SKIP m (offset)
+            if (match(TK::SKIP)) {
+                stmt->offset = parse_prefix(); // Parse just the number
+            }
         }
 
         // SELECT list
@@ -579,9 +713,10 @@ public:
 
         // Check for AS alias
         if (this->match(TK::AS)) {
-            // Accept identifiers or keywords as aliases (SQL allows keywords as identifiers when used as aliases)
-            if (!this->check(TK::IDENTIFIER) && !this->check(TK::RANK) && !this->check(TK::SUM) &&
-                !this->check(TK::COUNT) && !this->check(TK::MAX) && !this->check(TK::MIN)) {
+            // Accept almost any token as an alias (SQL allows keywords as identifiers when used as aliases)
+            // The only tokens we reject are structural ones like parentheses, commas, operators
+            if (this->check(TK::LPAREN) || this->check(TK::RPAREN) || this->check(TK::COMMA) ||
+                this->check(TK::SEMICOLON) || this->check(TK::EOF_TOKEN)) {
                 this->error("Expected alias after AS");
             }
             auto alias_tok = this->advance();
@@ -593,13 +728,51 @@ public:
 
     /// Parse table reference (simplified for Phase C1)
     TableRef* parse_table_ref() {
+        // SQL Server temporary tables: #table or ##table
+        std::string_view prefix = "";
+        if (this->check(TK::HASH)) {
+            prefix = "#";
+            (void)this->advance();
+            // Check for ## (global temp table)
+            if (this->check(TK::HASH)) {
+                prefix = "##";
+                (void)this->advance();
+            }
+        }
+
         // Accept identifiers or keywords as table names (SQL allows reserved words as identifiers when quoted)
-        if (!this->check(TK::IDENTIFIER) && !this->check(TK::TABLE) && !this->check(TK::DUAL)) {
-            this->error("Expected table name");
+        // Also accept TEMP, TEMPORARY, SETTINGS, and other common keywords that might appear in table names
+        if (!this->check(TK::IDENTIFIER) && !this->check(TK::TABLE) && !this->check(TK::DUAL) &&
+            !this->check(TK::TEMP) && !this->check(TK::TEMPORARY) && !this->check(TK::LEVEL) &&
+            !this->check(TK::SETTINGS)) {
+            // For SQL Server temp tables with # prefix, be more permissive
+            if (prefix.empty()) {
+                this->error("Expected table name");
+            }
+            // With prefix, allow any token as table name (will consume it anyway)
         }
 
         auto first = this->advance();
         std::string_view first_name = first.text;
+
+        // Handle SQL Server temp tables where name might be tokenized as multiple tokens
+        // If the next token is an identifier starting with underscore, concatenate
+        // (e.g., "temp" + "_data" = "temp_data", "global" + "_temp" = "global_temp")
+        if (!prefix.empty() && this->check(TK::IDENTIFIER)) {
+            auto next_tok = this->current();
+            if (!next_tok.text.empty() && next_tok.text[0] == '_') {
+                // Concatenate: first_name + _xxx = first_name_xxx
+                std::string combined = std::string(first_name) + std::string(next_tok.text);
+                first_name = this->arena().copy_source(combined);
+                (void)this->advance(); // Consume the _xxx part
+            }
+        }
+
+        // Apply prefix if present
+        if (!prefix.empty()) {
+            std::string prefixed = std::string(prefix) + std::string(first_name);
+            first_name = this->arena().copy_source(prefixed);
+        }
 
         // Check for database.schema.table or database.table
         if (this->match(TK::DOT)) {
@@ -813,8 +986,19 @@ public:
         expect(TK::WITH);
         auto with_clause = this->template create_node<WithClause>();
 
+        // Check for RECURSIVE keyword
+        if (check(TK::RECURSIVE)) {
+            (void)advance();
+            with_clause->recursive = true;
+        }
+
         // Parse CTEs
         do {
+            // Check for RECURSIVE before individual CTE (non-standard but some dialects support)
+            if (match(TK::RECURSIVE)) {
+                with_clause->recursive = true;
+            }
+
             // CTE name
             if (!check(TK::IDENTIFIER)) {
                 error("Expected CTE name");
@@ -850,10 +1034,20 @@ public:
     SQLNode* parse_from_clause() {
         auto table = parse_table_or_subquery();
 
-        // JOIN?
-        while (check(TK::JOIN) || check(TK::INNER) || check(TK::LEFT) ||
-               check(TK::RIGHT) || check(TK::FULL) || check(TK::CROSS)) {
+        // Handle comma-separated tables (old-style implicit CROSS JOIN) and explicit JOINs
+        while (check(TK::COMMA) || check(TK::JOIN) || check(TK::INNER) || check(TK::LEFT) ||
+               check(TK::RIGHT) || check(TK::FULL) || check(TK::CROSS) || check(TK::OUTER)) {
+
+            // Comma-separated tables are implicit CROSS JOINs
+            if (match(TK::COMMA)) {
+                auto right_table = parse_table_or_subquery();
+                table = this->template create_node<JoinClause>(JoinType::CROSS, table, right_table, nullptr);
+                continue;
+            }
+
+            // Explicit JOIN syntax
             JoinType join_type = JoinType::INNER;
+            bool saw_apply = false;
 
             if (match(TK::INNER)) {
                 expect(TK::JOIN);
@@ -871,12 +1065,32 @@ public:
                 expect(TK::JOIN);
             } else if (match(TK::CROSS)) {
                 join_type = JoinType::CROSS;
-                expect(TK::JOIN);
+                // SQL Server: CROSS APPLY instead of CROSS JOIN
+                if (match(TK::APPLY)) {
+                    saw_apply = true;
+                } else {
+                    expect(TK::JOIN);
+                }
+            } else if (match(TK::OUTER)) {
+                // SQL Server: OUTER APPLY (or standalone OUTER JOIN which is non-standard)
+                if (match(TK::APPLY)) {
+                    join_type = JoinType::LEFT;  // OUTER APPLY is like LEFT JOIN LATERAL
+                    saw_apply = true;
+                } else {
+                    // Standalone OUTER JOIN (treat as LEFT OUTER JOIN)
+                    join_type = JoinType::LEFT;
+                    expect(TK::JOIN);
+                }
             } else {
-                match(TK::JOIN);
+                (void)match(TK::JOIN);
             }
 
             auto right_table = parse_table_or_subquery();
+
+            // Wrap in LATERAL node if we saw APPLY keyword
+            if (saw_apply) {
+                right_table = this->template create_node<LateralJoin>(right_table);
+            }
 
             SQLNode* condition = nullptr;
             if (match(TK::ON)) {
@@ -891,11 +1105,11 @@ public:
 
     /// Parse table reference or subquery in FROM clause
     SQLNode* parse_table_or_subquery() {
-        // LATERAL join
-        if (check(TK::IDENTIFIER) && (current().text == "LATERAL" || current().text == "lateral")) {
-            (void)advance();
+        // LATERAL join (PostgreSQL, Oracle 12c+)
+        if (match(TK::LATERAL)) {
             SQLNode* lateral_expr = nullptr;
 
+            // LATERAL (SELECT ...) or LATERAL function_name(...) or LATERAL UNNEST(...)
             if (match(TK::LPAREN)) {
                 if (check(TK::SELECT) || check(TK::WITH)) {
                     lateral_expr = parse_select();
@@ -903,9 +1117,49 @@ public:
                     error("Expected SELECT after LATERAL (");
                 }
                 expect(TK::RPAREN);
+            } else if (check(TK::IDENTIFIER) || check(TK::UNNEST) || check(TK::GENERATE_SERIES)) {
+                // LATERAL function_call(...) including table-valued functions that are keywords
+                lateral_expr = parse_expression();
             }
 
-            return this->template create_node<LateralJoin>(lateral_expr);
+            // Optional alias
+            std::string_view alias = "";
+            if (match(TK::AS)) {
+                if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                    check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
+                    error("Expected alias after AS");
+                }
+                alias = advance().text;
+            } else if (check(TK::IDENTIFIER)) {
+                // Check if this is actually an alias or a SQL keyword
+                std::string_view next_word = current().text;
+                if (next_word != "WHERE" && next_word != "ORDER" && next_word != "GROUP" &&
+                    next_word != "HAVING" && next_word != "LIMIT" && next_word != "UNION" &&
+                    next_word != "INTERSECT" && next_word != "EXCEPT" && next_word != "JOIN" &&
+                    next_word != "INNER" && next_word != "LEFT" && next_word != "RIGHT" &&
+                    next_word != "FULL" && next_word != "CROSS" && next_word != "LATERAL") {
+                    alias = advance().text;
+                }
+            }
+
+            // Handle column list after alias: alias(col1, col2, ...)
+            if (match(TK::LPAREN)) {
+                // Skip the column list for now
+                int depth = 1;
+                while (depth > 0 && !check(TK::EOF_TOKEN)) {
+                    if (match(TK::LPAREN)) depth++;
+                    else if (match(TK::RPAREN)) depth--;
+                    else (void)advance();
+                }
+            }
+
+            auto lateral_node = this->template create_node<LateralJoin>(lateral_expr);
+            if (!alias.empty()) {
+                // Wrap in a table-like structure with alias
+                // For now, we'll just create a LateralJoin node
+                // The generator will need to handle the alias
+            }
+            return lateral_node;
         }
 
         // Subquery: (SELECT ...) AS alias
@@ -917,7 +1171,8 @@ public:
                 // Check for optional alias after subquery
                 std::string_view alias;
                 if (match(TK::AS)) {
-                    if (!check(TK::IDENTIFIER)) {
+                    if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                        check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
                         error("Expected alias after AS");
                     }
                     alias = advance().text;
@@ -931,12 +1186,58 @@ public:
             error("Expected SELECT subquery after '('");
         }
 
+        // Check if this is a table-valued function: function_name(...)
+        // by looking ahead for IDENTIFIER( or function_keyword(
+        // Many table-valued functions like generate_series, unnest are keywords
+        bool is_function_call = (pos_ + 1 < tokens_.size() && tokens_[pos_ + 1].type == TK::LPAREN) &&
+                                (check(TK::IDENTIFIER) || check(TK::GENERATE_SERIES) || check(TK::UNNEST));
+
+        if (is_function_call) {
+            // This is a function call in FROM clause (table-valued function)
+            auto func_expr = parse_expression();  // This will parse the function call
+
+            // Optional alias (but note: aliases with column lists like "t(x, y)" need special handling)
+            std::string_view alias = "";
+            if (match(TK::AS)) {
+                if (check(TK::IDENTIFIER)) {
+                    alias = advance().text;
+                }
+            } else if (check(TK::IDENTIFIER)) {
+                // Alias without AS
+                std::string_view next_word = current().text;
+                // Make sure this isn't a keyword
+                if (next_word != "WHERE" && next_word != "ORDER" && next_word != "GROUP" &&
+                    next_word != "HAVING" && next_word != "LIMIT" && next_word != "UNION" &&
+                    next_word != "INTERSECT" && next_word != "EXCEPT" && next_word != "JOIN" &&
+                    next_word != "INNER" && next_word != "LEFT" && next_word != "RIGHT" &&
+                    next_word != "FULL" && next_word != "CROSS") {
+                    alias = advance().text;
+
+                    // Check for column list after alias: alias(col1, col2, ...)
+                    if (match(TK::LPAREN)) {
+                        // Skip the column list for now
+                        int depth = 1;
+                        while (depth > 0 && !check(TK::EOF_TOKEN)) {
+                            if (match(TK::LPAREN)) depth++;
+                            else if (match(TK::RPAREN)) depth--;
+                            else (void)advance();
+                        }
+                    }
+                }
+            }
+
+            // Return the function call directly - it's a table-valued function
+            // The generator will handle outputting it correctly
+            return func_expr;
+        }
+
         // Regular table reference
         auto table = parse_table_ref();
 
         // Check for optional alias: table_name AS alias or table_name alias
         if (match(TK::AS)) {
-            if (!check(TK::IDENTIFIER)) {
+            if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
                 error("Expected alias after AS");
             }
             table->alias = advance().text;
@@ -1154,7 +1455,9 @@ public:
 
                     // Handle qualified column name: table.column (e.g., t.value)
                     if (match(TK::DOT)) {
-                        if (!check(TK::IDENTIFIER)) {
+                        // Allow keywords as column names
+                        if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                            check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
                             error("Expected column name after '.'");
                         }
                         col = advance().text;  // Use the column name, discard table qualifier
@@ -1220,8 +1523,7 @@ public:
             (void)advance();
             is_global = true;
         }
-        if (check(TK::IDENTIFIER) && (current().text == "TEMPORARY" || current().text == "temporary" ||
-                                      current().text == "TEMP" || current().text == "temp")) {
+        if (check(TK::TEMPORARY) || check(TK::TEMP)) {
             (void)advance();
             is_temporary = true;
         }
@@ -1251,9 +1553,12 @@ public:
     }
 
     /// Parse CREATE TABLE (simplified for now)
-    CreateTableStmt* parse_create_table() {
+    CreateTableStmt* parse_create_table(bool is_temporary = false, bool is_global = false) {
         auto stmt = this->template create_node<CreateTableStmt>();
         expect(TK::TABLE);
+
+        // Set temporary flag
+        stmt->temporary = is_temporary;
 
         // IF NOT EXISTS?
         if (match(TK::IF)) {
@@ -1262,11 +1567,19 @@ public:
             stmt->if_not_exists = true;
         }
 
-        // Table name - must be present
-        if (!check(TK::IDENTIFIER) && !check(TK::TABLE) && !check(TK::DUAL)) {
+        // Table name - must be present (including SQL Server #temp syntax)
+        // Be permissive for SQL Server temp tables with # or ## prefix
+        bool has_hash_prefix = check(TK::HASH);
+        if (!has_hash_prefix && !check(TK::IDENTIFIER) && !check(TK::TABLE) && !check(TK::DUAL) && !check(TK::TEMP)) {
             error("Expected table name after CREATE TABLE");
         }
         stmt->table = parse_table_ref();
+
+        // Check for AS SELECT (CREATE TABLE ... AS SELECT ...)
+        if (match(TK::AS)) {
+            stmt->as_select = static_cast<SelectStmt*>(parse_select());
+            return stmt;
+        }
 
         // Column definitions: (col1 type, col2 type, ...)
         expect(TK::LPAREN);
@@ -1422,9 +1735,12 @@ public:
         expect(TK::TABLE);
 
         // IF EXISTS?
-        if (match(TK::IF)) {
-            expect(TK::EXISTS);
-            stmt->if_exists = true;
+        if (match(TK::IF) || match(TK::IF_KW)) {
+            if (match(TK::EXISTS) || match(TK::EXISTS_KW)) {
+                stmt->if_exists = true;
+            } else {
+                error("Expected EXISTS after IF");
+            }
         }
 
         stmt->table = parse_table_ref();
@@ -3326,22 +3642,41 @@ private:
     // Lifetime-Safe Tokenization Helper
     // ========================================================================
 
+    /// Convert SQLDialect to TokenizerConfig
+    static libsqlglot::TokenizerConfig dialect_to_tokenizer_config(SQLDialect dialect) noexcept {
+        switch (dialect) {
+            case SQLDialect::SQLServer:
+                return libsqlglot::TokenizerConfig::sqlserver();
+            case SQLDialect::MySQL:
+                return libsqlglot::TokenizerConfig::mysql();
+            case SQLDialect::PostgreSQL:
+                return libsqlglot::TokenizerConfig::postgresql();
+            case SQLDialect::Snowflake:
+                return libsqlglot::TokenizerConfig::snowflake();
+            default:
+                // Most dialects support # comments (MySQL-style)
+                // SQL Server is the exception
+                return libsqlglot::TokenizerConfig::default_config();
+        }
+    }
+
     struct TokenizeResult {
         std::vector<TokenType> tokens;
         std::string_view source;
     };
 
     /// Delegating constructor that receives pre-tokenized result
-    SQLParser(libglot::Arena& arena, TokenizeResult&& result)
+    SQLParser(libglot::Arena& arena, TokenizeResult&& result, SQLDialect dialect)
         : source_(result.source)
+        , dialect_(dialect)
         , Base(arena, std::move(result.tokens))
     {}
 
     /// Copy source into arena and tokenize the arena-owned copy
     /// This ensures all token string_views point to arena memory
-    static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source) {
+    static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source, SQLDialect dialect) {
         auto arena_source = arena.copy_source(source);
-        auto tokens = tokenize(arena_source);
+        auto tokens = tokenize(arena_source, dialect);
         return {std::move(tokens), arena_source};
     }
 
@@ -3349,9 +3684,13 @@ private:
     // Tokenization (uses libsqlglot's existing tokenizer)
     // ========================================================================
 
-    static std::vector<TokenType> tokenize(std::string_view source) {
+    static std::vector<TokenType> tokenize(std::string_view source, SQLDialect dialect) {
         libsqlglot::LocalStringPool pool;
-        libsqlglot::Tokenizer tokenizer(source, &pool);
+
+        // Convert SQLDialect to TokenizerConfig
+        libsqlglot::TokenizerConfig config = dialect_to_tokenizer_config(dialect);
+
+        libsqlglot::Tokenizer tokenizer(source, &pool, config);
         auto tokens = tokenizer.tokenize_all();
 
         // Convert libsqlglot::Token to libglot::Token<TokenKind>
@@ -3376,6 +3715,7 @@ private:
     }
 
     std::string_view source_;
+    SQLDialect dialect_;
 };
 
 } // namespace libglot::sql

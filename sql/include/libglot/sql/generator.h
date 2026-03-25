@@ -600,6 +600,10 @@ private:
         // WITH clause (CTEs)
         if (stmt->with && !stmt->with->ctes.empty()) {
             this->write("WITH");
+            if (stmt->with->recursive) {
+                this->space();
+                this->write("RECURSIVE");
+            }
             this->space();
             this->write_list(stmt->with->ctes, [this](CTE* cte) {
                 visit(cte);
@@ -613,6 +617,28 @@ private:
         if (stmt->distinct) {
             this->space();
             this->write("DISTINCT");
+        }
+
+        // TOP n (SQL Server) - output before column list
+        if (stmt->limit && this->dialect() == SQLDialect::SQLServer) {
+            this->space();
+            this->write("TOP");
+            this->space();
+            visit(stmt->limit);
+        }
+
+        // FIRST n [SKIP m] (Firebird, Informix) - output before column list
+        if (stmt->limit && (this->dialect() == SQLDialect::Firebird || this->dialect() == SQLDialect::Informix)) {
+            this->space();
+            this->write("FIRST");
+            this->space();
+            visit(stmt->limit);
+            if (stmt->offset) {
+                this->space();
+                this->write("SKIP");
+                this->space();
+                visit(stmt->offset);
+            }
         }
 
         this->space();
@@ -666,16 +692,17 @@ private:
             });
         }
 
-        // LIMIT clause
-        if (stmt->limit) {
+        // LIMIT clause (but skip for SQL Server, Firebird, Informix since we already output TOP/FIRST)
+        if (stmt->limit && this->dialect() != SQLDialect::SQLServer &&
+            this->dialect() != SQLDialect::Firebird && this->dialect() != SQLDialect::Informix) {
             this->space();
             this->write("LIMIT");
             this->space();
             visit(stmt->limit);
         }
 
-        // OFFSET clause
-        if (stmt->offset) {
+        // OFFSET clause (but skip for Firebird, Informix since we already output SKIP)
+        if (stmt->offset && this->dialect() != SQLDialect::Firebird && this->dialect() != SQLDialect::Informix) {
             this->space();
             this->write("OFFSET");
             this->space();
@@ -933,37 +960,56 @@ private:
         visit(join->left_table);
         this->space();
 
-        // Join type
-        switch (join->join_type) {
-            case JoinType::INNER:
-                this->write("INNER JOIN");
-                break;
-            case JoinType::LEFT:
-                this->write("LEFT JOIN");
-                break;
-            case JoinType::RIGHT:
-                this->write("RIGHT JOIN");
-                break;
-            case JoinType::FULL:
-                this->write("FULL JOIN");
-                break;
-            case JoinType::CROSS:
-                this->write("CROSS JOIN");
-                break;
-            default:
-                this->write("JOIN");
-                break;
-        }
+        // Check if right table is LATERAL - use APPLY syntax for SQL Server
+        bool is_lateral = (join->right_table && join->right_table->type == SQLNodeKind::LATERAL_JOIN);
+        const auto dialect = this->dialect();
 
-        this->space();
-        visit(join->right_table);
+        if (is_lateral && dialect == SQLDialect::SQLServer) {
+            // SQL Server uses CROSS APPLY or OUTER APPLY instead of LATERAL
+            if (join->join_type == JoinType::CROSS || join->join_type == JoinType::INNER) {
+                this->write("CROSS APPLY");
+            } else if (join->join_type == JoinType::LEFT) {
+                this->write("OUTER APPLY");
+            } else {
+                this->write("CROSS APPLY");  // Fallback
+            }
+            this->space();
+            // For APPLY, don't output LATERAL keyword, just the subquery
+            auto* lateral = static_cast<LateralJoin*>(join->right_table);
+            visit(lateral->table_expr);
+        } else {
+            // Standard JOIN syntax
+            switch (join->join_type) {
+                case JoinType::INNER:
+                    this->write("INNER JOIN");
+                    break;
+                case JoinType::LEFT:
+                    this->write("LEFT JOIN");
+                    break;
+                case JoinType::RIGHT:
+                    this->write("RIGHT JOIN");
+                    break;
+                case JoinType::FULL:
+                    this->write("FULL JOIN");
+                    break;
+                case JoinType::CROSS:
+                    this->write("CROSS JOIN");
+                    break;
+                default:
+                    this->write("JOIN");
+                    break;
+            }
 
-        // ON/USING condition
-        if (join->condition) {
             this->space();
-            this->write("ON");
-            this->space();
-            visit(join->condition);
+            visit(join->right_table);
+
+            // ON/USING condition
+            if (join->condition) {
+                this->space();
+                this->write("ON");
+                this->space();
+                visit(join->condition);
+            }
         }
     }
 
@@ -1181,10 +1227,18 @@ private:
         this->space();
         visit(stmt->table);
 
-        // For now, emit a simplified placeholder
-        // Full column definition support would go here
-        this->space();
-        this->write("(...)");
+        // AS SELECT clause?
+        if (stmt->as_select) {
+            this->space();
+            this->write("AS");
+            this->space();
+            visit(stmt->as_select);
+        } else {
+            // For now, emit a simplified placeholder
+            // Full column definition support would go here
+            this->space();
+            this->write("(...)");
+        }
     }
 
     void visit_create_view_stmt(CreateViewStmt* stmt) {
@@ -1344,6 +1398,19 @@ private:
             case TK::BETWEEN: return "BETWEEN";
             case TK::CONCAT: return "||";
             case TK::IS: return "IS";
+
+            // JSON operators (PostgreSQL)
+            case TK::ARROW: return "->";
+            case TK::LONG_ARROW: return "->>";
+            case TK::HASH_ARROW: return "#>";
+            case TK::HASH_LONG_ARROW: return "#>>";
+            case TK::AT_GT: return "@>";
+            case TK::LT_AT: return "<@";
+            case TK::QUESTION: return "?";
+
+            // Snowflake JSON access operator
+            case TK::COLON: return ":";
+
             default: return "?";
         }
     }
