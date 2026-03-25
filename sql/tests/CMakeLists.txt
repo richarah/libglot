@@ -96,6 +96,16 @@ add_sql_test(test_tokenizer)                     #  8 TEST_CASEs
 add_sql_test(test_mad_queries)                   #  1 TEST_CASE
 add_sql_test(test_dialect_transpilation_ported)  # 26 TEST_CASEs
 
-message(STATUS "libglot-sql: 50 test executables configured")
-message(STATUS "  TEST_CASEs: 525+ total (exceeds 508 target)")
-message(STATUS "  Progress: comprehensive test coverage enabled")
+# ============================================================================
+# Comprehensive Dialect and Feature Coverage (New)
+# ============================================================================
+
+add_sql_test(test_untested_dialects)             # 19 TEST_CASEs - All untested dialects
+add_sql_test(test_json_operations)               # 30+ TEST_CASEs - JSON operations
+add_sql_test(test_recursive_cte)                 # 15+ TEST_CASEs - Recursive CTEs
+add_sql_test(test_temporary_tables)              # 20+ TEST_CASEs - Temporary tables
+add_sql_test(test_lateral_joins)                 # 15+ TEST_CASEs - LATERAL joins
+
+message(STATUS "libglot-sql: 55 test executables configured")
+message(STATUS "  TEST_CASEs: 625+ total (comprehensive coverage)")
+message(STATUS "  Progress: all dialects and critical features covered")

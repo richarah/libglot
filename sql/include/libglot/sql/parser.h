@@ -1213,8 +1213,21 @@ public:
             or_replace = true;
         }
 
+        // TEMPORARY / TEMP / GLOBAL TEMPORARY?
+        bool is_temporary = false;
+        bool is_global = false;
+        if (check(TK::IDENTIFIER) && (current().text == "GLOBAL" || current().text == "global")) {
+            (void)advance();
+            is_global = true;
+        }
+        if (check(TK::IDENTIFIER) && (current().text == "TEMPORARY" || current().text == "temporary" ||
+                                      current().text == "TEMP" || current().text == "temp")) {
+            (void)advance();
+            is_temporary = true;
+        }
+
         if (check(TK::TABLE)) {
-            return parse_create_table();
+            return parse_create_table(is_temporary, is_global);
         } else if (check(TK::VIEW)) {
             return parse_create_view(or_replace);
         } else if (check(TK::INDEX)) {
