@@ -125,7 +125,7 @@ public:
         return std::string(mime_token_type_name(type));
     }
 
-private:
+protected:
     // ========================================================================
     // Lifetime-Safe Tokenization Helper
     // ========================================================================

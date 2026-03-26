@@ -95,6 +95,7 @@ add_sql_test(test_optimizer)                     #  7 TEST_CASEs
 add_sql_test(test_tokenizer)                     #  8 TEST_CASEs
 add_sql_test(test_mad_queries)                   #  1 TEST_CASE
 add_sql_test(test_dialect_transpilation_ported)  # 26 TEST_CASEs
+add_sql_test(test_date_trunc)                    #  6 TEST_CASEs - DATE_TRUNC function
 
 # ============================================================================
 # Comprehensive Dialect and Feature Coverage (New)

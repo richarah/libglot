@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../../core/include/libglot/ast/location.h"
+#include "../../../../core/include/libglot/ast/node.h"
 #include <string_view>
 #include <vector>
 #include <cstdint>

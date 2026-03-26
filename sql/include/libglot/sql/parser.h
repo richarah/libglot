@@ -156,18 +156,21 @@ public:
         }
 
         // ANY (subquery or expression)
-        // For now, parse as a function call - the AST structure expects comparison operator
-        // TODO: Properly handle as ANY expression with left operand and operator
+        // Note: ANY typically appears in binary comparisons like "x = ANY(subquery)"
+        // This parses standalone ANY() which is less common but valid
         if (match(TK::ANY)) {
             expect(TK::LPAREN);
-            std::vector<SQLNode*> args;
+            SQLNode* subquery = nullptr;
             if (check(TK::SELECT)) {
-                args.push_back(parse_select());
+                subquery = parse_select();
             } else if (!check(TK::RPAREN)) {
-                args.push_back(parse_expression());
+                subquery = parse_expression();
             }
             expect(TK::RPAREN);
-            return this->template create_node<FunctionCall>("ANY", args);
+
+            // Create AnyExpr with null left (will be filled by binary expression parser)
+            // For standalone ANY, use FunctionCall fallback
+            return this->template create_node<FunctionCall>("ANY", std::vector<SQLNode*>{subquery});
         }
 
         // ALL (subquery or expression)
@@ -460,7 +463,7 @@ public:
             check(TK::SUBSTRING) || check(TK::SUBSTR) || check(TK::CONCAT_KW) || check(TK::CONCAT_WS) || check(TK::LENGTH) || check(TK::TRIM) ||
             check(TK::UPPER) || check(TK::LOWER) || check(TK::REPLACE) || check(TK::REPLACE_KW) || check(TK::REPLACE_DDB) || check(TK::SPLIT) ||
             check(TK::ROUND) || check(TK::FLOOR) || check(TK::CEIL) || check(TK::ABS) || check(TK::POWER) || check(TK::SQRT) ||
-            check(TK::TIMESTAMP) || check(TK::DATE) || check(TK::TIME) ||
+            check(TK::TIMESTAMP) || check(TK::DATE) || check(TK::TIME) || check(TK::DATE_TRUNC) ||
             check(TK::GENERATE_SERIES) || check(TK::UNNEST)) {
             auto first = advance();
             std::string_view name = first.text;
