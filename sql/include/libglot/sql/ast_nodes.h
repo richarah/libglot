@@ -188,6 +188,11 @@ enum class SQLNodeKind : uint16_t {
     // ========================================================================
     PIVOT_CLAUSE,            // PIVOT
     UNPIVOT_CLAUSE,          // UNPIVOT
+    GROUPING_SETS,           // GROUPING SETS
+    ROLLUP_CLAUSE,           // ROLLUP
+    CUBE_CLAUSE,             // CUBE
+    CONNECT_BY_CLAUSE,       // Oracle CONNECT BY (hierarchical queries)
+    START_WITH_CLAUSE,       // Oracle START WITH
 
     // ========================================================================
     // BigQuery ML
@@ -1268,6 +1273,52 @@ struct UnpivotClause : SQLNode {
 
     UnpivotClause()
         : SQLNode(SQLNodeKind::UNPIVOT_CLAUSE), table_expr(nullptr) {}
+};
+
+/// ============================================================================
+/// Grouping Extensions (SQL:1999 OLAP)
+/// ============================================================================
+
+struct GroupingSets : SQLNode {
+    std::vector<std::vector<SQLNode*>> sets;  // List of grouping sets
+
+    GroupingSets()
+        : SQLNode(SQLNodeKind::GROUPING_SETS) {}
+};
+
+struct RollupClause : SQLNode {
+    std::vector<SQLNode*> expressions;  // Columns for ROLLUP
+
+    RollupClause()
+        : SQLNode(SQLNodeKind::ROLLUP_CLAUSE) {}
+};
+
+struct CubeClause : SQLNode {
+    std::vector<SQLNode*> expressions;  // Columns for CUBE
+
+    CubeClause()
+        : SQLNode(SQLNodeKind::CUBE_CLAUSE) {}
+};
+
+/// ============================================================================
+/// Oracle Hierarchical Queries
+/// ============================================================================
+
+struct ConnectByClause : SQLNode {
+    SQLNode* condition;
+    bool nocycle;  // NOCYCLE option
+    bool prior_left;  // True if PRIOR on left side
+
+    ConnectByClause()
+        : SQLNode(SQLNodeKind::CONNECT_BY_CLAUSE), condition(nullptr),
+          nocycle(false), prior_left(false) {}
+};
+
+struct StartWithClause : SQLNode {
+    SQLNode* condition;
+
+    StartWithClause()
+        : SQLNode(SQLNodeKind::START_WITH_CLAUSE), condition(nullptr) {}
 };
 
 /// ============================================================================
