@@ -2293,30 +2293,25 @@ private:
             visit(s);
         }
 
-        // Handle ELSEIF clauses (stored as nested IfStmt in else_stmts)
-        // and ELSE clause (regular statements)
-        bool wrote_else = false;
-        for (auto* s : stmt->else_stmts) {
-            if (s->type == SQLNodeKind::IF_STMT) {
-                // This is an ELSEIF clause
-                auto* elsif = static_cast<IfStmt*>(s);
+        // Handle ELSEIF clauses using the proper elseif_branches field
+        for (const auto& elsif_branch : stmt->elseif_branches) {
+            this->space();
+            this->write("ELSEIF");
+            this->space();
+            if (elsif_branch.first) visit(elsif_branch.first);  // condition
+            this->space();
+            this->write("THEN");
+            for (auto* s : elsif_branch.second) {  // statements
                 this->space();
-                this->write("ELSEIF");
-                this->space();
-                if (elsif->condition) visit(elsif->condition);
-                this->space();
-                this->write("THEN");
-                for (auto* then_stmt : elsif->then_stmts) {
-                    this->space();
-                    visit(then_stmt);
-                }
-            } else {
-                // Regular ELSE clause - write ELSE keyword once
-                if (!wrote_else) {
-                    this->space();
-                    this->write("ELSE");
-                    wrote_else = true;
-                }
+                visit(s);
+            }
+        }
+
+        // Handle ELSE clause
+        if (!stmt->else_stmts.empty()) {
+            this->space();
+            this->write("ELSE");
+            for (auto* s : stmt->else_stmts) {
                 this->space();
                 visit(s);
             }

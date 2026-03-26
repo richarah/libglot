@@ -1123,6 +1123,7 @@ struct ReturnStmt : SQLNode {
 struct IfStmt : SQLNode {
     SQLNode* condition;
     std::vector<SQLNode*> then_stmts;
+    std::vector<std::pair<SQLNode*, std::vector<SQLNode*>>> elseif_branches;  // (condition, statements)
     std::vector<SQLNode*> else_stmts;
 
     IfStmt()

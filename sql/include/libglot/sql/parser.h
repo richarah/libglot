@@ -3153,22 +3153,22 @@ public:
             stmt->then_stmts.push_back(parse_top_level());
         }
 
-        // ELSIF clauses - treat as nested IF in else_stmts (supports multiple)
+        // ELSIF clauses - use elseif_branches field (supports multiple)
         while (check(TK::ELSEIF)) {
             (void)advance();
-            auto elsif_stmt = this->template create_node<IfStmt>();
-            elsif_stmt->condition = parse_expression();
+            SQLNode* elsif_condition = parse_expression();
             expect(TK::THEN);
 
+            std::vector<SQLNode*> elsif_stmts;
             while (!check(TK::END) && !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) && !is_eof()) {
                 // Skip semicolons
                 if (match(TK::SEMICOLON)) {
                     continue;
                 }
-                elsif_stmt->then_stmts.push_back(parse_top_level());
+                elsif_stmts.push_back(parse_top_level());
             }
 
-            stmt->else_stmts.push_back(elsif_stmt);
+            stmt->elseif_branches.emplace_back(elsif_condition, elsif_stmts);
         }
 
         // ELSE clause
