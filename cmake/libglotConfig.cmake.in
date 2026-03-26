@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/libglot-core-targets.cmake")
+
+if(@LIBGLOT_BUILD_SQL@)
+    include("${CMAKE_CURRENT_LIST_DIR}/libglot-sql-targets.cmake")
+endif()
+
+if(@LIBGLOT_BUILD_MIME@)
+    include("${CMAKE_CURRENT_LIST_DIR}/libglot-mime-targets.cmake")
+endif()
+
+check_required_components(libglot)

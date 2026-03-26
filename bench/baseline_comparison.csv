@@ -1,0 +1,9 @@
+query_id,query_length,libsqlglot_median_ns,shim_parse_median_ns,shim_roundtrip_median_ns,note
+simple_select_1,8,N/A,1216,1267,libsqlglot comparison deferred (C++26 reflection requirement)
+simple_select_col,21,N/A,1312,1504,libsqlglot comparison deferred (C++26 reflection requirement)
+simple_select_multi,35,N/A,1712,2011,libsqlglot comparison deferred (C++26 reflection requirement)
+representative,62,N/A,1834,2213,libsqlglot comparison deferred (C++26 reflection requirement)
+medium,55,N/A,2049,2427,libsqlglot comparison deferred (C++26 reflection requirement)
+mysql_transpile,62,N/A,N/A,349,Transpile-only benchmark (parse excluded)
+postgresql_transpile,62,N/A,N/A,357,Transpile-only benchmark (parse excluded)
+arena_allocation,N/A,N/A,N/A,1136,Infrastructure benchmark (20 node allocations)

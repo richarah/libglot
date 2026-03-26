@@ -4,7 +4,7 @@ Generic parser and transpiler framework using CRTP, with SQL parser implementati
 
 ## What it does
 
-Parses SQL across 26 dialects (PostgreSQL, MySQL, SQL Server, BigQuery, Snowflake, Oracle, DuckDB, SQLite, and others) into a common AST. Generates SQL back out in any supported dialect. Built on a generic parser framework that can be extended to other languages.
+Parses SQL across 45 dialects (PostgreSQL, MySQL, SQL Server, BigQuery, Snowflake, Oracle, DuckDB, SQLite, Redshift, Athena, Presto, Trino, ClickHouse, Databricks, Hive, Spark, and 29 others) into a common AST. Generates SQL back out in any supported dialect. Built on a generic parser framework that can be extended to other languages.
 
 SQL parser supports SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, MERGE, and procedural SQL (IF/WHILE/FOR/procedures/functions/cursors/exceptions). 100 AST node types. JSON operators for PostgreSQL and Snowflake. Dialect-specific transformations (LIMIT→TOP for SQL Server, ILIKE→LOWER+LIKE for MySQL).
 
