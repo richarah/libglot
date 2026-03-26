@@ -492,8 +492,10 @@ TEST_CASE("Transpile: ILIKE polyfill (MySQL)", "[transpilation][ilike]") {
     SQLGenerator gen(SQLDialect::MySQL);
     std::string output = gen.generate(stmt);
 
-    // TODO: Implement ILIKE→LOWER+LIKE polyfill for MySQL
+    // ILIKE→LOWER+LIKE polyfill implemented for MySQL
     REQUIRE(!output.empty());
     REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("users") != std::string::npos);
+    REQUIRE(output.find("LOWER") != std::string::npos);  // Should contain LOWER()
+    REQUIRE(output.find("LIKE") != std::string::npos);   // Should use LIKE not ILIKE
+    REQUIRE(output.find("ILIKE") == std::string::npos);  // Should NOT contain ILIKE
 }

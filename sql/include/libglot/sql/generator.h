@@ -556,11 +556,27 @@ private:
     }
 
     void visit_binary_op(BinaryOp* op) {
-        visit(op->left);
-        this->space();
-        this->write(operator_string(op->op));
-        this->space();
-        visit(op->right);
+        // ILIKE polyfill for MySQL: transform ILIKE to LOWER(col) LIKE LOWER(pattern)
+        if (op->op == TK::ILIKE && this->dialect() == SQLDialect::MySQL) {
+            this->write("LOWER");
+            this->write('(');
+            visit(op->left);
+            this->write(')');
+            this->space();
+            this->write("LIKE");
+            this->space();
+            this->write("LOWER");
+            this->write('(');
+            visit(op->right);
+            this->write(')');
+        } else {
+            // Standard binary operator
+            visit(op->left);
+            this->space();
+            this->write(operator_string(op->op));
+            this->space();
+            visit(op->right);
+        }
     }
 
     void visit_alias(Alias* alias) {
