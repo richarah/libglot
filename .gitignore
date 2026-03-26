@@ -1,0 +1,53 @@
+# Build directories
+build/
+build-release/
+Testing/
+cmake-build-*/
+out/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!CMakePresets.json
+!cmake/
+
+# Dependencies
+_deps/
+vcpkg_installed/
+
+# Backup and temporary files
+*.backup
+*.bak
+*.old
+*.tmp
+*.log
+*~
+.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.vs/
+
+# Test artifacts
+test_*_bin
+*_debug.cpp
+debug_*.cpp
+
+# Scripts (keeping source scripts, ignoring generated ones)
+*.sh
+
+# Text verification files
+*.txt
+!CMakeLists.txt
