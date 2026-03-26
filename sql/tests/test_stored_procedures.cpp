@@ -200,6 +200,7 @@ TEST_CASE("CALL - Procedure call with function call argument", "[call][function]
     // Test generator
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string sql = gen.generate(expr);
+    INFO("Generated SQL: " << sql);
     REQUIRE(sql.find("CALL log_event") != std::string::npos);
     REQUIRE(sql.find("NOW") != std::string::npos);
     REQUIRE(sql.find("CONCAT") != std::string::npos);

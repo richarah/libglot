@@ -69,7 +69,7 @@ TEST_CASE("Temporary tables - SQL Server", "[temp][sqlserver]") {
     SECTION("Local temporary table with # prefix") {
         std::string sql = "CREATE TABLE #temp_data (id INT, value VARCHAR(100))";
         libglot::Arena arena;
-        SQLParser parser(arena, sql);
+        SQLParser parser(arena, sql, SQLDialect::SQLServer);
         auto ast = parser.parse_top_level();
         REQUIRE(ast != nullptr);
     }
@@ -77,7 +77,7 @@ TEST_CASE("Temporary tables - SQL Server", "[temp][sqlserver]") {
     SECTION("Global temporary table with ## prefix") {
         std::string sql = "CREATE TABLE ##global_temp (session_id INT, data TEXT)";
         libglot::Arena arena;
-        SQLParser parser(arena, sql);
+        SQLParser parser(arena, sql, SQLDialect::SQLServer);
         auto ast = parser.parse_top_level();
         REQUIRE(ast != nullptr);
     }
@@ -85,7 +85,7 @@ TEST_CASE("Temporary tables - SQL Server", "[temp][sqlserver]") {
     SECTION("SELECT INTO temporary table") {
         std::string sql = "SELECT * INTO #temp_users FROM users WHERE active = 1";
         libglot::Arena arena;
-        SQLParser parser(arena, sql);
+        SQLParser parser(arena, sql, SQLDialect::SQLServer);
         auto ast = parser.parse_top_level();
         REQUIRE(ast != nullptr);
     }

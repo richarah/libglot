@@ -91,6 +91,7 @@ TEST_CASE("LATERAL joins - Advanced patterns", "[lateral][advanced]") {
         )";
 
         std::string result = test_round_trip(sql);
+        INFO("Generated SQL: " << result);
         REQUIRE(result.find("LATERAL") != std::string::npos);
         REQUIRE(result.find("UNNEST") != std::string::npos);
     }

@@ -122,8 +122,10 @@ TEST_CASE("Recursive CTE - Advanced patterns", "[cte][recursive][advanced]") {
         )";
 
         std::string result = test_round_trip(sql);
+        INFO("Generated SQL: " << result);
         REQUIRE(result.find("WITH RECURSIVE") != std::string::npos);
-        REQUIRE(result.find("level + 1") != std::string::npos);
+        // Check for the arithmetic expression (may have quotes around identifiers)
+        REQUIRE((result.find("level + 1") != std::string::npos || result.find("\"level\" + 1") != std::string::npos));
     }
 
     SECTION("Graph traversal - finding all paths") {
@@ -142,6 +144,7 @@ TEST_CASE("Recursive CTE - Advanced patterns", "[cte][recursive][advanced]") {
         )";
 
         std::string result = test_round_trip(sql);
+        INFO("Generated SQL: " << result);
         REQUIRE(result.find("WITH RECURSIVE") != std::string::npos);
     }
 
@@ -158,6 +161,7 @@ TEST_CASE("Recursive CTE - Advanced patterns", "[cte][recursive][advanced]") {
         )";
 
         std::string result = test_round_trip(sql);
+        INFO("Generated SQL: " << result);
         REQUIRE(result.find("WITH RECURSIVE") != std::string::npos);
         REQUIRE(result.find("INTERVAL") != std::string::npos);
     }
@@ -205,8 +209,10 @@ TEST_CASE("Recursive CTE - Depth limiting", "[cte][recursive][limits]") {
         )";
 
         std::string result = test_round_trip(sql);
+        INFO("Generated SQL: " << result);
         REQUIRE(result.find("WITH RECURSIVE") != std::string::npos);
-        REQUIRE(result.find("depth < 10") != std::string::npos);
+        // Check for the comparison expression (may have quotes around identifiers)
+        REQUIRE((result.find("depth < 10") != std::string::npos || result.find("\"depth\" < 10") != std::string::npos));
     }
 }
 
