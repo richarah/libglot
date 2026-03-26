@@ -8,6 +8,8 @@
 #include <string>
 #include <cstdlib>
 #include <cmath>
+#include <algorithm>
+#include <vector>
 
 namespace libglot::sql {
 
@@ -46,9 +48,13 @@ public:
         node = simplify_expressions(node);
         node = eliminate_dead_code(node);
 
-        // Predicate pushdown only for SELECT statements
+        // SELECT-specific optimizations
         if (node->type == SQLNodeKind::SELECT_STMT) {
-            node = pushdown_predicates(static_cast<SelectStmt*>(node));
+            auto* stmt = static_cast<SelectStmt*>(node);
+            stmt = static_cast<SelectStmt*>(pushdown_predicates(stmt));
+            stmt = static_cast<SelectStmt*>(pushdown_projections(stmt));
+            stmt = static_cast<SelectStmt*>(reorder_joins(stmt));
+            return stmt;
         }
 
         return node;
@@ -153,6 +159,83 @@ public:
                 subquery->where = combined;
                 stmt->where = nullptr;
             }
+        }
+
+        return stmt;
+    }
+
+    // ========================================================================
+    // Projection Pushdown
+    // ========================================================================
+
+    /// Push projections (column selections) into subqueries to reduce data
+    SQLNode* pushdown_projections(SelectStmt* stmt) {
+        if (!stmt) return stmt;
+
+        // If we have a subquery in FROM and only selecting specific columns
+        if (stmt->from && stmt->from->type == SQLNodeKind::SELECT_STMT) {
+            auto* subquery = static_cast<SelectStmt*>(stmt->from);
+
+            // If subquery selects *, replace with only needed columns
+            if (subquery->columns.size() == 1 &&
+                subquery->columns[0]->type == SQLNodeKind::STAR) {
+
+                // Extract referenced column names from outer query
+                std::unordered_set<std::string_view> needed_cols;
+                for (auto* col : stmt->columns) {
+                    extract_column_references(col, needed_cols);
+                }
+                if (stmt->where) {
+                    extract_column_references(stmt->where, needed_cols);
+                }
+
+                // Replace subquery's SELECT * with specific columns
+                if (!needed_cols.empty()) {
+                    subquery->columns.clear();
+                    for (const auto& col_name : needed_cols) {
+                        subquery->columns.push_back(
+                            arena_.create<Column>(col_name)
+                        );
+                    }
+                }
+            }
+        }
+
+        return stmt;
+    }
+
+    // ========================================================================
+    // JOIN Reordering
+    // ========================================================================
+
+    /// Reorder JOINs for better performance (smallest tables first)
+    SQLNode* reorder_joins(SelectStmt* stmt) {
+        if (!stmt || stmt->joins.empty()) return stmt;
+
+        // Heuristic: Put smaller estimated result sets first
+        // This is a simple syntactic heuristic based on filter complexity
+
+        // For now, reorder based on WHERE clause presence (tables with
+        // filters are likely smaller, process them first)
+
+        // Sort joins by estimated selectivity (presence of WHERE predicates)
+        std::vector<std::pair<Join*, int>> join_scores;
+
+        for (auto* join : stmt->joins) {
+            int score = estimate_join_cost(join);
+            join_scores.push_back({join, score});
+        }
+
+        // Sort by score (lower is better)
+        std::sort(join_scores.begin(), join_scores.end(),
+                  [](const auto& a, const auto& b) {
+                      return a.second < b.second;
+                  });
+
+        // Rebuild joins vector in optimized order
+        stmt->joins.clear();
+        for (const auto& pair : join_scores) {
+            stmt->joins.push_back(pair.first);
         }
 
         return stmt;
@@ -347,6 +430,81 @@ private:
 
     Literal* create_boolean_literal(bool value) {
         return arena_.create<Literal>(value ? "TRUE" : "FALSE");
+    }
+
+    // ========================================================================
+    // Projection Pushdown Helpers
+    // ========================================================================
+
+    void extract_column_references(SQLNode* node, std::unordered_set<std::string_view>& cols) const {
+        if (!node) return;
+
+        if (node->type == SQLNodeKind::COLUMN) {
+            auto* col = static_cast<Column*>(node);
+            cols.insert(col->name);
+            return;
+        }
+
+        // Recursively extract from binary operations
+        if (node->type == SQLNodeKind::BINARY_OP) {
+            auto* binop = static_cast<BinaryOp*>(node);
+            extract_column_references(binop->left, cols);
+            extract_column_references(binop->right, cols);
+            return;
+        }
+
+        // Recursively extract from unary operations
+        if (node->type == SQLNodeKind::UNARY_OP) {
+            auto* unop = static_cast<UnaryOp*>(node);
+            extract_column_references(unop->operand, cols);
+            return;
+        }
+
+        // Extract from function call arguments
+        if (node->type == SQLNodeKind::FUNCTION_CALL) {
+            auto* func = static_cast<FunctionCall*>(node);
+            for (auto* arg : func->args) {
+                extract_column_references(arg, cols);
+            }
+            return;
+        }
+    }
+
+    // ========================================================================
+    // JOIN Reordering Helpers
+    // ========================================================================
+
+    int estimate_join_cost(Join* join) const {
+        if (!join) return 1000;  // High cost for null
+
+        // Simple heuristic: estimate based on join condition complexity
+        int cost = 100;  // Base cost
+
+        // Lower cost if there's an ON condition (indexed join likely)
+        if (join->on) {
+            cost -= 30;
+
+            // Even lower cost if ON condition is simple equality
+            if (is_simple_equality(join->on)) {
+                cost -= 20;
+            }
+        }
+
+        // INNER JOINs are typically faster than OUTER JOINs
+        if (join->type == TK::INNER || join->type == TK::JOIN) {
+            cost -= 10;
+        }
+
+        return cost;
+    }
+
+    bool is_simple_equality(SQLNode* node) const {
+        if (!node || node->type != SQLNodeKind::BINARY_OP) return false;
+
+        auto* binop = static_cast<BinaryOp*>(node);
+        return binop->op == TK::EQ &&
+               binop->left->type == SQLNodeKind::COLUMN &&
+               binop->right->type == SQLNodeKind::COLUMN;
     }
 };
 
