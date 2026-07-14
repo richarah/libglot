@@ -120,8 +120,8 @@ public:
         return this->template create_node<Header>(field_tok.text, value);
     }
 
-    /// Override token_name for better error messages
-    [[nodiscard]] std::string token_name(TK type) const override {
+    /// Shadow token_name for better error messages (CRTP customization point)
+    [[nodiscard]] std::string token_name(TK type) const {
         return std::string(mime_token_type_name(type));
     }
 

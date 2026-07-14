@@ -3635,8 +3635,8 @@ public:
         return stmt;
     }
 
-    /// Override token_name for better error messages
-    [[nodiscard]] std::string token_name(TK type) const override {
+    /// Shadow token_name for better error messages (CRTP customization point)
+    [[nodiscard]] std::string token_name(TK type) const {
         return std::string(libglot::sql::lex::token_type_name(type));
     }
 

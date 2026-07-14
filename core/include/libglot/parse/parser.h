@@ -1,7 +1,7 @@
 #pragma once
 
 #include "grammar.h"
-#include "../lex/tokenizer.h"
+#include "../lex/spec.h"
 #include "../ast/node.h"
 #include "../util/arena.h"
 #include "error_recovery.h"
@@ -20,14 +20,14 @@ namespace libglot {
 
 class ParseError : public std::runtime_error {
 public:
-    uint16_t line;
-    uint16_t column;
+    uint32_t line;
+    uint32_t column;
     std::string context;
 
     explicit ParseError(
         const std::string& msg,
-        uint16_t l = 0,
-        uint16_t c = 0,
+        uint32_t l = 0,
+        uint32_t c = 0,
         const std::string& ctx = ""
     )
         : std::runtime_error(format_message(msg, l, c, ctx))
@@ -39,8 +39,8 @@ public:
 private:
     static std::string format_message(
         const std::string& msg,
-        uint16_t line,
-        uint16_t col,
+        uint32_t line,
+        uint32_t col,
         const std::string& ctx
     ) {
         std::string formatted;
@@ -168,8 +168,9 @@ protected:
         return tokens_[idx];
     }
 
-    /// Advance to next token and return previous token
-    [[nodiscard]] const TokenType& advance() noexcept {
+    /// Advance to next token and return previous token.
+    /// The primary effect is the side effect, so the result may be ignored.
+    const TokenType& advance() noexcept {
         if (pos_ < tokens_.size()) {
             return tokens_[pos_++];
         }
@@ -210,7 +211,7 @@ protected:
     /// Expect token of given type, error if not found
     void expect(TokenKind type) {
         if (!match(type)) {
-            error("Expected " + token_name(type));
+            error("Expected " + derived().token_name(type));
         }
     }
 
@@ -238,18 +239,30 @@ protected:
         // Parse primary expression (atomic term)
         AstNodeType* left = derived().parse_prefix();
 
-        // Parse binary operators using precedence climbing
-        while (!is_eof()) {
+        // Interleave postfix and binary operators. Postfix forms (calls,
+        // subscripts, IN, casts) bind tighter than any binary operator, so
+        // they are applied before each look at the binary operator table --
+        // and again after each binary step would be wrong (the right operand
+        // handles its own postfix via the recursive call). Applying postfix
+        // only once, after the loop, silently detached trailing binary
+        // operators from postfix expressions (`f(1) + 2` parsed as `f(1)`).
+        while (true) {
+            left = derived().parse_postfix(left);
+
+            if (is_eof()) {
+                break;
+            }
+
             const TokenKind op = current().type;
             const int prec = get_precedence<Spec>(op);
 
-            // Not an operator, or precedence too low
-            if (prec < min_precedence) {
+            // Not an operator (-1), or precedence too low
+            if (prec < 0 || prec < min_precedence) {
                 break;
             }
 
             const Associativity assoc = get_associativity<Spec>(op);
-            advance();  // Consume operator
+            (void)advance();  // Consume operator
 
             // For right-associative operators, don't increment precedence
             // For left-associative, increment to ensure left-to-right parsing
@@ -261,9 +274,6 @@ protected:
             // Create binary operator node
             left = derived().make_binary_operator(op, left, right);
         }
-
-        // Parse postfix operators (function calls, array access, etc.)
-        left = derived().parse_postfix(left);
 
         return left;
     }
@@ -374,9 +384,14 @@ protected:
         ParserBase& parser;
 
         explicit RecursionGuard(ParserBase& p) : parser(p) {
-            if (++parser.recursion_depth_ > kMaxRecursionDepth) {
+            if (parser.recursion_depth_ >= kMaxRecursionDepth) {
+                // Do not increment before throwing: the destructor of a
+                // partially constructed guard never runs, so an increment
+                // here would leak depth and shrink the limit of a reused
+                // parser by one per error.
                 parser.error("Maximum recursion depth exceeded (possible infinite loop)");
             }
+            ++parser.recursion_depth_;
         }
 
         ~RecursionGuard() {
@@ -412,9 +427,11 @@ protected:
         return TokenKind::EOF_TOKEN;
     }
 
-    /// Get human-readable token name (for error messages)
-    /// Override in derived class for domain-specific names
-    [[nodiscard]] virtual std::string token_name(TokenKind type) const {
+    /// Get human-readable token name (for error messages).
+    /// Shadow in the derived class for domain-specific names; lookups go
+    /// through derived() so this stays a compile-time customization point
+    /// (no vtable).
+    [[nodiscard]] std::string token_name(TokenKind type) const {
         // Default: use enum value
         return std::to_string(static_cast<int>(type));
     }

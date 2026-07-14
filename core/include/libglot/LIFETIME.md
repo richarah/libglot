@@ -2,180 +2,67 @@
 
 ## The Source Lifetime Problem
 
-All libglot AST nodes contain `std::string_view` references that point into the original source text. These string views provide zero-copy access to identifiers, literals, and keywords.
-
-**Critical Issue**: If the source string is destroyed before the AST, all string_view references become dangling pointers, causing undefined behaviour.
-
-Example of the problem:
-```cpp
-libglot::Arena arena;
-std::unique_ptr<SQLNode> ast;
-
-{
-    std::string source = "SELECT * FROM users";
-    SQLParser parser(arena, source);
-    ast = parser.parse();
-    // source destroyed here
-}
-
-// UNDEFINED BEHAVIOUR: ast contains string_views pointing to freed memory
-```
+libglot AST nodes contain `std::string_view` members that point into the
+source text (identifiers, literals, keywords). If the source string is
+destroyed before the AST, those views dangle.
 
 ## Design Decision: Arena-Owned Source
 
-**Decision**: The arena owns the source string. Parsers copy the source into arena memory at construction time.
+The parser copies the source into the arena at construction time
+(`Arena::copy_source`) and tokenizes the arena-owned copy. Every
+`string_view` in tokens and AST nodes therefore points into arena memory
+and remains valid exactly as long as the AST itself.
 
-**Rationale**:
-1. **Safety by construction**: Impossible to create dangling string_view references
-2. **Simplicity**: Callers don't need to manage source lifetime
-3. **Performance**: Single allocation in arena, minimal overhead
-4. **Consistency**: Same lifetime model as AST nodes
+Consequences:
 
-## Implementation
+1. **Safety by construction** — callers may pass a temporary string; the
+   parser never retains a reference to it.
+2. **One copy per parse** — `copy_source` is called once, in the
+   tokenize-and-copy helper. Do not copy the source a second time.
+3. **AST lifetime == arena lifetime** — AST nodes are created only via
+   `Arena::create` and are invalidated by `Arena::reset()` or arena
+   destruction. Never wrap an arena pointer in `std::unique_ptr` or call
+   `delete` on it.
 
-### Arena::copy_source()
+## Correct Usage
 
-The `Arena` class provides `copy_source()` to copy source text into arena memory:
-
-```cpp
-std::string_view Arena::copy_source(std::string_view source);
-```
-
-**Behaviour**:
-- Allocates `source.size() + 1` bytes in arena (includes null terminator)
-- Copies source data into arena memory
-- Returns `string_view` pointing to arena-owned copy
-- Returned `string_view` is valid until arena is destroyed or reset
-
-**Null Terminator**: The copy includes a null terminator for safety when interoperating with C APIs (e.g., error messages, debugging).
-
-### Parser Requirements
-
-**All parsers MUST**:
-1. Accept `std::string_view source` parameter
-2. Call `arena.copy_source(source)` in constructor
-3. Store the returned `string_view` as `source_` member
-4. Pass `source_` to tokeniser, NOT the original parameter
-
-**Correct Pattern**:
-```cpp
-class SQLParser : public ParserBase<SQLParser, SQLTokenSpec, SQLNode> {
-public:
-    explicit SQLParser(Arena& arena, std::string_view source)
-        : Base(arena, tokenize(arena.copy_source(source)))
-        , source_(arena.copy_source(source))
-    {}
-
-private:
-    std::string_view source_;  // Arena-owned copy
-};
-```
-
-**Incorrect Pattern (DO NOT USE)**:
-```cpp
-class SQLParser : public ParserBase<SQLParser, SQLTokenSpec, SQLNode> {
-public:
-    explicit SQLParser(Arena& arena, std::string_view source)
-        : Base(arena, tokenize(source))  // ❌ WRONG: source may be freed
-        , source_(source)                // ❌ WRONG: dangling reference
-    {}
-
-private:
-    std::string_view source_;  // ❌ WRONG: not arena-owned
-};
-```
-
-## Usage Examples
-
-### Safe Usage
 ```cpp
 libglot::Arena arena;
-
-// Temporary source (destroyed after parse)
-{
-    std::string source = "SELECT * FROM users";
-    SQLParser parser(arena, source);
-    auto ast = parser.parse();
-    // source destroyed here - BUT AST is safe because arena owns copy
-}
-
-// AST remains valid
-SQLGenerator gen(Dialect::PostgreSQL);
-std::string sql = gen.generate(ast);  // ✅ Safe
+libglot::sql::SQLParser parser(arena, "SELECT * FROM users");
+auto* ast = parser.parse_top_level();
+// `ast` (and every string_view inside it) is valid while `arena` lives.
 ```
 
-### Arena Reset
+The temporary source string passed to the constructor may go out of scope
+immediately; the parser already copied it.
+
+## Incorrect Usage
+
 ```cpp
 libglot::Arena arena;
-std::string_view source_ref;
-
+SQLNode* ast = nullptr;
 {
-    std::string source = "SELECT 1";
-    source_ref = arena.copy_source(source);
-    // source destroyed
-}
-
-std::cout << source_ref;  // ✅ Safe: points to arena memory
-
-arena.reset();  // ❌ Invalidates source_ref
-
-std::cout << source_ref;  // ❌ UNDEFINED BEHAVIOUR after reset
+    libglot::Arena inner;
+    libglot::sql::SQLParser parser(inner, "SELECT 1");
+    ast = parser.parse_top_level();
+}   // inner destroyed: every node behind `ast` is gone
+// UNDEFINED BEHAVIOUR: ast points into freed arena memory
 ```
 
-## Testing Lifetime Safety
+```cpp
+// NEVER: arena pointers are not heap pointers
+std::unique_ptr<SQLNode> owned(parser.parse_top_level()); // delete on arena memory = UB
+```
 
-To validate lifetime safety:
+## Destructors
 
-1. **AddressSanitizer (ASan)**: Detects use-after-free bugs
-   ```bash
-   cmake --preset fast-debug-asan
-   cmake --build build/fast-debug-asan
-   ctest --test-dir build/fast-debug-asan
-   ```
+`Arena::create<T>` registers the destructor of any non-trivially-
+destructible `T` and runs it (in reverse construction order) at
+`reset()` or arena destruction. Nodes holding `std::vector`/`std::string`
+members are therefore cleaned up correctly; trivially destructible nodes
+carry no bookkeeping cost.
 
-2. **Explicit Lifetime Tests**: Create tests where source is destroyed before AST usage
-   ```cpp
-   TEST_CASE("Source lifetime: arena-owned") {
-       Arena arena;
-       std::unique_ptr<SQLNode> ast;
+## Verifying
 
-       {
-           std::string source = "SELECT * FROM users";
-           SQLParser parser(arena, source);
-           ast = parser.parse();
-           // source destroyed here
-       }
-
-       // AST usage must work (source is arena-owned)
-       REQUIRE(ast != nullptr);
-       SQLGenerator gen(Dialect::ANSI);
-       std::string sql = gen.generate(ast);
-       REQUIRE(sql == "SELECT * FROM users");
-   }
-   ```
-
-## Alternatives Considered (Rejected)
-
-### Caller-Owned Source
-**Rejected**: Requires callers to manage lifetime, error-prone, defeats arena allocation benefits.
-
-**Would require**:
-- Concept check: `requires std::is_lvalue_reference_v<decltype(source)>`
-- Static assertions preventing temporaries
-- Documentation burden on all callers
-- Easy to misuse
-
-### Reference-Counted Source
-**Rejected**: Adds runtime overhead (atomic refcount), incompatible with arena allocation philosophy.
-
-### std::string Copies in AST Nodes
-**Rejected**: Breaks zero-copy design, heap allocates every string, defeats arena performance benefits.
-
-## Summary
-
-- ✅ **Arena owns source**: Call `arena.copy_source(source)` in parser constructor
-- ✅ **Zero-copy tokens**: Tokens are `string_view` into arena-owned source
-- ✅ **Safe by construction**: Impossible to create dangling references
-- ✅ **Validate with ASan**: All tests must pass under AddressSanitizer
-
-**This decision is final and must not be revisited.**
+The ASan CI job exercises parse + generate flows; any dangling-view or
+use-after-reset regression fails the build.

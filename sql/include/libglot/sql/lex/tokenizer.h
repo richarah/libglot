@@ -162,7 +162,7 @@ private:
     }
 
     Token make_token(TokenType type, uint32_t start_pos, uint32_t end_pos,
-                     uint16_t start_line, uint16_t start_col, const char* text = nullptr) {
+                     uint32_t start_line, uint32_t start_col, const char* text = nullptr) {
         return Token{type, static_cast<uint32_t>(start_pos), static_cast<uint32_t>(end_pos),
                      start_line, start_col, text};
     }
@@ -224,8 +224,8 @@ private:
 
     Token tokenize_identifier() {
         uint32_t start_pos = pos_;
-        uint16_t start_line = line_;
-        uint16_t start_col = col_;
+        uint32_t start_line = line_;
+        uint32_t start_col = col_;
 
         // Handle quoted identifiers
         if (peek() == '"' || peek() == '`' || peek() == '[') {
@@ -268,8 +268,8 @@ private:
 
     Token tokenize_number() {
         uint32_t start_pos = pos_;
-        uint16_t start_line = line_;
-        uint16_t start_col = col_;
+        uint32_t start_line = line_;
+        uint32_t start_col = col_;
 
         // Hex: 0x...
         if (peek() == '0' && (peek(1) == 'x' || peek(1) == 'X')) {
@@ -319,8 +319,8 @@ private:
 
     Token tokenize_string(char quote) {
         uint32_t start_pos = pos_;
-        uint16_t start_line = line_;
-        uint16_t start_col = col_;
+        uint32_t start_line = line_;
+        uint32_t start_col = col_;
 
         advance(); // Opening quote
 
@@ -352,8 +352,8 @@ private:
 
     Token tokenize_dollar_string() {
         uint32_t start_pos = pos_;
-        uint16_t start_line = line_;
-        uint16_t start_col = col_;
+        uint32_t start_line = line_;
+        uint32_t start_col = col_;
 
         // Parse opening delimiter: $$ or $tag$
         advance(); // First $
@@ -420,8 +420,8 @@ private:
 
     Token tokenize_parameter() {
         uint32_t start_pos = pos_;
-        uint16_t start_line = line_;
-        uint16_t start_col = col_;
+        uint32_t start_line = line_;
+        uint32_t start_col = col_;
 
         char prefix = advance(); // @ or : or $ or ?
 
@@ -474,8 +474,8 @@ private:
 
     Token tokenize_operator() {
         uint32_t start_pos = pos_;
-        uint16_t start_line = line_;
-        uint16_t start_col = col_;
+        uint32_t start_line = line_;
+        uint32_t start_col = col_;
 
         char c = advance();
         char next = peek();
@@ -489,6 +489,8 @@ private:
         // Two-character operators
         if (c == '|' && next == '|') { advance(); return make_token(TokenType::CONCAT, start_pos, pos_, start_line, start_col); }
         if (c == '<' && next == '>') { advance(); return make_token(TokenType::NEQ, start_pos, pos_, start_line, start_col); }
+        if (c == '@' && next == '>') { advance(); return make_token(TokenType::AT_GT, start_pos, pos_, start_line, start_col); }
+        if (c == '<' && next == '@') { advance(); return make_token(TokenType::LT_AT, start_pos, pos_, start_line, start_col); }
         if (c == '<' && next == '=') { advance(); return make_token(TokenType::LTE, start_pos, pos_, start_line, start_col); }
         if (c == '>' && next == '=') { advance(); return make_token(TokenType::GTE, start_pos, pos_, start_line, start_col); }
         if (c == '!' && next == '=') { advance(); return make_token(TokenType::NEQ, start_pos, pos_, start_line, start_col); }
@@ -543,8 +545,8 @@ private:
 
     std::string_view source_;
     size_t pos_;
-    uint16_t line_;
-    uint16_t col_;
+    uint32_t line_;
+    uint32_t col_;
     LocalStringPool* pool_;
     LocalStringPool default_pool_;
     TokenizerConfig config_;

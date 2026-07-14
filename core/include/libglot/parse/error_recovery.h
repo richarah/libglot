@@ -40,16 +40,6 @@ enum class ErrorRecoveryMode {
     BEST_EFFORT
 };
 
-/// Error recovery synchronization points
-enum class SyncPoint {
-    NONE,
-    SEMICOLON,      // ;
-    STATEMENT_KW,   // SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, etc.
-    COMMA,          // , (for lists)
-    RPAREN,         // ) (for expressions)
-    EOF_TOKEN       // End of input
-};
-
 /// Error collector for multi-error reporting
 class ErrorCollector {
 public:
@@ -130,83 +120,6 @@ public:
 
 private:
     std::vector<ParseErrorDetail> errors_;
-};
-
-/// Helper for panic mode error recovery
-class PanicModeRecovery {
-public:
-    /// Find next synchronization point in token stream
-    template<typename TokenIterator>
-    static TokenIterator synchronize(TokenIterator current, TokenIterator end, SyncPoint sync_to) {
-        switch (sync_to) {
-            case SyncPoint::SEMICOLON:
-                // Skip until we find ; or statement keyword
-                while (current != end && !is_sync_point(*current)) {
-                    ++current;
-                }
-                break;
-
-            case SyncPoint::STATEMENT_KW:
-                // Skip until we find statement keyword
-                while (current != end && !is_statement_keyword(*current)) {
-                    ++current;
-                }
-                break;
-
-            case SyncPoint::COMMA:
-                // Skip until we find comma or higher-level sync point
-                while (current != end && !is_list_separator(*current)) {
-                    ++current;
-                }
-                break;
-
-            case SyncPoint::RPAREN:
-                // Skip until matching right paren
-                while (current != end && !is_rparen(*current)) {
-                    ++current;
-                }
-                break;
-
-            case SyncPoint::EOF_TOKEN:
-                // Go to end
-                current = end;
-                break;
-
-            case SyncPoint::NONE:
-            default:
-                break;
-        }
-
-        return current;
-    }
-
-    /// Check if token is a synchronization point
-    template<typename Token>
-    static bool is_sync_point(const Token&) {
-        // In real implementation, check token type
-        // For now, this is a placeholder
-        return false;
-    }
-
-    /// Check if token is a statement keyword
-    template<typename Token>
-    static bool is_statement_keyword(const Token&) {
-        // SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, etc.
-        return false;
-    }
-
-    /// Check if token is a list separator
-    template<typename Token>
-    static bool is_list_separator(const Token&) {
-        // Comma or closing paren/bracket
-        return false;
-    }
-
-    /// Check if token is right paren
-    template<typename Token>
-    static bool is_rparen(const Token&) {
-        return false;
-    }
 };
 
 /// RAII guard for error recovery context

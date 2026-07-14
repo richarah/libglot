@@ -245,8 +245,8 @@ struct Token {
     TokenType type;
     uint32_t start;       // Byte offset in source
     uint32_t end;         // Byte offset (exclusive)
-    uint16_t line;        // Line number (1-indexed)
-    uint16_t col;         // Column number (1-indexed)
+    uint32_t line;        // Line number (1-indexed)
+    uint32_t col;         // Column number (1-indexed)
     const char* text;     // Interned text (for identifiers, keywords, literals)
 
     [[nodiscard]] size_t length() const { return end - start; }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <libglot/lex/spec.h>
-#include <libglot/hash/perfect_hash.h>
 #include "lex/tokens.h"
 #include "lex/keywords.h"
 #include <optional>
