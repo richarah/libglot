@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.compiler.name }} ${{ matrix.build_type }}${{ matrix.sanitize && ' + sanitizers' || '' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - { name: GCC, cc: gcc-14, cxx: g++-14 }
+          - { name: Clang, cc: clang-18, cxx: clang++-18 }
+        build_type: [Debug, Release]
+        sanitize: [false]
+        include:
+          - compiler: { name: GCC, cc: gcc-14, cxx: g++-14 }
+            build_type: Debug
+            sanitize: true
+          - compiler: { name: Clang, cc: clang-18, cxx: clang++-18 }
+            build_type: Debug
+            sanitize: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ${{ matrix.compiler.cc == 'gcc-14' && 'gcc-14 g++-14' || 'clang-18' }}
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} \
+            -DLIBGLOT_WERROR=ON \
+            -DLIBGLOT_ENABLE_ASAN=${{ matrix.sanitize && 'ON' || 'OFF' }}
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j"$(nproc)"
+
+  install-package:
+    name: install + find_package smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14
+      - name: Build and install
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install"
+          cmake --build build -j"$(nproc)"
+          cmake --install build
+      - name: Consume via find_package
+        run: |
+          mkdir consumer && cd consumer
+          cat > CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.28)
+          project(consumer CXX)
+          find_package(libglot REQUIRED)
+          add_executable(smoke smoke.cpp)
+          target_link_libraries(smoke PRIVATE libglot::sql libglot::mime)
+          EOF
+          cat > smoke.cpp <<'EOF'
+          #include <libglot/sql/parser.h>
+          #include <libglot/sql/generator.h>
+          #include <libglot/mime/parser.h>
+          #include <cassert>
+          int main() {
+              libglot::Arena arena;
+              libglot::sql::SQLParser parser(arena, "SELECT 1");
+              assert(parser.parse_top_level() != nullptr);
+              return 0;
+          }
+          EOF
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install"
+          cmake --build build
+          ./build/smoke

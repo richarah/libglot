@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../../core/include/libglot/parse/grammar.h"
+#include <libglot/parse/grammar.h>
 #include "token_spec.h"
 #include "ast_nodes.h"
 #include <span>
@@ -46,12 +46,12 @@ struct SQLGrammarSpec {
     /// This follows PostgreSQL precedence with JSON operator extensions.
     /// ========================================================================
 
-    static constexpr std::span<const libglot::OperatorInfo<TokenKind>> operator_precedence() noexcept {
-        using libglot::OperatorInfo;
-        using libglot::Associativity;
-        using TK = libsqlglot::TokenType;
+private:
+    using OpInfo = libglot::OperatorInfo<TokenKind>;
+    using Associativity = libglot::Associativity;
+    using TK = libglot::sql::lex::TokenType;
 
-        static constexpr OperatorInfo<TokenKind> table[] = {
+    static constexpr OpInfo kOperatorTable[] = {
             // Arithmetic (precedence 13-14)
             {TK::STAR, 14, Associativity::LEFT},       // *
             {TK::SLASH, 14, Associativity::LEFT},      // /
@@ -90,9 +90,11 @@ struct SQLGrammarSpec {
             {TK::NOT, 10, Associativity::RIGHT},       // NOT
             {TK::AND, 9, Associativity::LEFT},         // AND
             {TK::OR, 8, Associativity::LEFT},          // OR
-        };
+    };
 
-        return std::span{table};
+public:
+    static constexpr std::span<const OpInfo> operator_precedence() noexcept {
+        return std::span{kOperatorTable};
     }
 };
 

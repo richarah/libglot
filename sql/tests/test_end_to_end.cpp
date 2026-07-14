@@ -46,7 +46,7 @@ TEST_CASE("End-to-end - SELECT with WHERE", "[e2e]") {
 
     auto age_col = arena.create<Column>("age");
     auto eighteen = arena.create<Literal>("18");
-    stmt->where = arena.create<BinaryOp>(libsqlglot::TokenType::GT, age_col, eighteen);
+    stmt->where = arena.create<BinaryOp>(libglot::sql::lex::TokenType::GT, age_col, eighteen);
 
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(stmt);
@@ -84,7 +84,7 @@ TEST_CASE("End-to-end - SELECT with JOIN", "[e2e]") {
 
     auto u_id = arena.create<Column>("u", "id");
     auto o_user_id = arena.create<Column>("o", "user_id");
-    auto join_condition = arena.create<BinaryOp>(libsqlglot::TokenType::EQ, u_id, o_user_id);
+    auto join_condition = arena.create<BinaryOp>(libglot::sql::lex::TokenType::EQ, u_id, o_user_id);
 
     stmt->from = arena.create<JoinClause>(JoinType::INNER, users, orders, join_condition);
 
@@ -104,13 +104,13 @@ TEST_CASE("End-to-end - SELECT with multiple conditions", "[e2e]") {
 
     auto age_col = arena.create<Column>("age");
     auto eighteen = arena.create<Literal>("18");
-    auto age_condition = arena.create<BinaryOp>(libsqlglot::TokenType::GT, age_col, eighteen);
+    auto age_condition = arena.create<BinaryOp>(libglot::sql::lex::TokenType::GT, age_col, eighteen);
 
     auto active_col = arena.create<Column>("active");
     auto true_val = arena.create<Literal>("'true'");  // String literal, not boolean
-    auto active_condition = arena.create<BinaryOp>(libsqlglot::TokenType::EQ, active_col, true_val);
+    auto active_condition = arena.create<BinaryOp>(libglot::sql::lex::TokenType::EQ, active_col, true_val);
 
-    stmt->where = arena.create<BinaryOp>(libsqlglot::TokenType::AND, age_condition, active_condition);
+    stmt->where = arena.create<BinaryOp>(libglot::sql::lex::TokenType::AND, age_condition, active_condition);
 
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(stmt);

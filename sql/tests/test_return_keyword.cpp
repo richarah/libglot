@@ -3,7 +3,7 @@
 #include <iostream>
 
 using namespace libglot::sql;
-using TK = libsqlglot::TokenType;
+using TK = libglot::sql::lex::TokenType;
 
 TEST_CASE("RETURN keyword lookup", "[keywords][return]") {
     // Test RETURN keyword lookup
@@ -26,7 +26,7 @@ TEST_CASE("RETURN keyword lookup", "[keywords][return]") {
               << ", hash=" << hash << std::endl;
 
     // Test lookup
-    TK result = libsqlglot::KeywordLookup::lookup("RETURN");
+    TK result = libglot::sql::lex::KeywordLookup::lookup("RETURN");
     std::cout << "KeywordLookup::lookup(\"RETURN\") returned: " << static_cast<int>(result) << std::endl;
     std::cout << "TokenType::RETURN_KW = " << static_cast<int>(TK::RETURN_KW) << std::endl;
     std::cout << "TokenType::IDENTIFIER = " << static_cast<int>(TK::IDENTIFIER) << std::endl;

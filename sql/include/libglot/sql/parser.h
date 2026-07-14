@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../../../core/include/libglot/parse/parser.h"
-#include "../../../../libsqlglot/include/libsqlglot/tokenizer.h"
+#include <libglot/parse/parser.h>
+#include "lex/tokenizer.h"
 #include "grammar.h"
 #include "ast_nodes.h"
 #include "dialect_traits.h"
@@ -26,7 +26,7 @@ class SQLParser : public libglot::ParserBase<SQLGrammarSpec, SQLParser> {
 public:
     using Base = libglot::ParserBase<SQLGrammarSpec, SQLParser>;
     using TokenType = Base::TokenType;
-    using TK = libsqlglot::TokenType;
+    using TK = libglot::sql::lex::TokenType;
 
     // ========================================================================
     // Construction
@@ -3637,7 +3637,7 @@ public:
 
     /// Override token_name for better error messages
     [[nodiscard]] std::string token_name(TK type) const override {
-        return std::string(libsqlglot::token_type_name(type));
+        return std::string(libglot::sql::lex::token_type_name(type));
     }
 
 private:
@@ -3646,20 +3646,20 @@ private:
     // ========================================================================
 
     /// Convert SQLDialect to TokenizerConfig
-    static libsqlglot::TokenizerConfig dialect_to_tokenizer_config(SQLDialect dialect) noexcept {
+    static libglot::sql::lex::TokenizerConfig dialect_to_tokenizer_config(SQLDialect dialect) noexcept {
         switch (dialect) {
             case SQLDialect::SQLServer:
-                return libsqlglot::TokenizerConfig::sqlserver();
+                return libglot::sql::lex::TokenizerConfig::sqlserver();
             case SQLDialect::MySQL:
-                return libsqlglot::TokenizerConfig::mysql();
+                return libglot::sql::lex::TokenizerConfig::mysql();
             case SQLDialect::PostgreSQL:
-                return libsqlglot::TokenizerConfig::postgresql();
+                return libglot::sql::lex::TokenizerConfig::postgresql();
             case SQLDialect::Snowflake:
-                return libsqlglot::TokenizerConfig::snowflake();
+                return libglot::sql::lex::TokenizerConfig::snowflake();
             default:
                 // Most dialects support # comments (MySQL-style)
                 // SQL Server is the exception
-                return libsqlglot::TokenizerConfig::default_config();
+                return libglot::sql::lex::TokenizerConfig::default_config();
         }
     }
 
@@ -3688,15 +3688,15 @@ private:
     // ========================================================================
 
     static std::vector<TokenType> tokenize(std::string_view source, SQLDialect dialect) {
-        libsqlglot::LocalStringPool pool;
+        libglot::sql::lex::LocalStringPool pool;
 
         // Convert SQLDialect to TokenizerConfig
-        libsqlglot::TokenizerConfig config = dialect_to_tokenizer_config(dialect);
+        libglot::sql::lex::TokenizerConfig config = dialect_to_tokenizer_config(dialect);
 
-        libsqlglot::Tokenizer tokenizer(source, &pool, config);
+        libglot::sql::lex::Tokenizer tokenizer(source, &pool, config);
         auto tokens = tokenizer.tokenize_all();
 
-        // Convert libsqlglot::Token to libglot::Token<TokenKind>
+        // Convert libglot::sql::lex::Token to libglot::Token<TokenKind>
         std::vector<TokenType> result;
         result.reserve(tokens.size());
 

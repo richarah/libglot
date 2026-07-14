@@ -1,19 +1,5 @@
-cmake_minimum_required(VERSION 3.28)
-
-# ============================================================================
-# libglot-sql - SQL domain implementation over libglot-core
-# ============================================================================
-# Static library with SQL-specific implementation:
-# - SQLTokenSpec, SQLGrammarSpec, SQLDialectTraits
-# - SQLParser, SQLGenerator
-# - Minimal AST nodes for Phase C1
-# ============================================================================
-
-project(libglot-sql VERSION 0.1.0 LANGUAGES CXX)
-
-# ============================================================================
-# SQL Domain Library (Header-Only for Phase C1)
-# ============================================================================
+# libglot-sql - SQL parser, generator, and dialect transpilation built on
+# libglot-core. Header-only; the tokenizer lives in include/libglot/sql/lex/.
 
 add_library(libglot-sql INTERFACE)
 add_library(libglot::sql ALIAS libglot-sql)
@@ -24,39 +10,31 @@ target_include_directories(libglot-sql
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(libglot-sql
-    INTERFACE
-        libglot::core
-)
+target_link_libraries(libglot-sql INTERFACE libglot::core)
+target_compile_features(libglot-sql INTERFACE cxx_std_20)
 
-# Note: CMake 3.28 doesn't support cxx_std_26, using manual -std=c++2c flag
-# target_compile_features(libglot-sql
-#     INTERFACE
-#         cxx_std_26
-# )
-
-# ============================================================================
-# Tests (if enabled)
-# ============================================================================
-
-if(LIBGLOT_BUILD_TESTS)
-    enable_testing()
+if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
-
-# ============================================================================
-# Benchmarks (if enabled)
-# ============================================================================
 
 if(LIBGLOT_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
 endif()
 
-# ============================================================================
-# Summary
-# ============================================================================
+include(GNUInstallDirs)
 
-message(STATUS "libglot-sql configured (Phase C1: minimal SQL shim)")
-message(STATUS "  SQLTokenSpec: adapts libsqlglot token types")
-message(STATUS "  SQLParser: minimal SELECT support")
-message(STATUS "  SQLGenerator: dialect-aware (ANSI, PostgreSQL, MySQL)")
+install(TARGETS libglot-sql
+        EXPORT libglot-sql-targets
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY include/libglot
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h"
+)
+
+install(EXPORT libglot-sql-targets
+        FILE libglot-sql-targets.cmake
+        NAMESPACE libglot::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libglot
+)

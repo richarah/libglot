@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../../../../core/include/libglot/lex/spec.h"
-#include "../../../../core/include/libglot/hash/perfect_hash.h"
-#include "../../../../libsqlglot/include/libsqlglot/tokens.h"
-#include "../../../../libsqlglot/include/libsqlglot/keywords.h"
+#include <libglot/lex/spec.h>
+#include <libglot/hash/perfect_hash.h>
+#include "lex/tokens.h"
+#include "lex/keywords.h"
 #include <optional>
 #include <string_view>
 
@@ -27,13 +27,13 @@ struct SQLTokenSpec {
     // ========================================================================
 
     /// Reuse libsqlglot's existing token type enum
-    using TokenKind = libsqlglot::TokenType;
+    using TokenKind = libglot::sql::lex::TokenType;
 
     /// Keyword lookup table (perfect hash over SQL keywords)
     struct KeywordTable {
         static TokenKind lookup(std::string_view text) noexcept {
             // Delegate to libsqlglot's existing perfect hash implementation
-            return libsqlglot::KeywordLookup::lookup(text);
+            return libglot::sql::lex::KeywordLookup::lookup(text);
         }
     };
 

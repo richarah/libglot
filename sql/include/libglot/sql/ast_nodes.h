@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../../../../core/include/libglot/ast/node.h"
-#include "../../../../core/include/libglot/util/arena.h"
-#include "../../../../libsqlglot/include/libsqlglot/tokens.h"  // For TokenType (Phase A shim)
+#include <libglot/ast/node.h>
+#include <libglot/util/arena.h>
+#include "lex/tokens.h"  // For TokenType (Phase A shim)
 #include "tokens.h"
 #include <vector>
 #include <string_view>
@@ -403,19 +403,19 @@ struct Parameter : SQLNode {
 /// ============================================================================
 
 struct BinaryOp : SQLNode {
-    libsqlglot::TokenType op;  // Using libsqlglot for Phase A (shim)
+    libglot::sql::lex::TokenType op;  // Using libsqlglot for Phase A (shim)
     SQLNode* left;
     SQLNode* right;
 
-    BinaryOp(libsqlglot::TokenType operation, SQLNode* l, SQLNode* r)
+    BinaryOp(libglot::sql::lex::TokenType operation, SQLNode* l, SQLNode* r)
         : SQLNode(SQLNodeKind::BINARY_OP), op(operation), left(l), right(r) {}
 };
 
 struct UnaryOp : SQLNode {
-    libsqlglot::TokenType op;  // Using libsqlglot for Phase A (shim)
+    libglot::sql::lex::TokenType op;  // Using libsqlglot for Phase A (shim)
     SQLNode* operand;
 
-    UnaryOp(libsqlglot::TokenType operation, SQLNode* expr)
+    UnaryOp(libglot::sql::lex::TokenType operation, SQLNode* expr)
         : SQLNode(SQLNodeKind::UNARY_OP), op(operation), operand(expr) {}
 };
 
@@ -493,19 +493,19 @@ struct ExistsExpr : SQLNode {
 
 struct AnyExpr : SQLNode {
     SQLNode* left;
-    libsqlglot::TokenType comparison_op;  // Using libsqlglot for Phase A (shim)
+    libglot::sql::lex::TokenType comparison_op;  // Using libsqlglot for Phase A (shim)
     SQLNode* subquery;
 
-    AnyExpr(SQLNode* l, libsqlglot::TokenType op, SQLNode* sq)
+    AnyExpr(SQLNode* l, libglot::sql::lex::TokenType op, SQLNode* sq)
         : SQLNode(SQLNodeKind::ANY_EXPR), left(l), comparison_op(op), subquery(sq) {}
 };
 
 struct AllExpr : SQLNode {
     SQLNode* left;
-    libsqlglot::TokenType comparison_op;  // Using libsqlglot for Phase A (shim)
+    libglot::sql::lex::TokenType comparison_op;  // Using libsqlglot for Phase A (shim)
     SQLNode* subquery;
 
-    AllExpr(SQLNode* l, libsqlglot::TokenType op, SQLNode* sq)
+    AllExpr(SQLNode* l, libglot::sql::lex::TokenType op, SQLNode* sq)
         : SQLNode(SQLNodeKind::ALL_EXPR), left(l), comparison_op(op), subquery(sq) {}
 };
 

@@ -1,17 +1,5 @@
-cmake_minimum_required(VERSION 3.28)
-
-# ============================================================================
-# libglot-mime - MIME domain implementation over libglot-core
-# ============================================================================
-# Demonstrates that libglot-core can support multiple domain languages.
-# Implements minimal MIME header parsing.
-# ============================================================================
-
-project(libglot-mime VERSION 0.1.0 LANGUAGES CXX)
-
-# ============================================================================
-# MIME Domain Library (Header-Only)
-# ============================================================================
+# libglot-mime - MIME/email message parser built on libglot-core.
+# Header-only.
 
 add_library(libglot-mime INTERFACE)
 add_library(libglot::mime ALIAS libglot-mime)
@@ -22,24 +10,31 @@ target_include_directories(libglot-mime
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(libglot-mime
-    INTERFACE
-        libglot::core
-)
+target_link_libraries(libglot-mime INTERFACE libglot::core)
+target_compile_features(libglot-mime INTERFACE cxx_std_20)
 
-# ============================================================================
-# Tests (if enabled)
-# ============================================================================
-
-if(LIBGLOT_BUILD_TESTS)
-    enable_testing()
+if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-# ============================================================================
-# Summary
-# ============================================================================
+if(LIBGLOT_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
 
-message(STATUS "libglot-mime configured (Phase B: multi-domain validation)")
-message(STATUS "  MimeTokenizer: Simple header tokenization")
-message(STATUS "  MimeParser: Header parsing using ParserBase<Spec>")
+include(GNUInstallDirs)
+
+install(TARGETS libglot-mime
+        EXPORT libglot-mime-targets
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY include/libglot
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h"
+)
+
+install(EXPORT libglot-mime-targets
+        FILE libglot-mime-targets.cmake
+        NAMESPACE libglot::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libglot
+)

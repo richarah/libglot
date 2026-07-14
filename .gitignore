@@ -1,53 +1,36 @@
-# Build directories
-build/
-build-release/
-Testing/
+# Build directories (out-of-source builds only; never build in the source tree)
+build*/
 cmake-build-*/
 out/
 
-# CMake generated files
+# In-source build debris, in case one happens anyway
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-Makefile
-*.cmake
-!CMakeLists.txt
-!CMakePresets.json
-!cmake/
-
-# Dependencies
+CTestTestfile.cmake
+Testing/
 _deps/
-vcpkg_installed/
+Makefile
+!/Makefile.dist
 
-# Backup and temporary files
-*.backup
-*.bak
-*.old
-*.tmp
-*.log
-*~
-.DS_Store
+# Installed package artifacts
+vcpkg_installed/
 
 # Python bytecode
 __pycache__/
-*.pyc
-*.pyo
+*.py[co]
 
-# IDE and editor files
+# Editor and OS files
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
-.vs/
+*~
+.DS_Store
 
-# Test artifacts
-test_*_bin
-*_debug.cpp
-debug_*.cpp
-
-# Scripts (keeping source scripts, ignoring generated ones)
-*.sh
-
-# Text verification files
-*.txt
-!CMakeLists.txt
+# Coverage and profiling output
+*.gcda
+*.gcno
+*.profraw
+coverage/

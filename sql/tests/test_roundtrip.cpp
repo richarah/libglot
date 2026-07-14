@@ -64,7 +64,7 @@ TEST_CASE("SQL Roundtrip: Parse and emit representative query", "[sql][roundtrip
             REQUIRE(select->where->type == SQLNodeKind::BINARY_OP);
 
             auto* where_op = static_cast<BinaryOp*>(select->where);
-            REQUIRE(where_op->op == libsqlglot::TokenType::EQ);
+            REQUIRE(where_op->op == libglot::sql::lex::TokenType::EQ);
 
             // Verify ORDER BY
             REQUIRE(select->order_by.size() == 1);

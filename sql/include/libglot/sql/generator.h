@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../../core/include/libglot/gen/generator.h"
+#include <libglot/gen/generator.h>
 #include "dialect_traits.h"
 #include "ast_nodes.h"
 #include "grammar.h"
@@ -32,7 +32,7 @@ struct SQLGeneratorSpec {
 class SQLGenerator : public libglot::GeneratorBase<SQLGeneratorSpec, SQLGenerator> {
 public:
     using Base = libglot::GeneratorBase<SQLGeneratorSpec, SQLGenerator>;
-    using TK = libsqlglot::TokenType;  // Using libsqlglot for Phase A (shim)
+    using TK = libglot::sql::lex::TokenType;  // Using libsqlglot for Phase A (shim)
 
     // Expose base class public methods
     using Base::generate;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../../core/include/libglot/dialect/traits.h"
+#include <libglot/dialect/traits.h>
 #include <string_view>
 
 namespace libglot::sql {
@@ -106,10 +106,9 @@ struct SQLDialectTraits {
     using DialectId = SQLDialect;
     using Features = SQLFeatures;
 
-    /// Get feature flags for a dialect (compile-time lookup table)
-    static constexpr const Features& get_features(DialectId id) noexcept {
-        // Compile-time lookup table (zero runtime overhead)
-        static constexpr Features features[] = {
+private:
+    /// Compile-time lookup table, indexed by SQLDialect enum value.
+    static constexpr Features kFeatures[] = {
             // Core SQL Standards & Major Databases
             {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // ANSI
             {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // PostgreSQL
@@ -172,9 +171,12 @@ struct SQLDialectTraits {
             {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // H2
             {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // HSQLDB
             {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"} // Derby
-        };
+    };
 
-        return features[static_cast<size_t>(id)];
+public:
+    /// Get feature flags for a dialect (compile-time lookup table)
+    static constexpr const Features& get_features(DialectId id) noexcept {
+        return kFeatures[static_cast<size_t>(id)];
     }
 
     /// Get human-readable dialect name

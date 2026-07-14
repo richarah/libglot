@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../../core/include/libglot/parse/parser.h"
+#include <libglot/parse/parser.h>
 #include "grammar.h"
 #include "ast_nodes.h"
 #include "tokens.h"

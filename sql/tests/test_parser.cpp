@@ -49,7 +49,7 @@ TEST_CASE("SQLParser - SELECT with WHERE", "[parser]") {
     REQUIRE(stmt->where != nullptr);
     REQUIRE(stmt->where->type == SQLNodeKind::BINARY_OP);
     auto* binop = static_cast<BinaryOp*>(stmt->where);
-    REQUIRE(binop->op == libsqlglot::TokenType::GT);
+    REQUIRE(binop->op == libglot::sql::lex::TokenType::GT);
     REQUIRE(binop->left->type == SQLNodeKind::COLUMN);
     REQUIRE(binop->right->type == SQLNodeKind::LITERAL);
 
@@ -68,15 +68,15 @@ TEST_CASE("SQLParser - SELECT with multiple WHERE conditions", "[parser]") {
     REQUIRE(stmt->where != nullptr);
     REQUIRE(stmt->where->type == SQLNodeKind::BINARY_OP);
     auto* and_op = static_cast<BinaryOp*>(stmt->where);
-    REQUIRE(and_op->op == libsqlglot::TokenType::AND);
+    REQUIRE(and_op->op == libglot::sql::lex::TokenType::AND);
     REQUIRE(and_op->left->type == SQLNodeKind::BINARY_OP);
     REQUIRE(and_op->right->type == SQLNodeKind::BINARY_OP);
     // Check left side: age > 18
     auto* left_op = static_cast<BinaryOp*>(and_op->left);
-    REQUIRE(left_op->op == libsqlglot::TokenType::GT);
+    REQUIRE(left_op->op == libglot::sql::lex::TokenType::GT);
     // Check right side: active = 1
     auto* right_op = static_cast<BinaryOp*>(and_op->right);
-    REQUIRE(right_op->op == libsqlglot::TokenType::EQ);
+    REQUIRE(right_op->op == libglot::sql::lex::TokenType::EQ);
 
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
@@ -141,7 +141,7 @@ TEST_CASE("SQLParser - SELECT with arithmetic", "[parser]") {
     REQUIRE(stmt->columns.size() == 1);
     REQUIRE(stmt->columns[0]->type == SQLNodeKind::BINARY_OP);
     auto* mul_op = static_cast<BinaryOp*>(stmt->columns[0]);
-    REQUIRE(mul_op->op == libsqlglot::TokenType::STAR);
+    REQUIRE(mul_op->op == libglot::sql::lex::TokenType::STAR);
     REQUIRE(mul_op->left->type == SQLNodeKind::COLUMN);
     REQUIRE(mul_op->right->type == SQLNodeKind::COLUMN);
 

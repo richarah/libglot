@@ -2,8 +2,8 @@
 
 #include "tokens.h"
 #include "ast_nodes.h"
-#include "../../../../core/include/libglot/lex/spec.h"
-#include "../../../../core/include/libglot/parse/grammar.h"
+#include <libglot/lex/spec.h>
+#include <libglot/parse/grammar.h>
 #include <optional>
 #include <span>
 
