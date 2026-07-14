@@ -1,11 +1,39 @@
 #pragma once
 
-#include <string_view>
-#include <string>
-#include <vector>
+#include "charset.h"
+
+#include <array>
 #include <cctype>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace libglot::mime {
+
+namespace detail {
+
+/// Sentinel marking bytes that are not part of the base64 alphabet
+inline constexpr std::uint8_t kBase64Invalid = 0xFF;
+
+/// Compile-time base64 reverse lookup table (no lazy runtime init, so no
+/// data race). Invalid bytes map to kBase64Invalid instead of silently
+/// aliasing 'A' (value 0).
+inline constexpr std::array<std::uint8_t, 256> kBase64ReverseTable = [] {
+    constexpr std::string_view alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::array<std::uint8_t, 256> table{};
+    for (auto& entry : table) {
+        entry = kBase64Invalid;
+    }
+    for (std::size_t i = 0; i < alphabet.size(); ++i) {
+        table[static_cast<unsigned char>(alphabet[i])] = static_cast<std::uint8_t>(i);
+    }
+    return table;
+}();
+
+} // namespace detail
 
 /// ============================================================================
 /// Content-Transfer-Encoding Handlers
@@ -19,21 +47,13 @@ namespace libglot::mime {
 
 class TransferEncoding {
 public:
-    /// Decode base64 encoded data
-    static std::string decode_base64(std::string_view encoded) {
-        static const char base64_table[] =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-        // Build reverse lookup table
-        static unsigned char reverse_table[256] = {0};
-        static bool table_initialized = false;
-        if (!table_initialized) {
-            for (int i = 0; i < 64; ++i) {
-                reverse_table[static_cast<unsigned char>(base64_table[i])] = i;
-            }
-            table_initialized = true;
-        }
-
+    /// Strictly decode base64 encoded data (RFC 2045).
+    /// Whitespace is ignored (base64 transfer encoding is line-wrapped);
+    /// decoding stops at the first '=' padding character. Any other byte
+    /// outside the base64 alphabet makes the input invalid and yields
+    /// std::nullopt -- invalid characters are never silently decoded as
+    /// zero bits.
+    static std::optional<std::string> decode_base64_strict(std::string_view encoded) {
         std::string decoded;
         decoded.reserve(encoded.size() * 3 / 4);
 
@@ -41,10 +61,14 @@ public:
         int bits_collected = 0;
 
         for (char c : encoded) {
-            if (std::isspace(c)) continue;  // Skip whitespace
+            if (std::isspace(static_cast<unsigned char>(c))) continue;  // Skip whitespace
             if (c == '=') break;  // Padding
 
-            unsigned char val = reverse_table[static_cast<unsigned char>(c)];
+            std::uint8_t val = detail::kBase64ReverseTable[static_cast<unsigned char>(c)];
+            if (val == detail::kBase64Invalid) {
+                return std::nullopt;
+            }
+
             buffer = (buffer << 6) | val;
             bits_collected += 6;
 
@@ -55,6 +79,16 @@ public:
         }
 
         return decoded;
+    }
+
+    /// Decode base64 encoded data.
+    /// Convenience wrapper around decode_base64_strict that keeps the
+    /// historical std::string signature: invalid input (any non-whitespace
+    /// byte outside the base64 alphabet) yields an empty string rather than
+    /// corrupted output. Callers that must distinguish "empty" from
+    /// "invalid" should use decode_base64_strict.
+    static std::string decode_base64(std::string_view encoded) {
+        return decode_base64_strict(encoded).value_or(std::string());
     }
 
     /// Decode quoted-printable encoded data
@@ -171,10 +205,30 @@ private:
 
 class EncodedWordDecoder {
 public:
+    /// Result of decoding a header value containing RFC 2047 encoded words
+    struct DecodeResult {
+        /// Decoded text, converted to UTF-8 for supported charsets
+        /// (UTF-8, US-ASCII, ISO-8859-1, Windows-1252)
+        std::string text;
+
+        /// True if any encoded word used a charset that could not be
+        /// converted to UTF-8; its decoded bytes are included verbatim
+        /// (in the source charset).
+        bool has_unknown_charset = false;
+    };
+
     /// Decode RFC 2047 encoded words in a header value
     /// Example: "=?UTF-8?B?SGVsbG8gV29ybGQ=?=" → "Hello World"
+    /// Decoded text is converted to UTF-8; use decode_with_charset_info to
+    /// learn whether an unsupported charset was passed through verbatim.
     static std::string decode(std::string_view header_value) {
-        std::string result;
+        return decode_with_charset_info(header_value).text;
+    }
+
+    /// Decode RFC 2047 encoded words, reporting unconvertible charsets
+    static DecodeResult decode_with_charset_info(std::string_view header_value) {
+        DecodeResult decode_result;
+        std::string& result = decode_result.text;
         result.reserve(header_value.size());
 
         size_t pos = 0;
@@ -235,11 +289,31 @@ public:
                 decoded_text = std::string(text);
             }
 
+            // The decoded bytes are in the declared source charset: convert
+            // them to UTF-8 for the charsets we support. Unknown (or not yet
+            // convertible) charsets are passed through verbatim and flagged.
+            std::string charset_lower(charset);
+            for (char& lc : charset_lower) {
+                lc = static_cast<char>(std::tolower(static_cast<unsigned char>(lc)));
+            }
+            auto cs = CharsetConverter::detect_charset(charset_lower);
+            switch (cs) {
+                case CharsetConverter::Charset::UTF8:
+                case CharsetConverter::Charset::USASCII:
+                case CharsetConverter::Charset::ISO88591:
+                case CharsetConverter::Charset::WINDOWS1252:
+                    decoded_text = CharsetConverter::to_utf8(decoded_text, cs);
+                    break;
+                default:
+                    decode_result.has_unknown_charset = true;
+                    break;
+            }
+
             result.append(decoded_text);
             pos = text_end + 2;
         }
 
-        return result;
+        return decode_result;
     }
 };
 

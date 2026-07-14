@@ -25,17 +25,26 @@ struct TokenizerConfig {
     /// ':' followed by a name lexes as a host parameter (:name). Off for
     /// Snowflake, where ':' is the JSON path access operator (col:field).
     bool colon_parameters = true;
+    /// '?' lexes as the QUESTION operator (PostgreSQL jsonb key-exists)
+    /// instead of a positional parameter placeholder.
+    bool question_is_operator = false;
+    /// '[' starts a bracket-quoted identifier ([name], SQL Server / Access
+    /// style). Off for Snowflake, where '[' is array subscripting
+    /// (col:field[0]) and identifiers are quoted with double quotes.
+    bool bracket_identifiers = true;
 
     static constexpr TokenizerConfig default_config() noexcept { return {}; }
     static constexpr TokenizerConfig mysql() noexcept { return {}; }
     static constexpr TokenizerConfig postgresql() noexcept {
-        return {.hash_line_comment = false, .hash_identifier_start = false, .colon_parameters = true};
+        return {.hash_line_comment = false, .hash_identifier_start = false, .colon_parameters = true,
+                .question_is_operator = true, .bracket_identifiers = true};
     }
     static constexpr TokenizerConfig sqlserver() noexcept {
         return {.hash_line_comment = false, .hash_identifier_start = true, .colon_parameters = true};
     }
     static constexpr TokenizerConfig snowflake() noexcept {
-        return {.hash_line_comment = true, .hash_identifier_start = false, .colon_parameters = false};
+        return {.hash_line_comment = true, .hash_identifier_start = false, .colon_parameters = false,
+                .question_is_operator = false, .bracket_identifiers = false};
     }
 };
 
@@ -84,7 +93,8 @@ public:
         char c = peek();
 
         // Identifiers and keywords (including quoted identifiers)
-        if (is_identifier_start(c) || c == '"' || c == '`' || c == '[' ||
+        if (is_identifier_start(c) || c == '"' || c == '`' ||
+            (c == '[' && config_.bracket_identifiers) ||
             (c == '#' && config_.hash_identifier_start)) {
             return tokenize_identifier();
         }
@@ -126,7 +136,9 @@ public:
 
         // Parameters: @name (T-SQL), :name (Oracle), $1 (Postgres), ?
         // When ':' is a path operator (Snowflake), it lexes as COLON instead.
-        if (c == '@' || (c == ':' && config_.colon_parameters) || c == '$' || c == '?') {
+        // When '?' is an operator (PostgreSQL jsonb), it lexes as QUESTION.
+        if (c == '@' || (c == ':' && config_.colon_parameters) || c == '$' ||
+            (c == '?' && !config_.question_is_operator)) {
             return tokenize_parameter();
         }
 

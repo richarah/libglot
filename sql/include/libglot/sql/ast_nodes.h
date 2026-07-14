@@ -573,10 +573,12 @@ struct FrameClause : SQLNode {
     SQLNode* start_offset;  // nullptr for UNBOUNDED/CURRENT
     FrameBound end_bound;
     SQLNode* end_offset;
+    bool between_form;      // true: BETWEEN start AND end; false: single bound
 
     FrameClause(FrameType ft, FrameBound sb)
         : SQLNode(SQLNodeKind::FRAME_CLAUSE), frame_type(ft), start_bound(sb),
-          start_offset(nullptr), end_bound(FrameBound::CURRENT_ROW), end_offset(nullptr) {}
+          start_offset(nullptr), end_bound(FrameBound::CURRENT_ROW), end_offset(nullptr),
+          between_form(false) {}
 };
 
 struct WindowSpec : SQLNode {
@@ -673,18 +675,21 @@ struct SelectStmt : SQLNode {
     SQLNode* limit;                       // LIMIT
     SQLNode* offset;                      // OFFSET
     bool distinct;
+    bool limit_percent;                   // TOP n PERCENT (SQL Server)
+    bool limit_with_ties;                 // TOP n WITH TIES (SQL Server)
 
     SelectStmt()
         : SQLNode(SQLNodeKind::SELECT_STMT), with(nullptr), from(nullptr), where(nullptr),
-          having(nullptr), qualify(nullptr), limit(nullptr), offset(nullptr), distinct(false) {}
+          having(nullptr), qualify(nullptr), limit(nullptr), offset(nullptr), distinct(false),
+          limit_percent(false), limit_with_ties(false) {}
 };
 
 struct CTE : SQLNode {
     std::string_view name;
     std::vector<std::string_view> columns;  // Optional column list
-    SelectStmt* query;
+    SQLNode* query;  // SelectStmt or set operation (recursive CTEs use UNION)
 
-    CTE(std::string_view n, SelectStmt* q)
+    CTE(std::string_view n, SQLNode* q)
         : SQLNode(SQLNodeKind::CTE), name(n), query(q) {}
 };
 
@@ -724,30 +729,34 @@ struct QualifyClause : SQLNode {
 /// Set Operations
 /// ============================================================================
 
+// Set operations chain left-associatively, so `left` may be a SelectStmt or
+// another set-operation node; `right` is always a plain SelectStmt but is
+// stored as SQLNode* for symmetry.
+
 struct UnionStmt : SQLNode {
-    SelectStmt* left;
-    SelectStmt* right;
+    SQLNode* left;
+    SQLNode* right;
     bool all;
 
-    UnionStmt(SelectStmt* l, SelectStmt* r, bool is_all = false)
+    UnionStmt(SQLNode* l, SQLNode* r, bool is_all = false)
         : SQLNode(SQLNodeKind::UNION_STMT), left(l), right(r), all(is_all) {}
 };
 
 struct IntersectStmt : SQLNode {
-    SelectStmt* left;
-    SelectStmt* right;
+    SQLNode* left;
+    SQLNode* right;
     bool all;
 
-    IntersectStmt(SelectStmt* l, SelectStmt* r, bool is_all = false)
+    IntersectStmt(SQLNode* l, SQLNode* r, bool is_all = false)
         : SQLNode(SQLNodeKind::INTERSECT_STMT), left(l), right(r), all(is_all) {}
 };
 
 struct ExceptStmt : SQLNode {
-    SelectStmt* left;
-    SelectStmt* right;
+    SQLNode* left;
+    SQLNode* right;
     bool all;
 
-    ExceptStmt(SelectStmt* l, SelectStmt* r, bool is_all = false)
+    ExceptStmt(SQLNode* l, SQLNode* r, bool is_all = false)
         : SQLNode(SQLNodeKind::EXCEPT_STMT), left(l), right(r), all(is_all) {}
 };
 
@@ -759,7 +768,7 @@ struct InsertStmt : SQLNode {
     TableRef* table;
     std::vector<std::string_view> columns;          // Optional column list
     std::vector<std::vector<SQLNode*>> values;      // VALUES rows
-    SelectStmt* select_query;                       // INSERT ... SELECT
+    SQLNode* select_query;                          // INSERT ... SELECT (may be a set operation)
 
     InsertStmt()
         : SQLNode(SQLNodeKind::INSERT_STMT), table(nullptr), select_query(nullptr) {}
@@ -817,16 +826,21 @@ struct ColumnDef : SQLNode {
     bool auto_increment;
     SQLNode* default_value;
     std::string_view check_constraint;
+    SQLNode* check_expr;                          // Column-level CHECK (expr)
+    std::string_view references_table;           // REFERENCES table
+    std::vector<std::string_view> references_columns;  // REFERENCES table (cols)
 
     ColumnDef()
         : SQLNode(SQLNodeKind::COLUMN_DEF), not_null(false), primary_key(false),
-          unique(false), auto_increment(false), default_value(nullptr) {}
+          unique(false), auto_increment(false), default_value(nullptr),
+          check_expr(nullptr) {}
 };
 
 struct TableConstraint : SQLNode {
     enum class Type { PRIMARY_KEY, FOREIGN_KEY, UNIQUE, CHECK };
 
     Type constraint_type;
+    std::string_view name;  // Optional CONSTRAINT name
     std::vector<std::string_view> columns;
     TableRef* ref_table;  // For FOREIGN KEY
     std::vector<std::string_view> ref_columns;
@@ -844,7 +858,7 @@ struct CreateTableStmt : SQLNode {
     std::vector<TableConstraint*> constraints;
     bool if_not_exists;
     bool temporary;
-    SelectStmt* as_select;  // CREATE TABLE AS SELECT
+    SQLNode* as_select;  // CREATE TABLE AS SELECT (may be a set operation)
 
     CreateTableStmt()
         : SQLNode(SQLNodeKind::CREATE_TABLE_STMT), table(nullptr),
@@ -902,7 +916,7 @@ struct DropIndexStmt : SQLNode {
 struct CreateViewStmt : SQLNode {
     std::string_view name;
     std::vector<std::string_view> columns;  // Optional
-    SelectStmt* query;
+    SQLNode* query;  // SelectStmt or set operation
     bool or_replace;
     bool if_not_exists;
 
@@ -1104,7 +1118,7 @@ struct DeclareVarStmt : SQLNode {
 struct DeclareCursorStmt : SQLNode {
     std::string_view cursor_name;
     bool scroll;              // SCROLL cursor (allows backward fetch)
-    SelectStmt* query;
+    SQLNode* query;           // SelectStmt or set operation
 
     DeclareCursorStmt()
         : SQLNode(SQLNodeKind::DECLARE_CURSOR_STMT), scroll(false), query(nullptr) {}
@@ -1328,7 +1342,7 @@ struct StartWithClause : SQLNode {
 struct CreateModelStmt : SQLNode {
     std::string_view model_name;
     std::string_view model_type;
-    SelectStmt* training_query;
+    SQLNode* training_query;  // SelectStmt or set operation
     bool or_replace;
 
     CreateModelStmt()

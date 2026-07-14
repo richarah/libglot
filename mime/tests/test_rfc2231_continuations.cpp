@@ -195,3 +195,54 @@ TEST_CASE("RFC2231 - Space encoding", "[mime][rfc2231]") {
     REQUIRE(result.size() == 1);
     REQUIRE(result["name"].value == "My Document File.docx");
 }
+
+TEST_CASE("RFC2231 - Invalid percent-encoding does not throw", "[mime][rfc2231][security]") {
+    // Attacker-controlled '%ZZ' previously reached std::stoi and threw
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''bad%ZZvalue.txt"}
+    };
+
+    std::unordered_map<std::string, RFC2231Parser::ContinuedParameter> result;
+    REQUIRE_NOTHROW(result = RFC2231Parser::parse_continued_parameters(params));
+
+    // Invalid sequence is kept literally instead of crashing
+    REQUIRE(result.size() == 1);
+    REQUIRE(result["filename"].value == "bad%ZZvalue.txt");
+}
+
+TEST_CASE("RFC2231 - Truncated percent-encoding does not throw", "[mime][rfc2231][security]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''truncated%2"}
+    };
+
+    std::unordered_map<std::string, RFC2231Parser::ContinuedParameter> result;
+    REQUIRE_NOTHROW(result = RFC2231Parser::parse_continued_parameters(params));
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(result["filename"].value == "truncated%2");
+}
+
+TEST_CASE("RFC2231 - Invalid percent-encoding is recorded as anomaly", "[mime][rfc2231][anomaly]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''bad%ZZvalue.txt"}
+    };
+
+    AnomalyReport report;
+    auto result = RFC2231Parser::parse_continued_parameters(params, &report);
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(report.size() == 1);
+    REQUIRE(report.records[0].kind == AnomalyKind::InvalidParameterSyntax);
+}
+
+TEST_CASE("RFC2231 - Valid percent-encoding records no anomaly", "[mime][rfc2231][anomaly]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''good%20value.txt"}
+    };
+
+    AnomalyReport report;
+    auto result = RFC2231Parser::parse_continued_parameters(params, &report);
+
+    REQUIRE(result["filename"].value == "good value.txt");
+    REQUIRE(report.empty());
+}

@@ -2,53 +2,26 @@
 
 #include "parser_extended.h"
 #include "anomalies.h"
-#include <vector>
 
 namespace libglot::mime {
 
 /// ============================================================================
-/// Anomaly Report - Tracks detected anomalies during parsing
-/// ============================================================================
-
-struct AnomalyReport {
-    std::vector<AnomalyKind> anomalies;
-
-    void add(AnomalyKind kind) {
-        anomalies.push_back(kind);
-    }
-
-    bool has_anomalies() const {
-        return !anomalies.empty();
-    }
-
-    bool has_critical_anomalies() const {
-        for (auto kind : anomalies) {
-            if (get_severity(kind) >= AnomalySeverity::Security) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    size_t count_by_severity(AnomalySeverity severity) const {
-        size_t count = 0;
-        for (auto kind : anomalies) {
-            if (get_severity(kind) == severity) {
-                ++count;
-            }
-        }
-        return count;
-    }
-};
-
-/// ============================================================================
 /// MIME Parser with Anomaly Detection
+/// ============================================================================
+///
+/// Extends MimeParserExtended with post-parse structural anomaly detection
+/// (duplicate Content-Type, missing boundary parameter, ...). Anomalies
+/// detected during parsing itself (missing final boundary, nesting depth
+/// exceeded, ...) are recorded by the base class into the same report,
+/// which uses the AnomalyReport/AnomalyRecord types from anomalies.h.
 /// ============================================================================
 
 class MimeParserWithAnomalies : public MimeParserExtended {
 public:
-    MimeParserWithAnomalies(libglot::Arena& arena, std::string_view source, AnomalyConfig config = AnomalyConfig::standard())
-        : MimeParserExtended(arena, source)
+    MimeParserWithAnomalies(libglot::Arena& arena, std::string_view source,
+                            AnomalyConfig config = AnomalyConfig::standard(),
+                            ParserLimits limits = ParserLimits::standard())
+        : MimeParserExtended(arena, source, limits)
         , config_(config)
     {}
 
@@ -65,14 +38,13 @@ public:
         return msg;
     }
 
-    /// Get the anomaly report
-    const AnomalyReport& anomaly_report() const {
+    /// Get the anomaly report (parse-time + structural anomalies)
+    [[nodiscard]] const AnomalyReport& anomaly_report() const noexcept {
         return report_;
     }
 
 private:
     AnomalyConfig config_;
-    AnomalyReport report_;
 
     void detect_missing_headers(Message* msg) {
         bool has_mime_version = false;
@@ -88,11 +60,13 @@ private:
         }
 
         if (!has_mime_version && !msg->parts.empty()) {
-            report_.add(AnomalyKind::MissingMIMEVersion);
+            record_anomaly(AnomalyKind::MissingMIMEVersion,
+                           "multipart message lacks a MIME-Version header");
         }
 
         if (!has_content_type && !msg->parts.empty()) {
-            report_.add(AnomalyKind::MissingContentType);
+            record_anomaly(AnomalyKind::MissingContentType,
+                           "multipart message lacks a Content-Type header");
         }
     }
 
@@ -106,7 +80,8 @@ private:
             if (field == "Content-Type" || field == "content-type") {
                 for (auto seen : seen_headers) {
                     if (seen == field) {
-                        report_.add(AnomalyKind::DuplicateContentType);
+                        record_anomaly(AnomalyKind::DuplicateContentType,
+                                       "message contains multiple Content-Type headers");
                         break;
                     }
                 }
@@ -123,7 +98,8 @@ private:
 
                 // Check for missing subtype (e.g., "text" instead of "text/plain")
                 if (value.find('/') == std::string_view::npos) {
-                    report_.add(AnomalyKind::MissingMediaSubtype);
+                    record_anomaly(AnomalyKind::MissingMediaSubtype,
+                                   "Content-Type lacks a media subtype");
                 }
 
                 // Check for missing charset in text/* types
@@ -136,7 +112,8 @@ private:
                         }
                     }
                     if (!has_charset) {
-                        report_.add(AnomalyKind::MissingCharsetInfo);
+                        record_anomaly(AnomalyKind::MissingCharsetInfo,
+                                       "text/* Content-Type lacks a charset parameter");
                     }
                 }
             }
@@ -164,9 +141,11 @@ private:
                     }
 
                     if (!has_boundary) {
-                        report_.add(AnomalyKind::MissingBoundaryParameter);
+                        record_anomaly(AnomalyKind::MissingBoundaryParameter,
+                                       "multipart Content-Type lacks a boundary parameter");
                     } else if (boundary_empty) {
-                        report_.add(AnomalyKind::EmptyBoundary);
+                        record_anomaly(AnomalyKind::EmptyBoundary,
+                                       "multipart Content-Type has an empty boundary parameter");
                     }
                 }
             }

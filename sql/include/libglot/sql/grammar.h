@@ -75,8 +75,10 @@ private:
             {TK::GTE, 12, Associativity::LEFT},        // >=
             {TK::LIKE, 12, Associativity::LEFT},       // LIKE
             {TK::ILIKE, 12, Associativity::LEFT},      // ILIKE
-            // NOTE: IN is handled in parse_postfix(), not as binary operator
-            {TK::BETWEEN, 12, Associativity::LEFT},    // BETWEEN
+            // NOTE: IN and BETWEEN are handled in parse_postfix(), not as
+            // binary operators. BETWEEN needs a special-form parse (low AND
+            // high bounds) - treating it as an ordinary binary operator made
+            // `x BETWEEN 1 AND 10` parse as `(x BETWEEN 1) AND 10`.
 
             // JSON containment operators (precedence 12 - same as comparison)
             {TK::AT_GT, 12, Associativity::LEFT},      // @> (contains)
@@ -86,8 +88,10 @@ private:
             // IS NULL / IS NOT NULL (precedence 11)
             {TK::IS, 11, Associativity::LEFT},         // IS
 
-            // Boolean (precedence 8-10)
-            {TK::NOT, 10, Associativity::RIGHT},       // NOT
+            // Boolean (precedence 8-9)
+            // NOTE: NOT is not a binary operator. Prefix NOT is handled in
+            // parse_prefix(); the infix forms (NOT LIKE / NOT IN /
+            // NOT BETWEEN) are handled in parse_postfix().
             {TK::AND, 9, Associativity::LEFT},         // AND
             {TK::OR, 8, Associativity::LEFT},          // OR
     };

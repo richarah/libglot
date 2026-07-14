@@ -2,6 +2,7 @@
 
 #include "parser_extended.h"
 #include "anomalies.h"
+#include <charconv>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -37,8 +38,11 @@ public:
     };
 
     /// Parse continued parameters: name*0=value0; name*1=value1; name*2=value2
+    /// If `report` is non-null, invalid RFC 2231 percent-encoding is recorded
+    /// there instead of aborting the parse.
     static std::unordered_map<std::string, ContinuedParameter>
-    parse_continued_parameters(const std::vector<std::pair<std::string_view, std::string_view>>& params) {
+    parse_continued_parameters(const std::vector<std::pair<std::string_view, std::string_view>>& params,
+                               AnomalyReport* report = nullptr) {
         std::unordered_map<std::string, std::vector<std::pair<int, std::string>>> fragments;
         std::unordered_map<std::string, bool> encoded_flags;
         std::unordered_map<std::string, std::string> charsets;
@@ -60,10 +64,14 @@ public:
                 suffix = suffix.substr(0, suffix.length() - 1);
             }
 
-            // Extract sequence number
+            // Extract sequence number (attacker-controlled: parse defensively,
+            // treating malformed or out-of-range values as section 0)
             int seq = 0;
-            if (!suffix.empty() && std::isdigit(suffix[0])) {
-                seq = std::atoi(suffix.c_str());
+            if (!suffix.empty() && std::isdigit(static_cast<unsigned char>(suffix[0]))) {
+                auto [ptr, ec] = std::from_chars(suffix.data(), suffix.data() + suffix.size(), seq);
+                if (ec != std::errc()) {
+                    seq = 0;
+                }
             }
 
             // First fragment (seq=0) may contain charset and language
@@ -106,7 +114,14 @@ public:
 
             // Decode if encoded
             if (param.encoded) {
-                param.value = percent_decode(param.value);
+                bool invalid_encoding = false;
+                param.value = percent_decode(param.value, &invalid_encoding);
+                if (invalid_encoding && report) {
+                    report->add(AnomalyKind::InvalidParameterSyntax,
+                                AnomalyConfig::get_severity(AnomalyKind::InvalidParameterSyntax),
+                                AnomalyPolicy::Repair, SourceLocation{}, "",
+                                "invalid RFC 2231 percent-encoding in parameter value");
+                }
             }
 
             result[name] = param;
@@ -116,18 +131,42 @@ public:
     }
 
 private:
-    static std::string percent_decode(const std::string& encoded) {
+    /// Decode %XX percent-encoding. The input is attacker-controlled, so both
+    /// hex digits are validated by hand (no std::stoi, which throws on
+    /// malformed input). Invalid sequences such as "%ZZ" or a truncated "%X"
+    /// are kept literally and flagged via `invalid` when provided.
+    static std::string percent_decode(const std::string& encoded, bool* invalid = nullptr) {
         std::string result;
+        result.reserve(encoded.length());
+
         for (size_t i = 0; i < encoded.length(); i++) {
-            if (encoded[i] == '%' && i + 2 < encoded.length()) {
-                int value = std::stoi(encoded.substr(i + 1, 2), nullptr, 16);
-                result += static_cast<char>(value);
-                i += 2;
+            if (encoded[i] == '%') {
+                if (i + 2 < encoded.length()) {
+                    int hi = hex_digit_value(encoded[i + 1]);
+                    int lo = hex_digit_value(encoded[i + 2]);
+                    if (hi >= 0 && lo >= 0) {
+                        result += static_cast<char>((hi << 4) | lo);
+                        i += 2;
+                        continue;
+                    }
+                }
+                // Invalid or truncated %XX sequence: keep literally
+                if (invalid) {
+                    *invalid = true;
+                }
+                result += encoded[i];
             } else {
                 result += encoded[i];
             }
         }
         return result;
+    }
+
+    static int hex_digit_value(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        return -1;
     }
 };
 
@@ -298,17 +337,39 @@ class BoundaryRecovery {
 public:
     /// Auto-detect boundary when Content-Type is missing or incorrect
     static std::string detect_boundary(std::string_view body) {
-        // Look for common boundary patterns: --boundary or --=_Part_123
+        // Look for lines starting with "--": both part delimiters
+        // ("--boundary") and close delimiters ("--boundary--") count as
+        // occurrences of the same boundary candidate.
         size_t pos = 0;
         std::unordered_map<std::string, int> boundary_candidates;
 
         while ((pos = body.find("--", pos)) != std::string_view::npos) {
+            // Boundary delimiters only occur at the start of a line
+            if (pos != 0 && body[pos - 1] != '\n' && body[pos - 1] != '\r') {
+                pos += 1;
+                continue;
+            }
+
             size_t end = body.find_first_of("\r\n", pos);
             if (end == std::string_view::npos) end = body.length();
 
-            std::string candidate(body.substr(pos + 2, end - pos - 2));
+            std::string_view candidate = body.substr(pos + 2, end - pos - 2);
+
+            // Strip transport padding and a trailing "--" (close delimiter)
+            while (!candidate.empty() &&
+                   (candidate.back() == ' ' || candidate.back() == '\t')) {
+                candidate.remove_suffix(1);
+            }
+            if (candidate.size() >= 2 && candidate.substr(candidate.size() - 2) == "--") {
+                candidate.remove_suffix(2);
+            }
+            while (!candidate.empty() &&
+                   (candidate.back() == ' ' || candidate.back() == '\t')) {
+                candidate.remove_suffix(1);
+            }
+
             if (!candidate.empty()) {
-                boundary_candidates[candidate]++;
+                boundary_candidates[std::string(candidate)]++;
             }
 
             pos = end;
@@ -327,31 +388,35 @@ public:
         return best_boundary;
     }
 
-    /// Handle missing final boundary
+    /// Split a multipart body on RFC 2046 boundary delimiter lines, with
+    /// recovery when the final close delimiter is missing (the remainder of
+    /// the body becomes the last part). Preamble (before the first delimiter)
+    /// and epilogue (after the close delimiter) are discarded; boundary text
+    /// appearing mid-line inside part content does not split.
     static std::vector<std::string_view>
     split_with_recovery(std::string_view body, std::string_view boundary) {
         std::vector<std::string_view> parts;
-        std::string delimiter = std::string("--") + std::string(boundary);
 
-        size_t pos = body.find(delimiter);
-        if (pos == std::string_view::npos) return parts;
+        auto delim = find_boundary_delimiter(body, boundary, 0);
+        if (!delim.found) return parts;
 
-        while (pos != std::string_view::npos) {
-            size_t next_pos = body.find(delimiter, pos + delimiter.length());
+        bool closed = delim.is_close;
+        size_t part_start = delim.next_pos;
 
-            if (next_pos == std::string_view::npos) {
-                // No final boundary - take rest of body
-                parts.push_back(body.substr(pos + delimiter.length()));
+        while (!closed) {
+            auto next = find_boundary_delimiter(body, boundary, part_start);
+
+            if (!next.found) {
+                // Missing final close delimiter: recover by taking the rest
+                parts.push_back(body.substr(part_start));
                 break;
             }
 
-            size_t part_start = pos + delimiter.length();
-            // Skip CRLF after boundary
-            if (part_start < body.length() && body[part_start] == '\r') part_start++;
-            if (part_start < body.length() && body[part_start] == '\n') part_start++;
+            size_t content_end = std::max(next.content_end, part_start);
+            parts.push_back(body.substr(part_start, content_end - part_start));
 
-            parts.push_back(body.substr(part_start, next_pos - part_start));
-            pos = next_pos;
+            closed = next.is_close;
+            part_start = next.next_pos;
         }
 
         return parts;
@@ -396,7 +461,14 @@ public:
             } else if (key_lower == "subject") {
                 ref.subject = value;
             } else if (key_lower == "size") {
-                ref.size = std::stoull(std::string(value));
+                // Attacker-controlled numeric parameter: parse with
+                // std::from_chars (no exceptions). Malformed or out-of-range
+                // values are ignored and size stays 0.
+                size_t parsed = 0;
+                auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                if (ec == std::errc() && ptr == value.data() + value.size()) {
+                    ref.size = parsed;
+                }
             } else if (key_lower == "expiration") {
                 ref.expiration = value;
             }
@@ -421,7 +493,7 @@ public:
         // Process continued parameters
         for (auto* header : msg->headers) {
             if (header->field == "Content-Type" || header->field == "Content-Disposition") {
-                auto continued = RFC2231Parser::parse_continued_parameters(header->parameters);
+                auto continued = RFC2231Parser::parse_continued_parameters(header->parameters, &report_);
                 // Add continued parameters back to header
                 for (const auto& [name, param] : continued) {
                     header->parameters.push_back({

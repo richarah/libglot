@@ -54,7 +54,7 @@ TEST_CASE("JSON operations - PostgreSQL", "[json][postgresql]") {
     SECTION("JSON key exists (?)") {
         std::string sql = "SELECT * FROM users WHERE data ? 'name'";
         std::string result = test_round_trip(sql);
-        REQUIRE(result.find("?") != std::string::npos);
+        REQUIRE(result == "SELECT * FROM \"users\" WHERE \"data\" ? 'name'");
     }
 }
 
@@ -188,7 +188,7 @@ TEST_CASE("JSON operations - Snowflake", "[json][snowflake]") {
         std::string result = test_round_trip(sql, SQLDialect::Snowflake);
         INFO("Input: " << sql);
         INFO("Output: " << result);
-        REQUIRE(result.find("[0]") != std::string::npos);
+        REQUIRE(result == "SELECT \"data\":\"items\"[0] FROM \"orders\"");
     }
 
     SECTION("PARSE_JSON function") {

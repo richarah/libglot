@@ -256,3 +256,45 @@ TEST_CASE("External Body - Windows path directory", "[mime][external_body]") {
 
     REQUIRE(ref.directory == "C:\\Users\\Public\\Documents");
 }
+
+TEST_CASE("External Body - Non-numeric size does not throw", "[mime][external_body][security]") {
+    // Attacker-controlled 'size=abc' previously reached std::stoull and threw
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"access-type", "ftp"},
+        {"name", "file.txt"},
+        {"size", "abc"}
+    };
+
+    ExternalBodyRef ref;
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params));
+    REQUIRE(ref.size == 0);
+}
+
+TEST_CASE("External Body - Out-of-range size does not throw", "[mime][external_body][security]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"access-type", "ftp"},
+        {"size", "99999999999999999999999999999999999999"}
+    };
+
+    ExternalBodyRef ref;
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params));
+    REQUIRE(ref.size == 0);
+}
+
+TEST_CASE("External Body - Negative and mixed size values ignored", "[mime][external_body][security]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"access-type", "ftp"},
+        {"size", "-42"}
+    };
+    ExternalBodyRef ref;
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params));
+    REQUIRE(ref.size == 0);
+
+    // Trailing garbage after digits is also rejected
+    std::vector<std::pair<std::string_view, std::string_view>> params2 = {
+        {"access-type", "ftp"},
+        {"size", "123abc"}
+    };
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params2));
+    REQUIRE(ref.size == 0);
+}

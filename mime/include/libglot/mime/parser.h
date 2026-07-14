@@ -4,6 +4,7 @@
 #include "grammar.h"
 #include "ast_nodes.h"
 #include "tokens.h"
+#include "header_folding.h"
 
 namespace libglot::mime {
 
@@ -142,9 +143,12 @@ protected:
     {}
 
     /// Copy source into arena and tokenize the arena-owned copy
-    /// This ensures all token string_views point to arena memory
+    /// This ensures all token string_views point to arena memory.
+    /// Folded (continuation) header lines are unfolded first (RFC 5322
+    /// §2.2.3) so each header occupies exactly one line; the body bytes
+    /// are left untouched.
     static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source) {
-        auto arena_source = arena.copy_source(source);
+        auto arena_source = arena.copy_source(HeaderFolding::unfold_headers(source));
         auto tokens = tokenize(arena_source);
         return {std::move(tokens), arena_source};
     }

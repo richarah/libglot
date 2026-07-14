@@ -255,3 +255,46 @@ TEST_CASE("Utility - DESCRIBE table", "[advanced][utility]") {
     std::string sql = gen.generate(stmt);
     REQUIRE(sql.find("DESCRIBE") != std::string::npos);
 }
+
+TEST_CASE("Set operations - EXCEPT chains are left-associative", "[advanced][set_operations]") {
+    libglot::Arena arena;
+    SQLParser parser(arena,
+        "SELECT id FROM a EXCEPT SELECT id FROM b EXCEPT SELECT id FROM c");
+
+    auto stmt = parser.parse_top_level();
+
+    // a EXCEPT b EXCEPT c must parse as (a EXCEPT b) EXCEPT c
+    REQUIRE(stmt->type == SQLNodeKind::EXCEPT_STMT);
+    auto* outer = static_cast<ExceptStmt*>(stmt);
+
+    REQUIRE(outer->left->type == SQLNodeKind::EXCEPT_STMT);
+    REQUIRE(outer->right->type == SQLNodeKind::SELECT_STMT);
+
+    auto* inner = static_cast<ExceptStmt*>(outer->left);
+    REQUIRE(inner->left->type == SQLNodeKind::SELECT_STMT);
+    REQUIRE(inner->right->type == SQLNodeKind::SELECT_STMT);
+
+    // Left operand of the inner EXCEPT is the first SELECT (FROM a)
+    auto* first = static_cast<SelectStmt*>(inner->left);
+    REQUIRE(first->from != nullptr);
+    REQUIRE(first->from->type == SQLNodeKind::TABLE_REF);
+    REQUIRE(static_cast<TableRef*>(first->from)->table == "a");
+
+    // Right operand of the outer EXCEPT is the last SELECT (FROM c)
+    auto* last = static_cast<SelectStmt*>(outer->right);
+    REQUIRE(static_cast<TableRef*>(last->from)->table == "c");
+}
+
+TEST_CASE("Set operations - mixed chain is left-associative", "[advanced][set_operations]") {
+    libglot::Arena arena;
+    SQLParser parser(arena,
+        "SELECT id FROM a UNION SELECT id FROM b INTERSECT SELECT id FROM c");
+
+    auto stmt = parser.parse_top_level();
+
+    // Chain order: (a UNION b) INTERSECT c
+    REQUIRE(stmt->type == SQLNodeKind::INTERSECT_STMT);
+    auto* outer = static_cast<IntersectStmt*>(stmt);
+    REQUIRE(outer->left->type == SQLNodeKind::UNION_STMT);
+    REQUIRE(outer->right->type == SQLNodeKind::SELECT_STMT);
+}

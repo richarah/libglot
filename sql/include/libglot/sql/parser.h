@@ -28,6 +28,14 @@ public:
     using TokenType = Base::TokenType;
     using TK = libglot::sql::lex::TokenType;
 
+    // Precedence anchors (must stay in sync with the table in grammar.h):
+    // boolean NOT sits between AND (9) and IS (11); arithmetic unary +/-
+    // binds above the highest binary level (14); BETWEEN/IN bounds parse
+    // above the comparison level (12) so AND/comparisons are not consumed.
+    static constexpr int kNotPrecedence = 10;
+    static constexpr int kUnaryArithmeticPrecedence = 15;
+    static constexpr int kComparisonOperandPrecedence = 13;
+
     // ========================================================================
     // Construction
     // ========================================================================
@@ -152,7 +160,7 @@ public:
             expect(TK::LPAREN);
             auto subquery = parse_select();
             expect(TK::RPAREN);
-            return this->template create_node<ExistsExpr>(static_cast<SelectStmt*>(subquery));
+            return this->template create_node<ExistsExpr>(subquery);
         }
 
         // ANY (subquery or expression)
@@ -231,7 +239,7 @@ public:
             if (check(TK::SELECT) || check(TK::WITH)) {
                 auto subquery = parse_select();
                 expect(TK::RPAREN);
-                return this->template create_node<SubqueryExpr>(static_cast<SelectStmt*>(subquery));
+                return this->template create_node<SubqueryExpr>(subquery);
             }
             auto expr = parse_expression();
             expect(TK::RPAREN);
@@ -366,7 +374,9 @@ public:
                 (void)advance();  // Acknowledge nodiscard warning
             }
             expect(TK::RPAREN);
-            return this->template create_node<CastExpr>(expr, type_str);
+            // type_str is a local; copy into the arena so the string_view
+            // stored in CastExpr outlives this function.
+            return this->template create_node<CastExpr>(expr, this->arena().copy_source(type_str));
         }
 
         if (check(TK::SAFE_CAST)) {
@@ -385,7 +395,8 @@ public:
                 (void)advance();
             }
             expect(TK::RPAREN);
-            return this->template create_node<CastExpr>(expr, type_str);
+            // Copy the locally built type string into the arena (see CAST).
+            return this->template create_node<CastExpr>(expr, this->arena().copy_source(type_str));
         }
 
         if (check(TK::STRUCT_KW)) {
@@ -430,7 +441,9 @@ public:
             if (current().type != TK::IDENTIFIER) {
                 error("Expected date/time field name (YEAR, MONTH, DAY, etc.) after EXTRACT(");
             }
-            std::string field(current().text);
+            // Token text points into arena-owned source, so the string_view
+            // is safe to store directly (a local std::string would dangle).
+            std::string_view field = current().text;
             (void)advance();  // Acknowledge nodiscard warning
             expect(TK::FROM);
             auto expr = parse_expression();
@@ -440,18 +453,23 @@ public:
         }
 
         // Unary operators (NOT, -, +)
+        // Boolean NOT binds at precedence 10: tighter than AND (9) / OR (8),
+        // looser than comparisons (12), so `NOT a = b AND c` parses as
+        // (NOT (a = b)) AND c.
         if (match(TK::NOT)) {
-            auto operand = parse_expression();
+            auto operand = parse_expression(kNotPrecedence);
             return this->template create_node<UnaryOp>(TK::NOT, operand);
         }
 
+        // Arithmetic unary +/- bind above every binary operator (15), so
+        // `-2 + 3` parses as (-2) + 3, not -(2 + 3).
         if (match(TK::MINUS)) {
-            auto operand = parse_expression();
+            auto operand = parse_expression(kUnaryArithmeticPrecedence);
             return this->template create_node<UnaryOp>(TK::MINUS, operand);
         }
 
         if (match(TK::PLUS)) {
-            auto operand = parse_expression();
+            auto operand = parse_expression(kUnaryArithmeticPrecedence);
             return this->template create_node<UnaryOp>(TK::PLUS, operand);
         }
 
@@ -507,26 +525,36 @@ public:
             // IN operator: expr IN (value1, value2, ...) or expr IN (SELECT ...)
             if (check(TK::IN)) {
                 (void)advance();  // Consume IN
-                expect(TK::LPAREN);
+                base = parse_in_rest(base, /*not_in=*/false);
+                continue;
+            }
 
-                // Check if it's a subquery or a list of values
-                if (check(TK::SELECT)) {
-                    // IN (SELECT ...) - subquery form
-                    auto subquery = parse_select();
-                    expect(TK::RPAREN);
-                    auto in_expr = this->template create_node<InExpr>(base, std::vector<SQLNode*>{subquery});
-                    base = in_expr;
+            // BETWEEN operator: expr BETWEEN low AND high.
+            // Parsed as a special form (not via the binary-operator table):
+            // both bounds are parsed above comparison precedence so the AND
+            // separating them is not mistaken for boolean AND.
+            if (check(TK::BETWEEN)) {
+                (void)advance();  // Consume BETWEEN
+                base = parse_between_rest(base, /*not_between=*/false);
+                continue;
+            }
+
+            // Negated infix forms: NOT IN / NOT BETWEEN / NOT LIKE / NOT ILIKE
+            if (check(TK::NOT) &&
+                (peek(1).type == TK::IN || peek(1).type == TK::BETWEEN ||
+                 peek(1).type == TK::LIKE || peek(1).type == TK::ILIKE)) {
+                (void)advance();  // Consume NOT
+                if (match(TK::IN)) {
+                    base = parse_in_rest(base, /*not_in=*/true);
+                } else if (match(TK::BETWEEN)) {
+                    base = parse_between_rest(base, /*not_between=*/true);
                 } else {
-                    // IN (value1, value2, ...) - value list form
-                    std::vector<SQLNode*> values;
-                    if (!check(TK::RPAREN)) {
-                        do {
-                            values.push_back(parse_expression());
-                        } while (match(TK::COMMA));
-                    }
-                    expect(TK::RPAREN);
-                    auto in_expr = this->template create_node<InExpr>(base, values);
-                    base = in_expr;
+                    // NOT LIKE / NOT ILIKE: represent as NOT (expr LIKE pattern)
+                    TK like_op = current().type;
+                    (void)advance();
+                    auto pattern = parse_expression(kComparisonOperandPrecedence);
+                    auto like = this->template create_node<BinaryOp>(like_op, base, pattern);
+                    base = this->template create_node<UnaryOp>(TK::NOT, like);
                 }
                 continue;
             }
@@ -574,6 +602,37 @@ public:
         return base;
     }
 
+    /// Parse the remainder of [NOT] IN after IN has been consumed
+    [[nodiscard]] SQLNode* parse_in_rest(SQLNode* base, bool not_in) {
+        expect(TK::LPAREN);
+
+        // Check if it's a subquery or a list of values
+        if (check(TK::SELECT)) {
+            // IN (SELECT ...) - subquery form
+            auto subquery = parse_select();
+            expect(TK::RPAREN);
+            return this->template create_node<InExpr>(base, std::vector<SQLNode*>{subquery}, not_in);
+        }
+
+        // IN (value1, value2, ...) - value list form
+        std::vector<SQLNode*> values;
+        if (!check(TK::RPAREN)) {
+            do {
+                values.push_back(parse_expression());
+            } while (match(TK::COMMA));
+        }
+        expect(TK::RPAREN);
+        return this->template create_node<InExpr>(base, values, not_in);
+    }
+
+    /// Parse the remainder of [NOT] BETWEEN after BETWEEN has been consumed
+    [[nodiscard]] SQLNode* parse_between_rest(SQLNode* base, bool not_between) {
+        auto lower = parse_expression(kComparisonOperandPrecedence);
+        expect(TK::AND);
+        auto upper = parse_expression(kComparisonOperandPrecedence);
+        return this->template create_node<BetweenExpr>(base, lower, upper, not_between);
+    }
+
     /// Create binary operator node (required for precedence climbing)
     [[nodiscard]] SQLNode* make_binary_operator(TK op, SQLNode* left, SQLNode* right) {
         return this->template create_node<BinaryOp>(op, left, right);
@@ -585,6 +644,18 @@ public:
 
     /// Parse SELECT statement (may return set operation for UNION/INTERSECT/EXCEPT)
     SQLNode* parse_select() {
+        SelectStmt* stmt = parse_select_body();
+
+        // Set operations: UNION, INTERSECT, EXCEPT (left-associative)
+        if (check(TK::UNION) || check(TK::INTERSECT) || check(TK::EXCEPT)) {
+            return parse_set_operation(stmt);
+        }
+
+        return stmt;
+    }
+
+    /// Parse a single SELECT statement without a set-operation tail
+    SelectStmt* parse_select_body() {
         auto stmt = this->template create_node<SelectStmt>();
 
         // WITH clause (CTEs)
@@ -602,12 +673,20 @@ public:
         // TOP n (SQL Server, Access)
         if (match(TK::TOP)) {
             stmt->limit = parse_expression();
-            // Optional: PERCENT, WITH TIES
-            if (match(TK::PERCENT)) {
-                // Store that this is a percentage (we'd need to track this in AST)
+            // Optional: PERCENT ('%' operator token or PERCENT keyword/identifier)
+            if (check(TK::PERCENT) || check(TK::PERCENT_KW) ||
+                (check(TK::IDENTIFIER) && (current().text == "PERCENT" || current().text == "percent"))) {
+                (void)advance();
+                stmt->limit_percent = true;
             }
-            // WITH TIES would require tracking in AST as well
-            // For now, we'll skip these modifiers and just parse the TOP value
+            // Optional: WITH TIES
+            if (check(TK::WITH) &&
+                (peek(1).type == TK::WITH_TIES ||
+                 (peek(1).type == TK::IDENTIFIER && (peek(1).text == "TIES" || peek(1).text == "ties")))) {
+                (void)advance();  // WITH
+                (void)advance();  // TIES
+                stmt->limit_with_ties = true;
+            }
         }
 
         // FIRST n [SKIP m] (Firebird, Informix)
@@ -672,11 +751,6 @@ public:
         // OFFSET
         if (match(TK::OFFSET)) {
             stmt->offset = parse_expression();
-        }
-
-        // Set operations: UNION, INTERSECT, EXCEPT
-        if (check(TK::UNION) || check(TK::INTERSECT) || check(TK::EXCEPT)) {
-            return parse_set_operation(stmt);
         }
 
         return stmt;
@@ -914,8 +988,8 @@ public:
             }
         }
 
-        // Frame clause: ROWS/RANGE [BETWEEN ...]
-        if (check(TK::ROWS) || check(TK::RANGE)) {
+        // Frame clause: ROWS/RANGE/GROUPS [BETWEEN ...]
+        if (check(TK::ROWS) || check(TK::RANGE) || check_groups_keyword()) {
             window_spec->frame = parse_frame_clause();
         }
 
@@ -926,16 +1000,26 @@ public:
         return window_func;
     }
 
-    /// Parse window frame clause: ROWS/RANGE [BETWEEN] ...
+    /// Check whether the current token is the GROUPS frame keyword
+    /// (GROUPS is not a reserved keyword, so it lexes as an identifier)
+    [[nodiscard]] bool check_groups_keyword() const noexcept {
+        return check(TK::IDENTIFIER) &&
+               (current().text == "GROUPS" || current().text == "groups");
+    }
+
+    /// Parse window frame clause: ROWS/RANGE/GROUPS [BETWEEN] ...
     FrameClause* parse_frame_clause() {
-        // Frame type: ROWS or RANGE
+        // Frame type: ROWS, RANGE, or GROUPS
         FrameType frame_type;
         if (match(TK::ROWS)) {
             frame_type = FrameType::ROWS;
         } else if (match(TK::RANGE)) {
             frame_type = FrameType::RANGE;
+        } else if (check_groups_keyword()) {
+            (void)advance();
+            frame_type = FrameType::GROUPS;
         } else {
-            error("Expected ROWS or RANGE for window frame");
+            error("Expected ROWS, RANGE, or GROUPS for window frame");
         }
 
         // BETWEEN start AND end
@@ -948,6 +1032,7 @@ public:
             frame->start_offset = start_offset;
             frame->end_bound = end_bound;
             frame->end_offset = end_offset;
+            frame->between_form = true;
             return frame;
         } else {
             // Single boundary (implies BETWEEN start AND CURRENT ROW)
@@ -1021,7 +1106,7 @@ public:
 
             expect(TK::AS);
             expect(TK::LPAREN);
-            auto query = static_cast<SelectStmt*>(parse_select());
+            auto query = parse_select();
             expect(TK::RPAREN);
 
             auto cte = this->template create_node<CTE>(cte_name, query);
@@ -1286,28 +1371,31 @@ public:
         return table;
     }
 
-    /// Parse set operation (UNION, INTERSECT, EXCEPT)
-    SQLNode* parse_set_operation(SelectStmt* left) {
-        bool all = false;
-        SQLNode* result = nullptr;
+    /// Parse set operation chain (UNION, INTERSECT, EXCEPT).
+    /// Set operations are left-associative: a EXCEPT b EXCEPT c must parse
+    /// as (a EXCEPT b) EXCEPT c, so each right operand is a plain SELECT
+    /// (parse_select_body) and the accumulated result becomes the new left.
+    SQLNode* parse_set_operation(SelectStmt* first) {
+        SQLNode* left = first;
 
-        if (match(TK::UNION)) {
-            all = match(TK::ALL);
-            auto right = static_cast<SelectStmt*>(parse_select());
-            result = this->template create_node<UnionStmt>(left, right, all);
-        } else if (match(TK::INTERSECT)) {
-            all = match(TK::ALL);
-            auto right = static_cast<SelectStmt*>(parse_select());
-            result = this->template create_node<IntersectStmt>(left, right, all);
-        } else if (match(TK::EXCEPT)) {
-            all = match(TK::ALL);
-            auto right = static_cast<SelectStmt*>(parse_select());
-            result = this->template create_node<ExceptStmt>(left, right, all);
-        } else {
-            error("Expected UNION, INTERSECT, or EXCEPT");
+        while (check(TK::UNION) || check(TK::INTERSECT) || check(TK::EXCEPT)) {
+            if (match(TK::UNION)) {
+                bool all = match(TK::ALL);
+                SelectStmt* right = parse_select_body();
+                left = this->template create_node<UnionStmt>(left, right, all);
+            } else if (match(TK::INTERSECT)) {
+                bool all = match(TK::ALL);
+                SelectStmt* right = parse_select_body();
+                left = this->template create_node<IntersectStmt>(left, right, all);
+            } else {
+                expect(TK::EXCEPT);
+                bool all = match(TK::ALL);
+                SelectStmt* right = parse_select_body();
+                left = this->template create_node<ExceptStmt>(left, right, all);
+            }
         }
 
-        return result;
+        return left;
     }
 
     /// Parse INSERT statement
@@ -1331,7 +1419,7 @@ public:
 
         // VALUES or SELECT
         if (check(TK::SELECT) || check(TK::WITH)) {
-            stmt->select_query = static_cast<SelectStmt*>(parse_select());
+            stmt->select_query = parse_select();
         } else {
             expect(TK::VALUES);
             // Parse value rows: VALUES (val1, val2), (val3, val4), ...
@@ -1580,21 +1668,204 @@ public:
 
         // Check for AS SELECT (CREATE TABLE ... AS SELECT ...)
         if (match(TK::AS)) {
-            stmt->as_select = static_cast<SelectStmt*>(parse_select());
+            stmt->as_select = parse_select();
             return stmt;
         }
 
-        // Column definitions: (col1 type, col2 type, ...)
+        // Column definitions and table-level constraints:
+        // (col1 type [constraints], ..., PRIMARY KEY (...), FOREIGN KEY (...), ...)
         expect(TK::LPAREN);
-        // For now, skip parsing column definitions - just consume tokens until )
-        int paren_depth = 1;
-        while (paren_depth > 0 && !is_eof()) {
-            if (check(TK::LPAREN)) paren_depth++;
-            else if (check(TK::RPAREN)) paren_depth--;
+        if (!check(TK::RPAREN)) {
+            do {
+                if (check_table_constraint_start()) {
+                    stmt->constraints.push_back(parse_table_constraint());
+                } else {
+                    stmt->columns.push_back(parse_column_def());
+                }
+            } while (match(TK::COMMA));
+        }
+        expect(TK::RPAREN);
+
+        return stmt;
+    }
+
+    /// Check whether the current token begins a table-level constraint
+    [[nodiscard]] bool check_table_constraint_start() const noexcept {
+        return check(TK::CONSTRAINT) || check(TK::PRIMARY) || check(TK::FOREIGN) ||
+               check(TK::CHECK) ||
+               (check(TK::UNIQUE) && peek(1).type == TK::LPAREN);
+    }
+
+    /// Parse a table-level constraint inside CREATE TABLE:
+    /// [CONSTRAINT name] PRIMARY KEY (...) | FOREIGN KEY (...) REFERENCES tbl (...)
+    /// | UNIQUE (...) | CHECK (expr)
+    TableConstraint* parse_table_constraint() {
+        auto constraint = this->template create_node<TableConstraint>();
+
+        // Optional CONSTRAINT name prefix
+        if (match(TK::CONSTRAINT)) {
+            if (check(TK::IDENTIFIER)) {
+                constraint->name = advance().text;
+            }
+        }
+
+        if (match(TK::PRIMARY)) {
+            expect(TK::KEY);
+            constraint->constraint_type = TableConstraint::Type::PRIMARY_KEY;
+            parse_identifier_list_into(constraint->columns);
+        } else if (match(TK::FOREIGN)) {
+            expect(TK::KEY);
+            constraint->constraint_type = TableConstraint::Type::FOREIGN_KEY;
+            parse_identifier_list_into(constraint->columns);
+            expect(TK::REFERENCES);
+            constraint->ref_table = parse_table_ref();
+            if (check(TK::LPAREN)) {
+                parse_identifier_list_into(constraint->ref_columns);
+            }
+            parse_foreign_key_actions(constraint->on_delete_action, constraint->on_update_action);
+        } else if (match(TK::UNIQUE)) {
+            constraint->constraint_type = TableConstraint::Type::UNIQUE;
+            parse_identifier_list_into(constraint->columns);
+        } else if (match(TK::CHECK)) {
+            constraint->constraint_type = TableConstraint::Type::CHECK;
+            expect(TK::LPAREN);
+            constraint->check_expr = parse_expression();
+            expect(TK::RPAREN);
+        } else {
+            error("Expected PRIMARY KEY, FOREIGN KEY, UNIQUE, or CHECK constraint");
+        }
+
+        return constraint;
+    }
+
+    /// Parse a parenthesized identifier list into `out`: (col1, col2, ...)
+    void parse_identifier_list_into(std::vector<std::string_view>& out) {
+        expect(TK::LPAREN);
+        do {
+            if (check(TK::RPAREN)) break;
+            out.push_back(advance().text);
+        } while (match(TK::COMMA));
+        expect(TK::RPAREN);
+    }
+
+    /// Parse optional ON DELETE / ON UPDATE referential actions
+    void parse_foreign_key_actions(std::string_view& on_delete, std::string_view& on_update) {
+        while (check(TK::ON) &&
+               (peek(1).type == TK::DELETE || peek(1).type == TK::UPDATE)) {
+            (void)advance();  // ON
+            const bool is_delete = check(TK::DELETE);
+            (void)advance();  // DELETE / UPDATE
+
+            // Action: CASCADE | RESTRICT | SET NULL | SET DEFAULT | NO ACTION.
+            // Capture the action text as a source span.
+            size_t action_start = current().start;
+            size_t action_end = action_start;
+            if (match(TK::SET)) {
+                action_end = current().end;
+                if (!match(TK::NULL_KW)) (void)match(TK::DEFAULT);
+            } else if (check(TK::IDENTIFIER) &&
+                       (current().text == "NO" || current().text == "no")) {
+                (void)advance();  // NO
+                action_end = current().end;
+                if (check(TK::IDENTIFIER)) (void)advance();  // ACTION
+            } else if (check(TK::IDENTIFIER)) {
+                action_end = current().end;
+                (void)advance();  // CASCADE / RESTRICT
+            }
+
+            std::string_view action = source_.substr(action_start, action_end - action_start);
+            if (is_delete) {
+                on_delete = action;
+            } else {
+                on_update = action;
+            }
+        }
+    }
+
+    /// Parse a single column definition inside CREATE TABLE:
+    /// name type[(params)] [NOT NULL | NULL] [DEFAULT expr] [PRIMARY KEY]
+    /// [UNIQUE] [AUTO_INCREMENT] [REFERENCES tbl [(col)]] [CHECK (expr)]
+    ColumnDef* parse_column_def() {
+        auto col = this->template create_node<ColumnDef>();
+
+        if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) || is_eof()) {
+            error("Expected column name in CREATE TABLE");
+        }
+        col->name = advance().text;
+
+        // Type: capture the source span of the type (including parameters
+        // like VARCHAR(255) or DECIMAL(10, 2) and dialect modifiers like
+        // UNSIGNED or DISTKEY) up to the first recognized constraint keyword,
+        // comma, or the closing paren of the column list.
+        size_t type_start = current().start;
+        size_t type_end = type_start;
+        int paren_depth = 0;
+        while (!is_eof()) {
+            if (paren_depth == 0 &&
+                (check(TK::COMMA) || check(TK::NOT) || check(TK::NULL_KW) ||
+                 check(TK::DEFAULT) || check(TK::PRIMARY) || check(TK::UNIQUE) ||
+                 check(TK::REFERENCES) || check(TK::CHECK) || check(TK::CONSTRAINT) ||
+                 check(TK::AUTO_INCREMENT))) {
+                break;
+            }
+            if (check(TK::LPAREN)) {
+                paren_depth++;
+            } else if (check(TK::RPAREN)) {
+                if (paren_depth == 0) break;  // Closing paren of the column list
+                paren_depth--;
+            }
+            type_end = current().end;
+            (void)advance();
+        }
+        col->type = source_.substr(type_start, type_end - type_start);
+
+        // Column constraints (any order)
+        while (true) {
+            if (check(TK::NOT) && peek(1).type == TK::NULL_KW) {
+                (void)advance();
+                (void)advance();
+                col->not_null = true;
+            } else if (match(TK::NULL_KW)) {
+                // Explicit NULL - nullable is the default, nothing to record
+            } else if (match(TK::DEFAULT)) {
+                col->default_value = parse_expression();
+            } else if (match(TK::PRIMARY)) {
+                expect(TK::KEY);
+                col->primary_key = true;
+            } else if (match(TK::UNIQUE)) {
+                col->unique = true;
+            } else if (match(TK::AUTO_INCREMENT)) {
+                col->auto_increment = true;
+            } else if (match(TK::REFERENCES)) {
+                if (check(TK::IDENTIFIER) || check(TK::TABLE)) {
+                    col->references_table = advance().text;
+                } else {
+                    error("Expected table name after REFERENCES");
+                }
+                if (check(TK::LPAREN)) {
+                    parse_identifier_list_into(col->references_columns);
+                }
+            } else if (match(TK::CHECK)) {
+                expect(TK::LPAREN);
+                col->check_expr = parse_expression();
+                expect(TK::RPAREN);
+            } else {
+                break;
+            }
+        }
+
+        // Be permissive with dialect-specific trailing attributes we do not
+        // model (e.g. IDENTITY(1,1), COMMENT '...'): skip until the next
+        // column or the end of the column list.
+        int skip_depth = 0;
+        while (!is_eof()) {
+            if (skip_depth == 0 && (check(TK::COMMA) || check(TK::RPAREN))) break;
+            if (check(TK::LPAREN)) skip_depth++;
+            else if (check(TK::RPAREN)) skip_depth--;
             (void)advance();
         }
 
-        return stmt;
+        return col;
     }
 
     /// Parse CREATE VIEW
@@ -1610,7 +1881,7 @@ public:
         stmt->name = advance().text;
 
         expect(TK::AS);
-        stmt->query = static_cast<SelectStmt*>(parse_select());
+        stmt->query = parse_select();
 
         return stmt;
     }
@@ -1675,7 +1946,7 @@ public:
         }
 
         expect(TK::AS);
-        stmt->query = static_cast<SelectStmt*>(parse_select());
+        stmt->query = parse_select();
 
         // Skip SEGMENTED BY and ALL NODES clauses
         while (!check(TK::SEMICOLON) && !is_eof()) {
@@ -2822,7 +3093,7 @@ public:
 
         // VALUES
         if (check(TK::SELECT) || check(TK::WITH)) {
-            stmt->select_query = static_cast<SelectStmt*>(parse_select());
+            stmt->select_query = parse_select();
         } else {
             expect(TK::VALUES);
             do {
@@ -3106,7 +3377,7 @@ public:
                 // FOR keyword
                 if (check(TK::FOR)) {
                     (void)advance();
-                    stmt->query = static_cast<SelectStmt*>(parse_select());
+                    stmt->query = parse_select();
                 }
 
                 return stmt;
@@ -3607,7 +3878,7 @@ public:
 
         // AS SELECT ...
         if (match(TK::AS)) {
-            stmt->training_query = static_cast<SelectStmt*>(parse_select());
+            stmt->training_query = parse_select();
         }
 
         return stmt;

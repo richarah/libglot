@@ -130,11 +130,18 @@ public:
         return result;
     }
 
-    /// Validate UTF-8 encoding
+    /// Validate UTF-8 encoding (RFC 3629).
+    /// Rejects overlong encodings (C0/C1 lead bytes, E0 with second byte
+    /// below A0, F0 with second byte below 90), UTF-16 surrogates
+    /// (ED A0-BF ..), codepoints above U+10FFFF (F4 with second byte above
+    /// 8F, F5-FF lead bytes), stray continuation bytes, and truncated
+    /// sequences.
     static bool is_valid_utf8(std::string_view input) {
+        const size_t n = input.size();
         size_t i = 0;
-        while (i < input.size()) {
-            unsigned char c = input[i];
+
+        while (i < n) {
+            const unsigned char c = static_cast<unsigned char>(input[i]);
 
             if (c < 0x80) {
                 // ASCII, 1 byte
@@ -142,21 +149,44 @@ public:
                 continue;
             }
 
-            // Multi-byte sequence
-            int bytes = 0;
-            if ((c & 0xE0) == 0xC0) bytes = 2;
-            else if ((c & 0xF0) == 0xE0) bytes = 3;
-            else if ((c & 0xF8) == 0xF0) bytes = 4;
-            else return false;  // Invalid start byte
+            // Determine sequence length and the valid range for the second
+            // byte (the constrained one); remaining bytes must be 80-BF.
+            size_t bytes;
+            unsigned char second_lo = 0x80;
+            unsigned char second_hi = 0xBF;
+
+            if (c >= 0xC2 && c <= 0xDF) {
+                bytes = 2;                              // U+0080..U+07FF
+            } else if (c == 0xE0) {
+                bytes = 3; second_lo = 0xA0;            // no overlong: U+0800..
+            } else if (c >= 0xE1 && c <= 0xEC) {
+                bytes = 3;
+            } else if (c == 0xED) {
+                bytes = 3; second_hi = 0x9F;            // exclude surrogates D800-DFFF
+            } else if (c >= 0xEE && c <= 0xEF) {
+                bytes = 3;
+            } else if (c == 0xF0) {
+                bytes = 4; second_lo = 0x90;            // no overlong: U+10000..
+            } else if (c >= 0xF1 && c <= 0xF3) {
+                bytes = 4;
+            } else if (c == 0xF4) {
+                bytes = 4; second_hi = 0x8F;            // cap at U+10FFFF
+            } else {
+                // 80-BF: stray continuation byte
+                // C0-C1: overlong 2-byte encoding
+                // F5-FF: codepoint above U+10FFFF / invalid
+                return false;
+            }
 
             // Check we have enough bytes
-            if (i + bytes > input.size()) return false;
+            if (i + bytes > n) return false;
 
-            // Check continuation bytes
-            for (int j = 1; j < bytes; j++) {
-                if ((input[i + j] & 0xC0) != 0x80) {
-                    return false;  // Invalid continuation byte
-                }
+            const unsigned char second = static_cast<unsigned char>(input[i + 1]);
+            if (second < second_lo || second > second_hi) return false;
+
+            for (size_t j = 2; j < bytes; j++) {
+                const unsigned char cont = static_cast<unsigned char>(input[i + j]);
+                if (cont < 0x80 || cont > 0xBF) return false;
             }
 
             i += bytes;

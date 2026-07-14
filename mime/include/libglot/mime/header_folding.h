@@ -86,6 +86,53 @@ public:
         return result;
     }
 
+    /// Unfold all folded header lines in the header section of a message
+    /// (RFC 5322 §2.2.3): a line break followed by SP/HTAB is a folding
+    /// point; the break is removed and the whitespace kept, so every header
+    /// ends up on exactly one line. The header section ends at the first
+    /// empty line; everything from that line onwards (the body) is copied
+    /// verbatim. Handles CRLF, LF, and (lenient) bare CR line breaks.
+    static std::string unfold_headers(std::string_view message) {
+        std::string result;
+        result.reserve(message.size());
+
+        size_t i = 0;
+        while (i < message.size()) {
+            char c = message[i];
+
+            if (c == '\r' || c == '\n') {
+                const size_t break_len =
+                    (c == '\r' && i + 1 < message.size() && message[i + 1] == '\n') ? 2 : 1;
+                const size_t after = i + break_len;
+
+                // Folding point: line break followed by SP/HTAB.
+                // Drop the break, keep the whitespace (RFC 5322 unfolding).
+                if (after < message.size() &&
+                    (message[after] == ' ' || message[after] == '\t')) {
+                    i = after;
+                    continue;
+                }
+
+                // Blank line: end of header section; copy the rest verbatim.
+                if (after < message.size() &&
+                    (message[after] == '\r' || message[after] == '\n')) {
+                    result.append(message.substr(i));
+                    return result;
+                }
+
+                // Ordinary end of a header line: keep the break as-is.
+                result.append(message.substr(i, break_len));
+                i = after;
+                continue;
+            }
+
+            result.push_back(c);
+            ++i;
+        }
+
+        return result;
+    }
+
     /// Fold a long header value to fit within line length limits
     /// RFC 5322 recommends max 78 characters per line
     static std::string fold(std::string_view header_value, size_t max_line_length = 78) {

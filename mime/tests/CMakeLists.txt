@@ -6,6 +6,7 @@ set(MIME_TESTS
     test_boundary_recovery
     test_external_body
     test_header_comments
+    test_mime_anomalies
     test_mime_encoding
     test_mime_multipart
     test_mime_parser

@@ -5,6 +5,8 @@
 #include "ast_nodes.h"
 #include "grammar.h"
 #include <sstream>
+#include <stdexcept>
+#include <string>
 
 namespace libglot::sql {
 
@@ -472,8 +474,11 @@ public:
                 break;
 
             default:
-                // Unknown node type - skip
-                break;
+                // A silently skipped node would drop user SQL on the floor;
+                // fail loudly instead so the gap is visible and fixable.
+                throw std::logic_error(
+                    "SQLGenerator: unhandled AST node kind " +
+                    std::to_string(static_cast<int>(node->type)));
         }
     }
 
@@ -485,17 +490,21 @@ public:
         const auto& feat = this->features();
         const char quote = feat.identifier_quote;
 
-        if (quote == '[') {
-            // SQL Server style: [identifier]
-            this->write('[');
-            this->write(ident);
-            this->write(']');
-        } else {
-            // Standard/MySQL/Postgres style: "identifier" or `identifier`
-            this->write(quote);
-            this->write(ident);
-            this->write(quote);
+        // SQL Server style uses [identifier]; others use a symmetric quote
+        // ("identifier" or `identifier`). Embedded closing-quote characters
+        // are escaped by doubling so an identifier can never break out of
+        // its quoting: foo]bar -> [foo]]bar], foo"bar -> "foo""bar".
+        const char open = quote;
+        const char close = (quote == '[') ? ']' : quote;
+
+        this->write(open);
+        for (char c : ident) {
+            this->write(c);
+            if (c == close) {
+                this->write(close);
+            }
         }
+        this->write(close);
     }
 
     // ========================================================================
@@ -530,9 +539,21 @@ private:
             return;
         }
 
-        // Check if it's already quoted (string literals from parser)
-        if (!val.empty() && val[0] == '\'') {
-            this->write(val);  // Already quoted
+        // String literal from the parser: the token text carries the outer
+        // quotes and source-level doubled quotes ('O''Brien'). Unescape the
+        // content and re-emit through write_string_literal so every embedded
+        // single quote in the output is doubled - a literal must never be
+        // able to terminate its own quoting (SQL injection).
+        if (val.size() >= 2 && val.front() == '\'' && val.back() == '\'') {
+            std::string content;
+            content.reserve(val.size() - 2);
+            for (size_t i = 1; i + 1 < val.size(); ++i) {
+                content.push_back(val[i]);
+                if (val[i] == '\'' && i + 2 < val.size() && val[i + 1] == '\'') {
+                    ++i;  // Collapse source-level doubled quote
+                }
+            }
+            this->write_string_literal(content);
             return;
         }
 
@@ -548,10 +569,58 @@ private:
         if (is_number) {
             this->write(val);  // Emit as-is
         } else {
-            // Quote as string literal
-            this->write('\'');
-            this->write(val);
-            this->write('\'');
+            // Quote as string literal (doubles embedded single quotes)
+            this->write_string_literal(val);
+        }
+    }
+
+    // ========================================================================
+    // Expression Precedence (for parenthesization)
+    // ========================================================================
+
+    /// Precedence assigned to atomic / self-delimiting expressions
+    /// (literals, columns, function calls, parenthesized subqueries, ...)
+    static constexpr int kAtomPrecedence = 100;
+    /// Boolean NOT and arithmetic unary +/- (mirrors grammar.h's doc levels)
+    static constexpr int kNotPrecedence = 10;
+    static constexpr int kUnaryArithmeticPrecedence = 15;
+    /// Comparison level: BETWEEN / IN / LIKE forms bind here
+    static constexpr int kComparisonPrecedence = 12;
+
+    /// Binary operator precedence, looked up in grammar.h's operator table
+    /// so parser and generator cannot drift apart.
+    static int binary_precedence(TK op) noexcept {
+        const int prec = libglot::get_precedence<SQLGrammarSpec>(op);
+        // Operators outside the table (e.g. Snowflake ':') are postfix-like
+        // path accessors that bind tightest - treat them as atomic.
+        return prec < 0 ? kAtomPrecedence : prec;
+    }
+
+    /// Precedence of the top-level operator of an expression node
+    static int expr_precedence(const SQLNode* node) noexcept {
+        switch (node->type) {
+            case SQLNodeKind::BINARY_OP:
+                return binary_precedence(static_cast<const BinaryOp*>(node)->op);
+            case SQLNodeKind::UNARY_OP:
+                return static_cast<const UnaryOp*>(node)->op == TK::NOT
+                    ? kNotPrecedence : kUnaryArithmeticPrecedence;
+            case SQLNodeKind::BETWEEN_EXPR:
+            case SQLNodeKind::IN_EXPR:
+                return kComparisonPrecedence;
+            default:
+                return kAtomPrecedence;
+        }
+    }
+
+    /// Visit an operand, wrapping it in parentheses when its top-level
+    /// operator binds looser than the surrounding context requires.
+    void write_operand(SQLNode* operand, int min_precedence) {
+        if (operand && expr_precedence(operand) < min_precedence) {
+            this->write('(');
+            visit(operand);
+            this->write(')');
+        } else {
+            visit(operand);
         }
     }
 
@@ -569,13 +638,32 @@ private:
             this->write('(');
             visit(op->right);
             this->write(')');
-        } else {
-            // Standard binary operator
+            return;
+        }
+
+        // Snowflake JSON path access prints without spaces: data:field
+        if (op->op == TK::COLON) {
             visit(op->left);
-            this->space();
-            this->write(operator_string(op->op));
-            this->space();
+            this->write(':');
             visit(op->right);
+            return;
+        }
+
+        // Standard binary operator with precedence-aware parenthesization.
+        // All table operators are left-associative: the left operand may
+        // bind equally, the right operand must bind strictly tighter -
+        // otherwise (a OR b) AND c would regenerate as a OR b AND c.
+        const int prec = binary_precedence(op->op);
+        write_operand(op->left, prec);
+        this->space();
+        this->write(operator_string(op->op));
+        this->space();
+        if (op->op == TK::IS) {
+            // The right side of IS is NULL / NOT NULL / TRUE / ... - the
+            // NOT there is part of the IS [NOT] form, never parenthesized.
+            visit(op->right);
+        } else {
+            write_operand(op->right, prec + 1);
         }
     }
 
@@ -641,6 +729,14 @@ private:
             this->write("TOP");
             this->space();
             visit(stmt->limit);
+            if (stmt->limit_percent) {
+                this->space();
+                this->write("PERCENT");
+            }
+            if (stmt->limit_with_ties) {
+                this->space();
+                this->write("WITH TIES");
+            }
         }
 
         // FIRST n [SKIP m] (Firebird, Informix) - output before column list
@@ -743,12 +839,18 @@ private:
     }
 
     void visit_unary_op(UnaryOp* op) {
-        const char* op_str = unary_operator_string(op->op);
-
-        // Always use prefix notation
-        this->write(op_str);
-        this->space();
-        visit(op->operand);
+        if (op->op == TK::NOT) {
+            // Boolean NOT binds looser than comparisons: NOT a = 1 is fine,
+            // but NOT (a AND b) needs the parentheses.
+            this->write("NOT");
+            this->space();
+            write_operand(op->operand, kNotPrecedence);
+        } else {
+            // Arithmetic unary +/- bind tightest: -2 stays -2, while a
+            // negated binary expression is parenthesized: -(2 + 3).
+            this->write(unary_operator_string(op->op));
+            write_operand(op->operand, kUnaryArithmeticPrecedence);
+        }
     }
 
     void visit_function_call(FunctionCall* func) {
@@ -829,7 +931,10 @@ private:
     }
 
     void visit_between_expr(BetweenExpr* between) {
-        visit(between->expr);
+        // Subject and bounds sit above the comparison level; a looser
+        // operand (e.g. a boolean expression) must be parenthesized so the
+        // bounds' AND separator stays unambiguous.
+        write_operand(between->expr, kComparisonPrecedence + 1);
         this->space();
         if (between->not_between) {
             this->write("NOT");
@@ -837,15 +942,15 @@ private:
         }
         this->write("BETWEEN");
         this->space();
-        visit(between->lower);
+        write_operand(between->lower, kComparisonPrecedence + 1);
         this->space();
         this->write("AND");
         this->space();
-        visit(between->upper);
+        write_operand(between->upper, kComparisonPrecedence + 1);
     }
 
     void visit_in_expr(InExpr* in_expr) {
-        visit(in_expr->expr);
+        write_operand(in_expr->expr, kComparisonPrecedence + 1);
         this->space();
         if (in_expr->not_in) {
             this->write("NOT");
@@ -923,7 +1028,7 @@ private:
             need_space = true;
         }
 
-        // Frame clause (ROWS/RANGE)
+        // Frame clause (ROWS/RANGE/GROUPS)
         if (spec->frame) {
             if (need_space) this->space();
 
@@ -939,12 +1044,52 @@ private:
                     break;
             }
 
-            // Frame bounds (simplified - just write the spec)
+            // Regenerate the actual parsed frame bounds
             this->space();
-            this->write("BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW");
+            if (spec->frame->between_form) {
+                this->write("BETWEEN");
+                this->space();
+                write_frame_bound(spec->frame->start_bound, spec->frame->start_offset);
+                this->space();
+                this->write("AND");
+                this->space();
+                write_frame_bound(spec->frame->end_bound, spec->frame->end_offset);
+            } else {
+                write_frame_bound(spec->frame->start_bound, spec->frame->start_offset);
+            }
         }
 
         this->write(')');
+    }
+
+    /// Emit one window frame bound: UNBOUNDED PRECEDING/FOLLOWING,
+    /// CURRENT ROW, or <offset> PRECEDING/FOLLOWING
+    void write_frame_bound(FrameBound bound, SQLNode* offset) {
+        switch (bound) {
+            case FrameBound::UNBOUNDED_PRECEDING:
+                this->write("UNBOUNDED PRECEDING");
+                break;
+            case FrameBound::UNBOUNDED_FOLLOWING:
+                this->write("UNBOUNDED FOLLOWING");
+                break;
+            case FrameBound::CURRENT_ROW:
+                this->write("CURRENT ROW");
+                break;
+            case FrameBound::PRECEDING:
+                if (offset) {
+                    visit(offset);
+                    this->space();
+                }
+                this->write("PRECEDING");
+                break;
+            case FrameBound::FOLLOWING:
+                if (offset) {
+                    visit(offset);
+                    this->space();
+                }
+                this->write("FOLLOWING");
+                break;
+        }
     }
 
     void visit_cte(CTE* cte) {
@@ -1250,10 +1395,27 @@ private:
             this->space();
             visit(stmt->as_select);
         } else {
-            // For now, emit a simplified placeholder
-            // Full column definition support would go here
+            // Column definitions and table-level constraints
             this->space();
-            this->write("(...)");
+            this->write('(');
+            bool first = true;
+            for (auto* col : stmt->columns) {
+                if (!first) {
+                    this->write(',');
+                    this->space();
+                }
+                first = false;
+                visit_column_def(col);
+            }
+            for (auto* constraint : stmt->constraints) {
+                if (!first) {
+                    this->write(',');
+                    this->space();
+                }
+                first = false;
+                visit_table_constraint(constraint);
+            }
+            this->write(')');
         }
     }
 
@@ -1384,7 +1546,10 @@ private:
             case TK::MINUS: return "-";
             case TK::PLUS: return "+";
             // IS NULL / IS NOT NULL are handled as binary operators in most SQL parsers
-            default: return "?";
+            default:
+                throw std::logic_error(
+                    std::string("SQLGenerator: no unary operator string for token '") +
+                    std::string(libglot::sql::lex::token_type_name(op)) + "'");
         }
     }
 
@@ -1427,7 +1592,12 @@ private:
             // Snowflake JSON access operator
             case TK::COLON: return ":";
 
-            default: return "?";
+            default:
+                // Returning a placeholder here would silently corrupt the
+                // generated SQL; fail loudly instead.
+                throw std::logic_error(
+                    std::string("SQLGenerator: no operator string for token '") +
+                    std::string(libglot::sql::lex::token_type_name(op)) + "'");
         }
     }
 
@@ -1621,9 +1791,37 @@ private:
             this->space();
             visit(col->default_value);
         }
+        if (!col->references_table.empty()) {
+            this->space();
+            this->write("REFERENCES");
+            this->space();
+            write_identifier(col->references_table);
+            if (!col->references_columns.empty()) {
+                this->space();
+                this->write('(');
+                this->write_list(col->references_columns, [this](std::string_view ref_col) {
+                    write_identifier(ref_col);
+                });
+                this->write(')');
+            }
+        }
+        if (col->check_expr) {
+            this->space();
+            this->write("CHECK");
+            this->space();
+            this->write('(');
+            visit(col->check_expr);
+            this->write(')');
+        }
     }
 
     void visit_table_constraint(TableConstraint* constraint) {
+        if (!constraint->name.empty()) {
+            this->write("CONSTRAINT");
+            this->space();
+            write_identifier(constraint->name);
+            this->space();
+        }
         switch (constraint->constraint_type) {
             case TableConstraint::Type::PRIMARY_KEY:
                 this->write("PRIMARY KEY");
@@ -1646,12 +1844,26 @@ private:
                 this->write("REFERENCES");
                 this->space();
                 if (constraint->ref_table) visit(constraint->ref_table);
-                this->space();
-                this->write('(');
-                this->write_list(constraint->ref_columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
-                this->write(')');
+                if (!constraint->ref_columns.empty()) {
+                    this->space();
+                    this->write('(');
+                    this->write_list(constraint->ref_columns, [this](std::string_view col) {
+                        write_identifier(col);
+                    });
+                    this->write(')');
+                }
+                if (!constraint->on_delete_action.empty()) {
+                    this->space();
+                    this->write("ON DELETE");
+                    this->space();
+                    this->write(constraint->on_delete_action);
+                }
+                if (!constraint->on_update_action.empty()) {
+                    this->space();
+                    this->write("ON UPDATE");
+                    this->space();
+                    this->write(constraint->on_update_action);
+                }
                 break;
             case TableConstraint::Type::UNIQUE:
                 this->write("UNIQUE");

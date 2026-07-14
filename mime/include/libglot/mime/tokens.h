@@ -63,6 +63,16 @@ public:
     std::vector<MimeToken> tokenize_all() {
         std::vector<MimeToken> tokens;
 
+        // A message that starts with an empty line has an empty header
+        // section; everything after that line is the body.
+        if (at_line_break()) {
+            size_t start = pos_;
+            consume_line_break();
+            tokens.push_back(make_token(MimeTokenType::NEWLINE, start, pos_));
+            tokens.push_back(make_token(MimeTokenType::EOF_TOKEN, pos_, pos_));
+            return tokens;
+        }
+
         while (true) {
             auto tok = next_token();
             tokens.push_back(tok);
@@ -71,12 +81,14 @@ public:
                 break;
             }
 
-            // Check for blank line (NEWLINE followed by another NEWLINE)
-            // This indicates end of headers
-            if (tok.type == MimeTokenType::NEWLINE && peek() == '\n') {
-                // Consume the blank line NEWLINE and position after it
-                advance();  // Skip the '\n' of the blank line
-                tokens.push_back(make_token(MimeTokenType::NEWLINE, pos_ - 1, pos_));
+            // Check for blank line (NEWLINE followed by another line break,
+            // under any convention: CRLF, LF, or bare CR).
+            // This indicates end of headers.
+            if (tok.type == MimeTokenType::NEWLINE && at_line_break()) {
+                // Consume the blank line's break and position after it
+                size_t start = pos_;
+                consume_line_break();
+                tokens.push_back(make_token(MimeTokenType::NEWLINE, start, pos_));
                 // Now produce EOF (body extraction will use current position)
                 tokens.push_back(make_token(MimeTokenType::EOF_TOKEN, pos_, pos_));
                 break;
@@ -97,20 +109,9 @@ private:
         const char c = peek();
         const size_t start = pos_;
 
-        // Newline
-        if (c == '\n') {
-            advance();
-            line_++;
-            col_ = 1;
-            after_colon_ = false;  // Reset state after newline
-            return make_token(MimeTokenType::NEWLINE, start, pos_);
-        }
-
-        if (c == '\r' && peek_next() == '\n') {
-            advance();
-            advance();
-            line_++;
-            col_ = 1;
+        // Newline: CRLF (RFC standard), LF, or (lenient) bare CR
+        if (c == '\n' || c == '\r') {
+            consume_line_break();
             after_colon_ = false;  // Reset state after newline
             return make_token(MimeTokenType::NEWLINE, start, pos_);
         }
@@ -148,6 +149,25 @@ private:
         // Invalid
         advance();
         return make_token(MimeTokenType::INVALID, start, pos_);
+    }
+
+    /// True if the next character begins a line break (CRLF, LF, or bare CR)
+    [[nodiscard]] bool at_line_break() const noexcept {
+        return peek() == '\n' || peek() == '\r';
+    }
+
+    /// Consume a single line break: CRLF, LF, or (lenient) bare CR
+    void consume_line_break() {
+        if (peek() == '\r') {
+            advance();
+            if (peek() == '\n') {
+                advance();
+            }
+        } else if (peek() == '\n') {
+            advance();
+        }
+        line_++;
+        col_ = 1;
     }
 
     void skip_whitespace_except_newline() {
