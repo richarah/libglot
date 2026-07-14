@@ -40,6 +40,7 @@ set(SQL_TESTS
     test_return_keyword
     test_returns_comprehensive
     test_roundtrip
+    test_roundtrip_property
     test_scalar_functions
     test_schema_type
     test_security

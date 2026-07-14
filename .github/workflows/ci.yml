@@ -48,6 +48,56 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure -j"$(nproc)"
 
+  fuzz-smoke:
+    name: fuzzers (60s smoke per target)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-18
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DBUILD_TESTING=OFF -DLIBGLOT_BUILD_FUZZERS=ON
+      - name: Build fuzzers
+        run: cmake --build build -j"$(nproc)"
+      - name: Run fuzzers
+        run: |
+          mkdir -p corpus/sql corpus/mime
+          printf 'SELECT a, b FROM t WHERE x BETWEEN 1 AND 10 ORDER BY a LIMIT 5' > corpus/sql/seed1
+          printf 'WITH c AS (SELECT 1) INSERT INTO t (a) SELECT * FROM c' > corpus/sql/seed2
+          printf 'Content-Type: multipart/mixed; boundary="b"\r\n\r\n--b\r\n\r\nhi\r\n--b--\r\n' > corpus/mime/seed1
+          ./build/fuzz/fuzz_sql_parser    -max_total_time=60 -timeout=10 corpus/sql
+          ./build/fuzz/fuzz_sql_roundtrip -max_total_time=60 -timeout=10 corpus/sql
+          ./build/fuzz/fuzz_mime_parser   -max_total_time=60 -timeout=10 corpus/mime
+
+  coverage:
+    name: coverage report
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14 gcovr
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+      - name: Build and test
+        run: |
+          cmake --build build -j"$(nproc)"
+          ctest --test-dir build -j"$(nproc)" --output-on-failure
+      - name: Report
+        run: |
+          gcovr --root . --filter 'core/include/' --filter 'sql/include/' --filter 'mime/include/' \
+            --gcov-executable gcov-14 --print-summary --xml coverage.xml
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
   install-package:
     name: install + find_package smoke test
     runs-on: ubuntu-24.04

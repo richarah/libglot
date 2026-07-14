@@ -18,9 +18,8 @@ TEST_CASE("Transpile: PostgreSQL → MySQL", "[transpilation][postgres][mysql]")
     SQLGenerator gen(SQLDialect::MySQL);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("LIMIT") != std::string::npos);
+    // MySQL: backtick quoting, TRUE lowered to 1, LIMIT kept
+    REQUIRE(output == "SELECT * FROM `users` WHERE `active` = 1 LIMIT 10");
 }
 
 TEST_CASE("Transpile: PostgreSQL → SQL Server (LIMIT to TOP)", "[transpilation][postgres][sqlserver]") {
@@ -32,12 +31,8 @@ TEST_CASE("Transpile: PostgreSQL → SQL Server (LIMIT to TOP)", "[transpilation
     SQLGenerator gen(SQLDialect::SQLServer);
     std::string output = gen.generate(stmt);
 
-    // LIMIT→TOP transformation implemented
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("TOP") != std::string::npos);
-    REQUIRE(output.find("users") != std::string::npos);
-    REQUIRE(output.find("LIMIT") == std::string::npos);  // Should not contain LIMIT
+    // LIMIT becomes TOP, bracket quoting
+    REQUIRE(output == "SELECT TOP 10 * FROM [users]");
 }
 
 TEST_CASE("Transpile: PostgreSQL → BigQuery", "[transpilation][postgres][bigquery]") {
@@ -49,8 +44,8 @@ TEST_CASE("Transpile: PostgreSQL → BigQuery", "[transpilation][postgres][bigqu
     SQLGenerator gen(SQLDialect::BigQuery);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
+    // BigQuery uses backtick quoting
+    REQUIRE(output == "SELECT `id`, `name` FROM `users` WHERE `score` > 100");
 }
 
 TEST_CASE("Transpile: PostgreSQL → DuckDB", "[transpilation][postgres][duckdb]") {
@@ -62,8 +57,7 @@ TEST_CASE("Transpile: PostgreSQL → DuckDB", "[transpilation][postgres][duckdb]
     SQLGenerator gen(SQLDialect::DuckDB);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("LIMIT") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\" ORDER BY \"created_at\" DESC LIMIT 20");
 }
 
 TEST_CASE("Transpile: PostgreSQL → Snowflake", "[transpilation][postgres][snowflake]") {
@@ -75,9 +69,7 @@ TEST_CASE("Transpile: PostgreSQL → Snowflake", "[transpilation][postgres][snow
     SQLGenerator gen(SQLDialect::Snowflake);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("orders") != std::string::npos);
+    REQUIRE(output == "SELECT COUNT(*) FROM \"orders\" WHERE \"status\" = 'completed'");
 }
 
 // ========================================================================
@@ -93,8 +85,7 @@ TEST_CASE("Transpile: MySQL → PostgreSQL", "[transpilation][mysql][postgres]")
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("LIMIT") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\" LIMIT 10");
 }
 
 TEST_CASE("Transpile: MySQL → SQL Server (LIMIT to TOP)", "[transpilation][mysql][sqlserver]") {
@@ -106,10 +97,7 @@ TEST_CASE("Transpile: MySQL → SQL Server (LIMIT to TOP)", "[transpilation][mys
     SQLGenerator gen(SQLDialect::SQLServer);
     std::string output = gen.generate(stmt);
 
-    // TODO: Implement LIMIT→TOP transformation for SQL Server
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("products") != std::string::npos);
+    REQUIRE(output == "SELECT TOP 5 * FROM [products]");
 }
 
 TEST_CASE("Transpile: MySQL → BigQuery", "[transpilation][mysql][bigquery]") {
@@ -121,10 +109,9 @@ TEST_CASE("Transpile: MySQL → BigQuery", "[transpilation][mysql][bigquery]") {
     SQLGenerator gen(SQLDialect::BigQuery);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("GROUP BY") != std::string::npos);
-    REQUIRE(output.find("transactions") != std::string::npos);
+    // Lowercase 'as' is normalized to AS
+    REQUIRE(output ==
+            "SELECT `user_id`, SUM(`amount`) AS `total` FROM `transactions` GROUP BY `user_id`");
 }
 
 TEST_CASE("Transpile: MySQL → DuckDB", "[transpilation][mysql][duckdb]") {
@@ -136,8 +123,7 @@ TEST_CASE("Transpile: MySQL → DuckDB", "[transpilation][mysql][duckdb]") {
     SQLGenerator gen(SQLDialect::DuckDB);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"sales\" WHERE \"sale_date\" >= '2024-01-01'");
 }
 
 // ========================================================================
@@ -153,10 +139,7 @@ TEST_CASE("Transpile: SQL Server → PostgreSQL", "[transpilation][sqlserver][po
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string output = gen.generate(stmt);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("users") != std::string::npos);
-    REQUIRE(output.find("IN") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\" WHERE \"id\" IN (1, 2, 3)");
 }
 
 TEST_CASE("Transpile: SQL Server → MySQL", "[transpilation][sqlserver][mysql]") {
@@ -168,9 +151,7 @@ TEST_CASE("Transpile: SQL Server → MySQL", "[transpilation][sqlserver][mysql]"
     SQLGenerator gen(SQLDialect::MySQL);
     std::string output = gen.generate(stmt);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("orders") != std::string::npos);
+    REQUIRE(output == "SELECT COUNT(*) FROM `orders`");
 }
 
 // ========================================================================
@@ -186,8 +167,7 @@ TEST_CASE("Transpile: BigQuery → PostgreSQL", "[transpilation][bigquery][postg
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("LIMIT") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\" LIMIT 50");
 }
 
 TEST_CASE("Transpile: BigQuery → MySQL", "[transpilation][bigquery][mysql]") {
@@ -199,8 +179,7 @@ TEST_CASE("Transpile: BigQuery → MySQL", "[transpilation][bigquery][mysql]") {
     SQLGenerator gen(SQLDialect::MySQL);
     std::string output = gen.generate(stmt);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
+    REQUIRE(output == "SELECT `user_id`, `name` FROM `users` WHERE `active` = 1");
 }
 
 // ========================================================================
@@ -216,8 +195,7 @@ TEST_CASE("Transpile: Snowflake → PostgreSQL", "[transpilation][snowflake][pos
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("ORDER BY") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"products\" ORDER BY \"price\" DESC");
 }
 
 TEST_CASE("Transpile: Snowflake → DuckDB", "[transpilation][snowflake][duckdb]") {
@@ -229,9 +207,7 @@ TEST_CASE("Transpile: Snowflake → DuckDB", "[transpilation][snowflake][duckdb]
     SQLGenerator gen(SQLDialect::DuckDB);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("GROUP BY") != std::string::npos);
+    REQUIRE(output == "SELECT \"region\", COUNT(*) AS \"cnt\" FROM \"sales\" GROUP BY \"region\"");
 }
 
 // ========================================================================
@@ -247,8 +223,7 @@ TEST_CASE("Transpile: DuckDB → PostgreSQL", "[transpilation][duckdb][postgres]
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"events\" WHERE \"event_timestamp\" > '2024-01-01'");
 }
 
 TEST_CASE("Transpile: DuckDB → MySQL", "[transpilation][duckdb][mysql]") {
@@ -260,8 +235,7 @@ TEST_CASE("Transpile: DuckDB → MySQL", "[transpilation][duckdb][mysql]") {
     SQLGenerator gen(SQLDialect::MySQL);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("LIMIT") != std::string::npos);
+    REQUIRE(output == "SELECT `id`, `name` FROM `users` LIMIT 100");
 }
 
 // ========================================================================
@@ -296,13 +270,18 @@ TEST_CASE("Transpile: Complex CTE query across dialects", "[transpilation][compl
     SQLGenerator gen3(SQLDialect::BigQuery);
     std::string bigquery = gen3.generate(ast3);
 
-    REQUIRE(!pg.empty());
-    REQUIRE(!mysql.empty());
-    REQUIRE(!bigquery.empty());
-
-    REQUIRE(pg.find("WITH") != std::string::npos);
-    REQUIRE(mysql.find("WITH") != std::string::npos);
-    REQUIRE(bigquery.find("WITH") != std::string::npos);
+    REQUIRE(pg ==
+            "WITH \"regional_sales\" AS (SELECT \"region\", SUM(\"amount\") AS \"total\" "
+            "FROM \"sales\" GROUP BY \"region\") "
+            "SELECT * FROM \"regional_sales\" WHERE \"total\" > 10000");
+    REQUIRE(mysql ==
+            "WITH `regional_sales` AS (SELECT `region`, SUM(`amount`) AS `total` "
+            "FROM `sales` GROUP BY `region`) "
+            "SELECT * FROM `regional_sales` WHERE `total` > 10000");
+    REQUIRE(bigquery ==
+            "WITH `regional_sales` AS (SELECT `region`, SUM(`amount`) AS `total` "
+            "FROM `sales` GROUP BY `region`) "
+            "SELECT * FROM `regional_sales` WHERE `total` > 10000");
 }
 
 TEST_CASE("Transpile: Window functions across dialects", "[transpilation][complex]") {
@@ -330,9 +309,15 @@ TEST_CASE("Transpile: Window functions across dialects", "[transpilation][comple
     SQLGenerator gen3(SQLDialect::Snowflake);
     std::string snowflake = gen3.generate(stmt3);
 
-    REQUIRE(pg.find("ROW_NUMBER") != std::string::npos);
-    REQUIRE(bigquery.find("ROW_NUMBER") != std::string::npos);
-    REQUIRE(snowflake.find("ROW_NUMBER") != std::string::npos);
+    REQUIRE(pg ==
+            "SELECT \"user_id\", ROW_NUMBER() OVER (ORDER BY \"score\" DESC) AS \"rank\" "
+            "FROM \"leaderboard\"");
+    REQUIRE(bigquery ==
+            "SELECT `user_id`, ROW_NUMBER() OVER (ORDER BY `score` DESC) AS `rank` "
+            "FROM `leaderboard`");
+    REQUIRE(snowflake ==
+            "SELECT \"user_id\", ROW_NUMBER() OVER (ORDER BY \"score\" DESC) AS \"rank\" "
+            "FROM \"leaderboard\"");
 }
 
 TEST_CASE("Transpile: JOIN queries across dialects", "[transpilation][complex]") {
@@ -360,13 +345,18 @@ TEST_CASE("Transpile: JOIN queries across dialects", "[transpilation][complex]")
     SQLGenerator gen3(SQLDialect::DuckDB);
     std::string duckdb = gen3.generate(ast3);
 
-    REQUIRE(!mysql.empty());
-    REQUIRE(!postgres.empty());
-    REQUIRE(!duckdb.empty());
-
-    REQUIRE(mysql.find("INNER JOIN") != std::string::npos);
-    REQUIRE(postgres.find("INNER JOIN") != std::string::npos);
-    REQUIRE(duckdb.find("INNER JOIN") != std::string::npos);
+    REQUIRE(mysql ==
+            "SELECT `u`.`id`, `u`.`name`, `o`.`total` FROM `users` AS `u` "
+            "INNER JOIN `orders` AS `o` ON `u`.`id` = `o`.`user_id` "
+            "WHERE `o`.`status` = 'completed'");
+    REQUIRE(postgres ==
+            "SELECT \"u\".\"id\", \"u\".\"name\", \"o\".\"total\" FROM \"users\" AS \"u\" "
+            "INNER JOIN \"orders\" AS \"o\" ON \"u\".\"id\" = \"o\".\"user_id\" "
+            "WHERE \"o\".\"status\" = 'completed'");
+    REQUIRE(duckdb ==
+            "SELECT \"u\".\"id\", \"u\".\"name\", \"o\".\"total\" FROM \"users\" AS \"u\" "
+            "INNER JOIN \"orders\" AS \"o\" ON \"u\".\"id\" = \"o\".\"user_id\" "
+            "WHERE \"o\".\"status\" = 'completed'");
 }
 
 // ========================================================================
@@ -382,7 +372,7 @@ TEST_CASE("Transpile: Boolean TRUE to PostgreSQL", "[transpilation][boolean]") {
     SQLGenerator gen(SQLDialect::PostgreSQL);
     std::string output = gen.generate(stmt);
 
-    REQUIRE(output.find("TRUE") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\" WHERE \"active\" = TRUE");
 }
 
 TEST_CASE("Transpile: Boolean TRUE to SQL Server", "[transpilation][boolean]") {
@@ -395,7 +385,7 @@ TEST_CASE("Transpile: Boolean TRUE to SQL Server", "[transpilation][boolean]") {
     std::string output = gen.generate(stmt);
 
     // SQL Server converts TRUE to 1
-    REQUIRE(output.find("= 1") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM [users] WHERE [active] = 1");
 }
 
 // ========================================================================
@@ -412,13 +402,19 @@ TEST_CASE("Transpile: Round-trip preserves semantics", "[transpilation][roundtri
     SQLGenerator gen1(SQLDialect::MySQL);
     std::string mysql_version = gen1.generate(ast1);
 
+    // First hop is exact and correct MySQL
+    REQUIRE(mysql_version == "SELECT `id`, `name` FROM `users` WHERE `score` > 100 LIMIT 50");
+
     libglot::Arena arena2;
     SQLParser parser2(arena2, mysql_version);
     auto ast2 = parser2.parse_top_level();
     SQLGenerator gen2(SQLDialect::PostgreSQL);
     std::string back_to_pg = gen2.generate(ast2);
 
-    // Both should contain the same semantic elements
+    // KNOWN BUG - left as substring checks on purpose: re-parsing quoted
+    // output keeps the backticks inside the identifier text, so the second
+    // hop currently yields  SELECT "`id`", ...  which is wrong SQL. An
+    // exact assertion here would enshrine that bug (see report).
     REQUIRE(back_to_pg.find("SELECT") != std::string::npos);
     REQUIRE(back_to_pg.find("WHERE") != std::string::npos);
     REQUIRE(back_to_pg.find("LIMIT") != std::string::npos);
@@ -451,19 +447,11 @@ TEST_CASE("Transpile: Single parse, multiple targets", "[transpilation][multitar
     SQLGenerator gen_snowflake(SQLDialect::Snowflake);
     std::string snowflake = gen_snowflake.generate(ast);
 
-    // All should be valid and non-empty
-    REQUIRE(!pg.empty());
-    REQUIRE(!mysql.empty());
-    REQUIRE(!bigquery.empty());
-    REQUIRE(!duckdb.empty());
-    REQUIRE(!snowflake.empty());
-
-    // All should contain core SELECT elements
-    REQUIRE(pg.find("SELECT") != std::string::npos);
-    REQUIRE(mysql.find("SELECT") != std::string::npos);
-    REQUIRE(bigquery.find("SELECT") != std::string::npos);
-    REQUIRE(duckdb.find("SELECT") != std::string::npos);
-    REQUIRE(snowflake.find("SELECT") != std::string::npos);
+    REQUIRE(pg == "SELECT \"name\", \"email\" FROM \"users\" WHERE \"age\" >= 18");
+    REQUIRE(mysql == "SELECT `name`, `email` FROM `users` WHERE `age` >= 18");
+    REQUIRE(bigquery == "SELECT `name`, `email` FROM `users` WHERE `age` >= 18");
+    REQUIRE(duckdb == "SELECT \"name\", \"email\" FROM \"users\" WHERE \"age\" >= 18");
+    REQUIRE(snowflake == "SELECT \"name\", \"email\" FROM \"users\" WHERE \"age\" >= 18");
 }
 
 // ========================================================================
@@ -480,7 +468,7 @@ TEST_CASE("Transpile: ILIKE native support (PostgreSQL)", "[transpilation][ilike
     std::string output = gen.generate(stmt);
 
     // PostgreSQL supports ILIKE natively
-    REQUIRE(output.find("ILIKE") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\" WHERE \"name\" ILIKE 'john%'");
 }
 
 TEST_CASE("Transpile: ILIKE polyfill (MySQL)", "[transpilation][ilike]") {
@@ -492,10 +480,6 @@ TEST_CASE("Transpile: ILIKE polyfill (MySQL)", "[transpilation][ilike]") {
     SQLGenerator gen(SQLDialect::MySQL);
     std::string output = gen.generate(stmt);
 
-    // ILIKE→LOWER+LIKE polyfill implemented for MySQL
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("LOWER") != std::string::npos);  // Should contain LOWER()
-    REQUIRE(output.find("LIKE") != std::string::npos);   // Should use LIKE not ILIKE
-    REQUIRE(output.find("ILIKE") == std::string::npos);  // Should NOT contain ILIKE
+    // ILIKE → LOWER() LIKE LOWER() polyfill for MySQL
+    REQUIRE(output == "SELECT * FROM `users` WHERE LOWER(`name`) LIKE LOWER('john%')");
 }

@@ -9,6 +9,7 @@ project(libglot VERSION 0.2.0 LANGUAGES CXX)
 # Build Options
 # ============================================================================
 option(LIBGLOT_BUILD_BENCHMARKS "Build benchmarks (fetches Google Benchmark)" OFF)
+option(LIBGLOT_BUILD_FUZZERS "Build libFuzzer harnesses (requires Clang)" OFF)
 option(LIBGLOT_BUILD_SQL "Build libglot-sql" ON)
 option(LIBGLOT_BUILD_MIME "Build libglot-mime" ON)
 option(LIBGLOT_WERROR "Treat warnings as errors" OFF)
@@ -112,6 +113,10 @@ endif()
 
 if(LIBGLOT_BUILD_MIME)
     add_subdirectory(mime)
+endif()
+
+if(LIBGLOT_BUILD_FUZZERS)
+    add_subdirectory(fuzz)
 endif()
 
 # ============================================================================
