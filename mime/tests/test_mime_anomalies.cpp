@@ -2,8 +2,8 @@
 /// MIME Anomaly Detection Tests
 /// ============================================================================
 ///
-/// Exercises MimeParserWithAnomalies (parser_with_anomalies.h) and the
-/// anomaly plumbing shared with MimeParserExtended:
+/// Exercises the anomaly plumbing of the single parse_message() pipeline
+/// (mime.h / parser_extended.h):
 /// - duplicate Content-Type headers
 /// - missing final multipart boundary
 /// - invalid RFC 2231 percent-encoding
@@ -11,24 +11,10 @@
 /// ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/parser_with_anomalies.h"
-#include "../include/libglot/mime/complete_features.h"
+#include "../include/libglot/mime/mime.h"
 #include "../../core/include/libglot/util/arena.h"
 
 using namespace libglot::mime;
-
-namespace {
-
-bool has_anomaly(const AnomalyReport& report, AnomalyKind kind) {
-    for (const auto& rec : report.records) {
-        if (rec.kind == kind) {
-            return true;
-        }
-    }
-    return false;
-}
-
-} // namespace
 
 TEST_CASE("Anomalies: Duplicate Content-Type header is reported", "[mime][anomalies]") {
     libglot::Arena arena;
@@ -39,18 +25,16 @@ TEST_CASE("Anomalies: Duplicate Content-Type header is reported", "[mime][anomal
         "\n"
         "Body\n";
 
-    MimeParserWithAnomalies parser(arena, source);
-    auto* msg = parser.parse_with_anomaly_detection();
+    auto result = parse_message(arena, source);
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(msg->headers.size() == 3);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.message->headers.size() == 3);
 
-    const auto& report = parser.anomaly_report();
-    REQUIRE(has_anomaly(report, AnomalyKind::DuplicateContentType));
+    REQUIRE(result.has_anomaly(AnomalyKind::DuplicateContentType));
 
     // DuplicateContentType has Security severity
-    REQUIRE(report.has_critical_anomalies());
-    REQUIRE(report.count_at_severity(AnomalySeverity::Security) >= 1);
+    REQUIRE(result.report.has_critical_anomalies());
+    REQUIRE(result.report.count_at_severity(AnomalySeverity::Security) >= 1);
 }
 
 TEST_CASE("Anomalies: Clean message reports no critical anomalies", "[mime][anomalies]") {
@@ -61,12 +45,12 @@ TEST_CASE("Anomalies: Clean message reports no critical anomalies", "[mime][anom
         "\n"
         "Body\n";
 
-    MimeParserWithAnomalies parser(arena, source);
-    auto* msg = parser.parse_with_anomaly_detection();
+    auto result = parse_message(arena, source);
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(!parser.anomaly_report().has_critical_anomalies());
-    REQUIRE(!has_anomaly(parser.anomaly_report(), AnomalyKind::DuplicateContentType));
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.report.has_critical_anomalies());
+    REQUIRE(!result.rejected);
+    REQUIRE(!result.has_anomaly(AnomalyKind::DuplicateContentType));
 }
 
 TEST_CASE("Anomalies: Missing final boundary is reported from the parse path", "[mime][anomalies]") {
@@ -84,12 +68,11 @@ TEST_CASE("Anomalies: Missing final boundary is reported from the parse path", "
         "\n"
         "truncated message, no close delimiter\n";
 
-    MimeParserWithAnomalies parser(arena, source);
-    auto* msg = parser.parse_with_anomaly_detection();
+    auto result = parse_message(arena, source);
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(msg->parts.size() == 2);
-    REQUIRE(has_anomaly(parser.anomaly_report(), AnomalyKind::MissingFinalBoundary));
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.message->parts.size() == 2);
+    REQUIRE(result.has_anomaly(AnomalyKind::MissingFinalBoundary));
 }
 
 TEST_CASE("Anomalies: Properly terminated multipart has no boundary anomaly", "[mime][anomalies]") {
@@ -103,12 +86,11 @@ TEST_CASE("Anomalies: Properly terminated multipart has no boundary anomaly", "[
         "part\n"
         "--ok--\n";
 
-    MimeParserWithAnomalies parser(arena, source);
-    auto* msg = parser.parse_with_anomaly_detection();
+    auto result = parse_message(arena, source);
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(msg->parts.size() == 1);
-    REQUIRE(!has_anomaly(parser.anomaly_report(), AnomalyKind::MissingFinalBoundary));
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.message->parts.size() == 1);
+    REQUIRE(!result.has_anomaly(AnomalyKind::MissingFinalBoundary));
 }
 
 TEST_CASE("Anomalies: Missing boundary parameter is reported", "[mime][anomalies]") {
@@ -118,11 +100,10 @@ TEST_CASE("Anomalies: Missing boundary parameter is reported", "[mime][anomalies
         "\n"
         "Body without any boundary\n";
 
-    MimeParserWithAnomalies parser(arena, source);
-    auto* msg = parser.parse_with_anomaly_detection();
+    auto result = parse_message(arena, source);
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(has_anomaly(parser.anomaly_report(), AnomalyKind::MissingBoundaryParameter));
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.has_anomaly(AnomalyKind::MissingBoundaryParameter));
 }
 
 TEST_CASE("Anomalies: Nesting depth exceeded is reported from the parse path", "[mime][anomalies][limits]") {
@@ -135,32 +116,30 @@ TEST_CASE("Anomalies: Nesting depth exceeded is reported from the parse path", "
     }
 
     libglot::Arena arena;
-    ParserLimits limits = ParserLimits::standard();
-    limits.max_nesting_depth = 5;
+    ParseOptions options;
+    options.limits.max_nesting_depth = 5;
 
-    MimeParserWithAnomalies parser(arena, content, AnomalyConfig::standard(), limits);
-    auto* msg = parser.parse_with_anomaly_detection();
+    auto result = parse_message(arena, content, options);
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(has_anomaly(parser.anomaly_report(), AnomalyKind::ExcessiveNestingDepth));
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.has_anomaly(AnomalyKind::ExcessiveNestingDepth));
 
     // DoS severity counts as critical
-    REQUIRE(parser.anomaly_report().has_critical_anomalies());
+    REQUIRE(result.report.has_critical_anomalies());
 }
 
-TEST_CASE("Anomalies: Invalid RFC 2231 percent-encoding is reported via CompleteMimeParser", "[mime][anomalies][rfc2231]") {
+TEST_CASE("Anomalies: Invalid RFC 2231 percent-encoding is reported by the pipeline", "[mime][anomalies][rfc2231]") {
     libglot::Arena arena;
     std::string_view source =
         "Content-Type: application/pdf; filename*0*=\"utf-8''bad%ZZname.pdf\"\n"
         "\n"
         "Body\n";
 
-    CompleteMimeParser parser(arena, source);
-    Message* msg = nullptr;
-    REQUIRE_NOTHROW(msg = parser.parse_complete());
+    ParseResult result;
+    REQUIRE_NOTHROW(result = parse_message(arena, source));
 
-    REQUIRE(msg != nullptr);
-    REQUIRE(has_anomaly(parser.anomalies(), AnomalyKind::InvalidParameterSyntax));
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.has_anomaly(AnomalyKind::InvalidParameterSyntax));
 }
 
 TEST_CASE("Anomalies: Severity lookup is exposed via AnomalyConfig", "[mime][anomalies]") {

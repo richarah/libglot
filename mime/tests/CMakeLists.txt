@@ -10,6 +10,7 @@ set(MIME_TESTS
     test_mime_encoding
     test_mime_multipart
     test_mime_parser
+    test_pipeline
     test_rfc2231_continuations
 )
 

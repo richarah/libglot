@@ -23,6 +23,11 @@ struct MimeNode;
 struct Message;
 struct Header;
 
+// Defined in complete_features.h; attached to nodes by the pipeline
+// (parser_extended.h) when the corresponding syntax is present.
+struct AddressGroup;
+struct ExternalBodyRef;
+
 /// ============================================================================
 /// Base Node
 /// ============================================================================
@@ -39,8 +44,14 @@ struct Header : MimeNode {
     std::string_view field;
     std::string_view value;
 
-    /// Parameters extracted from header value (e.g., charset=utf-8, boundary=xyz)
+    /// Parameters extracted from header value (e.g., charset=utf-8, boundary=xyz).
+    /// RFC 2231 continued parameters (name*0, name*1*, ...) additionally get a
+    /// reassembled + percent-decoded entry appended under the base name.
     std::vector<std::pair<std::string_view, std::string_view>> parameters;
+
+    /// RFC 5322 address groups ("Team: a@x, b@y;"), populated by the pipeline
+    /// for address headers that use group syntax; nullptr otherwise.
+    std::vector<AddressGroup>* address_groups = nullptr;
 
     explicit Header(std::string_view f, std::string_view v)
         : MimeNode(MimeNodeKind::HEADER)
@@ -63,6 +74,10 @@ struct Message : MimeNode {
 
     /// For multipart messages, this contains the individual parts
     std::vector<Message*> parts;
+
+    /// For message/external-body parts (RFC 2046 §5.2.3): the parsed
+    /// access-type/name/site/... reference; nullptr otherwise.
+    ExternalBodyRef* external_body = nullptr;
 
     explicit Message()
         : MimeNode(MimeNodeKind::MESSAGE)

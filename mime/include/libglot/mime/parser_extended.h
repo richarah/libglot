@@ -2,136 +2,106 @@
 
 #include "parser.h"
 #include "anomalies.h"
+#include "boundary.h"
+#include "charset.h"
+#include "complete_features.h"
 #include "limits.h"
+#include "mime_type_validator.h"
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace libglot::mime {
 
 /// ============================================================================
-/// RFC 2046 Boundary Delimiter Matching
+/// Extended MIME Parser - The Parsing Pipeline
 /// ============================================================================
 ///
-/// A boundary delimiter line is:
-///   CRLF "--" boundary [ "--" ] *WSP CRLF
-/// - It must start at the beginning of a line (position 0 or right after a
-///   line break); boundary text appearing mid-line is part content.
-/// - The line break immediately preceding the delimiter belongs to the
-///   delimiter, not to the previous part's content.
-/// - "--boundary--" is the close delimiter; content after it is the
-///   epilogue, content before the first delimiter is the preamble.
+/// MimeParserExtended is the engine behind the one public entry point,
+/// parse_message() in mime.h (see that header for the pipeline overview).
+/// On top of MimeParser (header tokenization + unfolding) it adds:
+///
+/// - RFC 2046 multipart splitting (boundary.h) with nesting/part limits
+/// - Header enhancement: RFC 5322 comment stripping, RFC 2231 parameter
+///   continuations with percent/charset decoding, address-group parsing,
+///   and message/external-body references (complete_features.h)
+/// - Content-Type syntax validation (mime_type_validator.h)
+/// - Structural anomaly detection (duplicate/missing headers, boundary
+///   issues) recorded against an AnomalyConfig: Ignore-policy anomalies are
+///   dropped, Repair-policy ones recorded, and Reject-policy anomalies of
+///   Security/DoS severity mark the parse rejected and stop further
+///   multipart descent.
 /// ============================================================================
 
-struct BoundaryDelimiter {
-    bool found = false;
-    bool is_close = false;    ///< Close delimiter ("--boundary--")
-    size_t line_start = 0;    ///< Position of the "--" that starts the line
-    size_t content_end = 0;   ///< End of preceding part content (excludes the
-                              ///< line break owned by the delimiter)
-    size_t next_pos = 0;      ///< Position just past the delimiter line
-};
+namespace detail {
 
-/// Find the next RFC 2046 boundary delimiter line at or after `from`.
-inline BoundaryDelimiter find_boundary_delimiter(std::string_view body,
-                                                 std::string_view boundary,
-                                                 size_t from) {
-    BoundaryDelimiter result;
-    if (boundary.empty()) {
-        return result;
+/// Case-insensitive ASCII string comparison (header field names, media types)
+inline bool ascii_ieq(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) {
+        return false;
     }
-
-    const std::string marker = "--" + std::string(boundary);
-
-    size_t pos = from;
-    while (pos < body.size()) {
-        size_t p = body.find(marker, pos);
-        if (p == std::string_view::npos) {
-            return result;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
         }
-
-        // Must be at the start of a line (CRLF, LF, or bare CR before it)
-        if (p != 0 && body[p - 1] != '\n' && body[p - 1] != '\r') {
-            pos = p + 1;
-            continue;
-        }
-
-        size_t q = p + marker.size();
-        bool is_close = false;
-        if (body.substr(q, 2) == "--") {
-            is_close = true;
-            q += 2;
-        }
-
-        // Optional transport padding (whitespace) after the marker
-        while (q < body.size() && (body[q] == ' ' || body[q] == '\t')) {
-            ++q;
-        }
-
-        // The rest of the line must be empty (line break or end of body);
-        // otherwise the boundary text merely appears as a prefix of some
-        // longer token and this is NOT a delimiter line.
-        if (q != body.size() && body[q] != '\n' && body[q] != '\r') {
-            pos = p + 1;
-            continue;
-        }
-
-        result.found = true;
-        result.is_close = is_close;
-        result.line_start = p;
-
-        // The line break before the delimiter belongs to the delimiter
-        size_t content_end = p;
-        if (content_end > 0 && body[content_end - 1] == '\n') {
-            --content_end;
-            if (content_end > 0 && body[content_end - 1] == '\r') {
-                --content_end;
-            }
-        } else if (content_end > 0 && body[content_end - 1] == '\r') {
-            --content_end;
-        }
-        result.content_end = content_end;
-
-        // Skip past the delimiter line's own break
-        size_t next = q;
-        if (next < body.size()) {
-            if (body[next] == '\r') {
-                ++next;
-                if (next < body.size() && body[next] == '\n') {
-                    ++next;
-                }
-            } else if (body[next] == '\n') {
-                ++next;
-            }
-        }
-        result.next_pos = next;
-        return result;
     }
-
-    return result;
+    return true;
 }
 
-/// ============================================================================
-/// Extended MIME Parser with Multipart and Anomaly Detection
-/// ============================================================================
+inline std::string ascii_lower(std::string_view text) {
+    std::string lower(text);
+    for (char& c : lower) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return lower;
+}
+
+/// Media type of a Content-Type value: text up to the first ';', trimmed
+inline std::string_view media_type_of(std::string_view content_type_value) {
+    size_t semi = content_type_value.find(';');
+    std::string_view media = (semi == std::string_view::npos)
+        ? content_type_value
+        : content_type_value.substr(0, semi);
+    while (!media.empty() && (media.front() == ' ' || media.front() == '\t')) {
+        media.remove_prefix(1);
+    }
+    while (!media.empty() && (media.back() == ' ' || media.back() == '\t')) {
+        media.remove_suffix(1);
+    }
+    return media;
+}
+
+} // namespace detail
 
 class MimeParserExtended : public MimeParser {
 public:
     explicit MimeParserExtended(libglot::Arena& arena, std::string_view source,
-                                ParserLimits limits = ParserLimits::standard())
+                                ParserLimits limits = ParserLimits::standard(),
+                                AnomalyConfig config = AnomalyConfig::standard())
         : MimeParser(arena, source)
         , limits_(limits)
+        , config_(config)
     {
         tracker_.start_parse();
     }
 
     /// Anomalies recorded while parsing (limits exceeded, missing final
-    /// boundary, ...). Populated by the multipart parse path.
+    /// boundary, invalid Content-Type, structural issues, ...).
     [[nodiscard]] const AnomalyReport& anomalies() const noexcept {
         return report_;
     }
 
-    /// Parse message with multipart support
+    /// True when a Reject-policy anomaly of Security/DoS severity was hit;
+    /// the returned message tree is then partial and should not be trusted.
+    [[nodiscard]] bool rejected() const noexcept {
+        return rejected_;
+    }
+
+    /// Parse message through the full pipeline: headers (with parameters),
+    /// header enhancement, multipart splitting, structural anomaly detection.
     Message* parse_message_multipart() {
         std::vector<Header*> headers;
 
@@ -142,23 +112,6 @@ public:
                 break;
             }
             headers.push_back(parse_header_with_parameters());
-        }
-
-        // Extract Content-Type to check for multipart
-        std::string_view content_type;
-        std::string_view boundary;
-        for (auto* hdr : headers) {
-            if (hdr->field == "Content-Type" || hdr->field == "content-type") {
-                content_type = hdr->value;
-                // Extract boundary parameter
-                for (const auto& param : hdr->parameters) {
-                    if (param.first == "boundary") {
-                        boundary = param.second;
-                        break;
-                    }
-                }
-                break;
-            }
         }
 
         // Get body
@@ -172,10 +125,14 @@ public:
 
         auto* msg = this->template create_node<Message>(headers, body);
 
-        // Parse multipart if boundary is present
-        if (!boundary.empty() && is_multipart(content_type)) {
-            msg->parts = parse_multipart_body(body, boundary);
-        }
+        // Enhance headers and descend into multipart / external-body content
+        finish_message(msg);
+
+        // Post-parse structural anomaly detection (top-level message)
+        detect_missing_headers(msg);
+        detect_duplicate_headers(msg);
+        detect_content_type_issues(msg);
+        detect_boundary_issues(msg);
 
         return msg;
     }
@@ -215,8 +172,148 @@ public:
 private:
     /// Check if Content-Type indicates multipart
     bool is_multipart(std::string_view content_type) const {
-        // Simple check - could be more sophisticated
         return content_type.find("multipart/") == 0;
+    }
+
+    /// Header fields where RFC 5322 comments "(...)" are syntax, not content
+    static bool is_structured_field(std::string_view field) {
+        static constexpr std::string_view kStructured[] = {
+            "Content-Type", "Content-Disposition", "Content-Transfer-Encoding",
+            "MIME-Version", "Date", "From", "To", "Cc", "Bcc", "Sender",
+            "Reply-To", "Message-ID", "In-Reply-To", "References",
+        };
+        for (auto name : kStructured) {
+            if (detail::ascii_ieq(field, name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Header fields that carry RFC 5322 address lists (group syntax allowed)
+    static bool is_address_field(std::string_view field) {
+        static constexpr std::string_view kAddress[] = {
+            "To", "Cc", "Bcc", "From", "Sender", "Reply-To",
+        };
+        for (auto name : kAddress) {
+            if (detail::ascii_ieq(field, name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool has_continued_parameter(
+        const std::vector<std::pair<std::string_view, std::string_view>>& params) {
+        for (const auto& param : params) {
+            if (param.first.find('*') != std::string_view::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Apply the header-level pipeline stages to one parsed header:
+    /// comment stripping, RFC 2231 continuations, Content-Type validation,
+    /// address-group parsing.
+    void enhance_header(Header* header) {
+        // RFC 5322 comments in structured fields are not part of the value
+        if (header->value.find('(') != std::string_view::npos &&
+            is_structured_field(header->field)) {
+            std::string stripped = HeaderCommentParser::remove_comments(header->value);
+            if (stripped != header->value) {
+                header->value = this->arena().copy_source(stripped);
+                header->parameters = parse_parameters(header->value);
+            }
+        }
+
+        const bool parameterized =
+            detail::ascii_ieq(header->field, "Content-Type") ||
+            detail::ascii_ieq(header->field, "Content-Disposition");
+
+        // RFC 2231 parameter continuations: reassemble name*0/name*1/... into
+        // a single percent-decoded (and charset-converted) parameter.
+        if (parameterized && has_continued_parameter(header->parameters)) {
+            AnomalyReport rfc2231_report;
+            auto continued =
+                RFC2231Parser::parse_continued_parameters(header->parameters, &rfc2231_report);
+            for (const auto& rec : rfc2231_report.records) {
+                record_anomaly(rec.kind, rec.detail);
+            }
+            for (const auto& [name, param] : continued) {
+                std::string value = param.value;
+                if (param.encoded && !param.charset.empty()) {
+                    auto cs = CharsetConverter::detect_charset(detail::ascii_lower(param.charset));
+                    if (cs != CharsetConverter::Charset::Unknown) {
+                        value = CharsetConverter::to_utf8(value, cs);
+                    }
+                }
+                header->parameters.emplace_back(this->arena().copy_source(name),
+                                                this->arena().copy_source(value));
+            }
+        }
+
+        // Content-Type syntax validation (RFC 2045/6838)
+        if (detail::ascii_ieq(header->field, "Content-Type")) {
+            auto validation = MimeTypeValidator::validate(header->value);
+            if (!validation.valid) {
+                if (header->value.find('/') == std::string_view::npos) {
+                    record_anomaly(AnomalyKind::MissingMediaSubtype,
+                                   "Content-Type lacks a media subtype");
+                } else {
+                    record_anomaly(AnomalyKind::InvalidMediaType, validation.error_message);
+                }
+            }
+        }
+
+        // RFC 5322 address group syntax ("Team: a@x, b@y;") on address headers
+        if (header->value.find(':') != std::string_view::npos &&
+            is_address_field(header->field)) {
+            auto groups = AddressGroupParser::parse(header->value);
+            if (!groups.empty()) {
+                header->address_groups =
+                    this->arena().create<std::vector<AddressGroup>>(std::move(groups));
+            }
+        }
+    }
+
+    /// Shared post-header pipeline for the top-level message and every part:
+    /// enhance headers, then descend by media type (multipart splitting,
+    /// message/external-body references).
+    void finish_message(Message* msg) {
+        for (auto* header : msg->headers) {
+            enhance_header(header);
+        }
+        if (rejected_) {
+            return;
+        }
+
+        // The first Content-Type header drives the message structure
+        Header* content_type = nullptr;
+        for (auto* header : msg->headers) {
+            if (detail::ascii_ieq(header->field, "Content-Type")) {
+                content_type = header;
+                break;
+            }
+        }
+        if (!content_type) {
+            return;
+        }
+
+        if (is_multipart(content_type->value)) {
+            for (const auto& param : content_type->parameters) {
+                if (param.first == "boundary") {
+                    if (!param.second.empty()) {
+                        msg->parts = parse_multipart_body(msg->body, param.second);
+                    }
+                    break;
+                }
+            }
+        } else if (detail::ascii_ieq(detail::media_type_of(content_type->value),
+                                     "message/external-body")) {
+            msg->external_body = this->arena().create<ExternalBodyRef>(
+                ExternalBodyParser::parse(content_type->parameters));
+        }
     }
 
     /// Parse parameters from header value (e.g., "text/plain; charset=utf-8")
@@ -233,7 +330,7 @@ private:
         size_t pos = semi_pos + 1;
         while (pos < value.size()) {
             // Skip whitespace
-            while (pos < value.size() && std::isspace(value[pos])) {
+            while (pos < value.size() && std::isspace(static_cast<unsigned char>(value[pos]))) {
                 ++pos;
             }
             if (pos >= value.size()) break;
@@ -247,14 +344,15 @@ private:
 
             std::string_view param_name = value.substr(name_start, pos - name_start);
             // Trim trailing whitespace from name
-            while (!param_name.empty() && std::isspace(param_name.back())) {
+            while (!param_name.empty() &&
+                   std::isspace(static_cast<unsigned char>(param_name.back()))) {
                 param_name.remove_suffix(1);
             }
 
             ++pos;  // Skip '='
 
             // Skip whitespace after =
-            while (pos < value.size() && std::isspace(value[pos])) {
+            while (pos < value.size() && std::isspace(static_cast<unsigned char>(value[pos]))) {
                 ++pos;
             }
 
@@ -277,7 +375,8 @@ private:
                 }
                 param_value = value.substr(value_start, pos - value_start);
                 // Trim trailing whitespace
-                while (!param_value.empty() && std::isspace(param_value.back())) {
+                while (!param_value.empty() &&
+                       std::isspace(static_cast<unsigned char>(param_value.back()))) {
                     param_value.remove_suffix(1);
                 }
             }
@@ -300,7 +399,7 @@ private:
     /// Content before the first delimiter (preamble) and after the close
     /// delimiter (epilogue) is discarded. Enforces nesting-depth and
     /// part-count limits; violations stop parsing cleanly and are recorded
-    /// as anomalies.
+    /// as anomalies. Once the parse is rejected, no further parts are read.
     std::vector<Part*> parse_multipart_body(std::string_view body, std::string_view boundary) {
         std::vector<Part*> parts;
 
@@ -326,7 +425,7 @@ private:
         bool closed = delim.is_close;
         size_t part_start = delim.next_pos;
 
-        while (!closed) {
+        while (!closed && !rejected_) {
             // DoS protection: cap total number of parts
             if (tracker_.total_parts >= limits_.max_total_parts) {
                 record_anomaly(AnomalyKind::ExcessivePartCount,
@@ -433,25 +532,9 @@ private:
             line_start = next_line;
         }
 
-        // Create part
+        // Create part and run it through the same pipeline as the message
         auto* part = this->template create_node<Part>(headers, body_text);
-
-        // Check if this part is also multipart
-        for (auto* hdr : headers) {
-            if (hdr->field == "Content-Type" || hdr->field == "content-type") {
-                if (is_multipart(hdr->value)) {
-                    // Extract boundary
-                    for (const auto& param : hdr->parameters) {
-                        if (param.first == "boundary") {
-                            part->parts = parse_multipart_body(body_text, param.second);
-                            break;
-                        }
-                    }
-                }
-                break;
-            }
-        }
-
+        finish_message(part);
         return part;
     }
 
@@ -483,16 +566,124 @@ private:
         return {std::string_view::npos, std::string_view::npos};
     }
 
+    // ========================================================================
+    // Structural Anomaly Detection (post-parse, top-level message)
+    // ========================================================================
+
+    void detect_missing_headers(Message* msg) {
+        bool has_mime_version = false;
+        bool has_content_type = false;
+
+        for (auto* header : msg->headers) {
+            if (detail::ascii_ieq(header->field, "MIME-Version")) {
+                has_mime_version = true;
+            }
+            if (detail::ascii_ieq(header->field, "Content-Type")) {
+                has_content_type = true;
+            }
+        }
+
+        if (!has_mime_version && !msg->parts.empty()) {
+            record_anomaly(AnomalyKind::MissingMIMEVersion,
+                           "multipart message lacks a MIME-Version header");
+        }
+
+        if (!has_content_type && !msg->parts.empty()) {
+            record_anomaly(AnomalyKind::MissingContentType,
+                           "multipart message lacks a Content-Type header");
+        }
+    }
+
+    void detect_duplicate_headers(Message* msg) {
+        bool seen_content_type = false;
+
+        for (auto* header : msg->headers) {
+            if (detail::ascii_ieq(header->field, "Content-Type")) {
+                if (seen_content_type) {
+                    record_anomaly(AnomalyKind::DuplicateContentType,
+                                   "message contains multiple Content-Type headers");
+                    break;
+                }
+                seen_content_type = true;
+            }
+        }
+    }
+
+    void detect_content_type_issues(Message* msg) {
+        for (auto* header : msg->headers) {
+            if (!detail::ascii_ieq(header->field, "Content-Type")) {
+                continue;
+            }
+            // Missing charset in text/* types (subtype syntax itself is
+            // validated per-header by enhance_header)
+            if (header->value.find("text/") == 0) {
+                bool has_charset = false;
+                for (const auto& param : header->parameters) {
+                    if (param.first == "charset") {
+                        has_charset = true;
+                        break;
+                    }
+                }
+                if (!has_charset) {
+                    record_anomaly(AnomalyKind::MissingCharsetInfo,
+                                   "text/* Content-Type lacks a charset parameter");
+                }
+            }
+        }
+    }
+
+    void detect_boundary_issues(Message* msg) {
+        for (auto* header : msg->headers) {
+            if (!detail::ascii_ieq(header->field, "Content-Type")) {
+                continue;
+            }
+            if (header->value.find("multipart/") != 0) {
+                continue;
+            }
+
+            bool has_boundary = false;
+            bool boundary_empty = false;
+            for (const auto& param : header->parameters) {
+                if (param.first == "boundary") {
+                    has_boundary = true;
+                    boundary_empty = param.second.empty();
+                    break;
+                }
+            }
+
+            if (!has_boundary) {
+                record_anomaly(AnomalyKind::MissingBoundaryParameter,
+                               "multipart Content-Type lacks a boundary parameter");
+            } else if (boundary_empty) {
+                record_anomaly(AnomalyKind::EmptyBoundary,
+                               "multipart Content-Type has an empty boundary parameter");
+            }
+        }
+    }
+
 protected:
-    /// Record an anomaly detected during parsing
-    void record_anomaly(AnomalyKind kind, std::string_view detail) {
-        report_.add(kind, AnomalyConfig::get_severity(kind), AnomalyPolicy::Repair,
-                    SourceLocation{}, "", detail);
+    /// Record an anomaly against the configured policy. Ignore-policy
+    /// anomalies are dropped; Reject-policy anomalies of Security/DoS
+    /// severity mark the parse rejected (stopping further multipart
+    /// descent). Returns the applied policy.
+    AnomalyPolicy record_anomaly(AnomalyKind kind, std::string_view detail) {
+        const AnomalySeverity severity = AnomalyConfig::get_severity(kind);
+        const AnomalyPolicy policy = config_.get_policy(kind);
+
+        if (policy != AnomalyPolicy::Ignore) {
+            report_.add(kind, severity, policy, SourceLocation{}, "", detail);
+        }
+        if (policy == AnomalyPolicy::Reject && severity >= AnomalySeverity::Security) {
+            rejected_ = true;
+        }
+        return policy;
     }
 
     ParserLimits limits_;
+    AnomalyConfig config_;
     LimitTracker tracker_;
     AnomalyReport report_;
+    bool rejected_ = false;
 };
 
 } // namespace libglot::mime

@@ -1,7 +1,9 @@
 #pragma once
 
-#include "parser_extended.h"
 #include "anomalies.h"
+#include "boundary.h"
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <string>
 #include <vector>
@@ -10,17 +12,18 @@
 namespace libglot::mime {
 
 /// ============================================================================
-/// Complete MIME Feature Set - 100% Coverage
+/// MIME Utility Classes - RFC Corner Cases
 /// ============================================================================
 ///
-/// This file implements the remaining 2-5% of MIME features for complete
-/// RFC compliance and Enron dataset compatibility:
+/// Standalone helpers for the trickier corners of the MIME RFCs. They are
+/// wired into the main pipeline (see mime.h / parser_extended.h) so a normal
+/// parse benefits from them automatically, and remain directly usable:
 ///
-/// 1. RFC 2231 parameter continuations
-/// 2. Comment parsing in headers (RFC 5322)
-/// 3. Address group syntax
-/// 4. Boundary error recovery
-/// 5. message/external-body support
+/// 1. RFC 2231 parameter continuations (RFC2231Parser)
+/// 2. Comment parsing in headers, RFC 5322 (HeaderCommentParser)
+/// 3. Address group syntax (AddressGroupParser)
+/// 4. Boundary error recovery (BoundaryRecovery)
+/// 5. message/external-body support (ExternalBodyParser)
 /// ============================================================================
 
 /// ============================================================================
@@ -322,9 +325,11 @@ public:
 private:
     static std::string_view trim(std::string_view str) {
         size_t start = 0;
-        while (start < str.length() && std::isspace(str[start])) start++;
+        while (start < str.length() &&
+               std::isspace(static_cast<unsigned char>(str[start]))) start++;
         size_t end = str.length();
-        while (end > start && std::isspace(str[end - 1])) end--;
+        while (end > start &&
+               std::isspace(static_cast<unsigned char>(str[end - 1]))) end--;
         return str.substr(start, end - start);
     }
 };
@@ -475,42 +480,6 @@ public:
         }
 
         return ref;
-    }
-};
-
-/// ============================================================================
-/// Complete MIME Parser
-/// ============================================================================
-
-class CompleteMimeParser : public MimeParserExtended {
-public:
-    using MimeParserExtended::MimeParserExtended;
-
-    /// Parse with all RFC 2231, comment, and group support
-    Message* parse_complete() {
-        auto* msg = parse_message_multipart();
-
-        // Process continued parameters
-        for (auto* header : msg->headers) {
-            if (header->field == "Content-Type" || header->field == "Content-Disposition") {
-                auto continued = RFC2231Parser::parse_continued_parameters(header->parameters, &report_);
-                // Add continued parameters back to header
-                for (const auto& [name, param] : continued) {
-                    header->parameters.push_back({
-                        this->arena().copy_source(param.name),
-                        this->arena().copy_source(param.value)
-                    });
-                }
-            }
-
-            // Remove comments from header values
-            std::string value_no_comments = HeaderCommentParser::remove_comments(header->value);
-            if (value_no_comments != header->value) {
-                header->value = this->arena().copy_source(value_no_comments);
-            }
-        }
-
-        return msg;
     }
 };
 
