@@ -57,8 +57,8 @@ TEST_CASE("FOR keyword - range loop AST shape", "[for][loop]") {
 TEST_CASE("FOR keyword - range loop round-trips for FOR-native dialects", "[for][loop]") {
     const std::string sql = "FOR i IN 1..10 LOOP SELECT 1; END LOOP";
 
-    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) == "FOR i IN 1..10 LOOP SELECT 1 END LOOP");
-    REQUIRE(transpile(sql, SQLDialect::Oracle) == "FOR i IN 1..10 LOOP SELECT 1 END LOOP");
+    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) == "FOR i IN 1..10 LOOP SELECT 1; END LOOP");
+    REQUIRE(transpile(sql, SQLDialect::Oracle) == "FOR i IN 1..10 LOOP SELECT 1; END LOOP");
 }
 
 TEST_CASE("FOR keyword - loop body may hold multiple statements", "[for][loop]") {
@@ -100,7 +100,7 @@ TEST_CASE("FOR keyword - BREAK and CONTINUE inside a FOR body", "[for][loop]") {
 
 TEST_CASE("FOR keyword - loop lowered to WHILE for SQL Server", "[for][loop][transpile]") {
     REQUIRE(transpile("FOR i IN 1..10 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer)
-            == "DECLARE @i INT = 1 WHILE @i <= 10 BEGIN SELECT 1 SET @i = @i + 1 END");
+            == "BEGIN DECLARE @i INT = 1; WHILE @i <= 10 BEGIN SELECT 1; SET @i = @i + 1; END; END");
 }
 
 // ============================================================================

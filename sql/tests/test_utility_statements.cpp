@@ -343,11 +343,9 @@ TEST_CASE("DO - SQL injection via delimiter", "[do][security]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
 
-    // Should parse only the DO statement, treating the rest as error or second statement
-    auto expr = parser.parse_top_level();
-    REQUIRE(expr != nullptr);
-    // TODO: Verify node kind is DO_BLOCK
-    // REQUIRE(expr->kind == SQLNodeKind::DO_BLOCK);
+    // The DROP after the DO block is trailing input; the parser rejects it
+    // as an error rather than silently dropping the injected statement.
+    REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }
 
 TEST_CASE("ANALYZE - Very long table list", "[analyze][security]") {

@@ -628,6 +628,7 @@ struct JoinClause : SQLNode {
     SQLNode* left_table;
     SQLNode* right_table;
     SQLNode* condition;  // ON condition or USING columns
+    bool asof = false;   // ASOF JOIN (DuckDB / ClickHouse)
 
     JoinClause(JoinType jt, SQLNode* l, SQLNode* r, SQLNode* cond = nullptr)
         : SQLNode(SQLNodeKind::JOIN_CLAUSE), join_type(jt),
@@ -663,6 +664,9 @@ struct Tablesample : SQLNode {
 /// SELECT Components
 /// ============================================================================
 
+/// Wait policy for SELECT ... FOR UPDATE
+enum class ForUpdateWait : uint8_t { NONE, NOWAIT, SKIP_LOCKED };
+
 struct SelectStmt : SQLNode {
     WithClause* with;                     // WITH clause (CTEs)
     std::vector<SQLNode*> columns;        // SELECT columns
@@ -677,6 +681,10 @@ struct SelectStmt : SQLNode {
     bool distinct;
     bool limit_percent;                   // TOP n PERCENT (SQL Server)
     bool limit_with_ties;                 // TOP n WITH TIES (SQL Server)
+    bool for_update = false;                       // FOR UPDATE row locking
+    std::vector<std::string_view> for_update_of;   // FOR UPDATE OF col, ...
+    ForUpdateWait for_update_wait = ForUpdateWait::NONE;  // NOWAIT / SKIP LOCKED
+    TableRef* into_table = nullptr;                // SELECT ... INTO target (T-SQL / PL/SQL)
 
     SelectStmt()
         : SQLNode(SQLNodeKind::SELECT_STMT), with(nullptr), from(nullptr), where(nullptr),
@@ -1206,12 +1214,15 @@ struct RaiseStmt : SQLNode {
     std::string_view level;      // EXCEPTION, NOTICE, WARNING, INFO, LOG, DEBUG (PostgreSQL) or SIGNAL (MySQL)
     std::string_view sqlstate;   // SQLSTATE for SIGNAL (MySQL)
     std::string_view message;
+    std::vector<SQLNode*> args;  // RAISE format args / RAISERROR severity, state, args
+    bool tsql_raiserror = false; // Parsed from T-SQL RAISERROR(msg, severity, state)
 
     RaiseStmt() : SQLNode(SQLNodeKind::RAISE_STMT) {}
 };
 
 struct OpenCursorStmt : SQLNode {
     std::string_view cursor_name;
+    std::vector<SQLNode*> args;  // OPEN cur(arg1, arg2) cursor parameters
 
     OpenCursorStmt() : SQLNode(SQLNodeKind::OPEN_CURSOR_STMT) {}
 };

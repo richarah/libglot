@@ -582,10 +582,10 @@ TEST_CASE("GRANT - SQL injection via identifier", "[grant][security]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
 
-    // Should parse the entire string as an identifier, not execute injection
-    auto expr = parser.parse();
-    REQUIRE(expr != nullptr);
-    REQUIRE(expr->type == SQLNodeKind::GRANT_STMT);
+    // The injected payload is trailing input after the GRANT statement; the
+    // parser rejects it cleanly instead of silently dropping it (which would
+    // hide the attempted injection from callers).
+    REQUIRE_THROWS_AS(parser.parse(), libglot::ParseError);
 }
 
 TEST_CASE("REVOKE - Extremely long privilege list", "[revoke][security]") {

@@ -30,10 +30,11 @@ public:
 
     // Precedence anchors (must stay in sync with the table in grammar.h):
     // boolean NOT sits between AND (9) and IS (11); arithmetic unary +/-
-    // binds above the highest binary level (14); BETWEEN/IN bounds parse
-    // above the comparison level (12) so AND/comparisons are not consumed.
+    // binds above the highest binary level (15, CARET); BETWEEN/IN bounds
+    // parse above the comparison level (12) so AND/comparisons are not
+    // consumed.
     static constexpr int kNotPrecedence = 10;
-    static constexpr int kUnaryArithmeticPrecedence = 15;
+    static constexpr int kUnaryArithmeticPrecedence = 16;
     static constexpr int kComparisonOperandPrecedence = 13;
 
     // ========================================================================
@@ -49,6 +50,30 @@ public:
     // ========================================================================
 
     SQLNode* parse_top_level() {
+        SQLNode* stmt = parse_statement();
+
+        // A statement may be terminated by (possibly repeated) semicolons.
+        while (match(TK::SEMICOLON)) {
+        }
+
+        // Anything else left over would previously be dropped on the floor
+        // (SELECT 2 ^ 3 silently became SELECT 2; SELECT ... FOR UPDATE lost
+        // its locking clause). Turn silent drops into a clean parse error.
+        if (!is_eof()) {
+            error("Unexpected trailing input after statement");
+        }
+
+        return stmt;
+    }
+
+    /// Parse a single statement without end-of-input enforcement.
+    /// Used recursively for statement bodies (BEGIN..END, IF, loops, ...)
+    /// and callable repeatedly to consume a multi-statement script.
+    SQLNode* parse_statement() {
+        // Skip statement separators left over from a previous statement
+        while (match(TK::SEMICOLON)) {
+        }
+
         // Dispatch to appropriate statement parser
         if (check(TK::WITH) || check(TK::SELECT)) {
             return parse_select();
@@ -108,6 +133,10 @@ public:
             return parse_raise();
         } else if (check(TK::SIGNAL)) {
             return parse_raise();
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "RAISERROR" || current().text == "raiserror") &&
+                   peek(1).type == TK::LPAREN) {
+            return parse_raiserror();
         } else if (check(TK::OPEN)) {
             return parse_open_cursor();
         } else if (check(TK::FETCH)) {
@@ -197,12 +226,14 @@ public:
         // Array literal: ARRAY[1, 2, 3]
         // Note: The tokenizer may lex [elements] as a single quoted identifier token in SQL Server mode
         if (match(TK::ARRAY)) {
-            // Check if we have a bracket-quoted identifier (SQL Server style) vs separate bracket tokens
-            if (check(TK::IDENTIFIER) && current().text.starts_with('[') && current().text.ends_with(']')) {
+            // Check if we have a bracket-quoted identifier (SQL Server style) vs separate bracket tokens.
+            // Token text is quote-stripped, so inspect the raw source at the token start.
+            if (check(TK::IDENTIFIER) && current().start < source_.size() &&
+                source_[current().start] == '[') {
                 // Tokenizer lexed [node_id] as a single identifier - need to parse the interior
                 // This is a limitation of the generic tokenizer
                 // For now, create a simple array with the unquoted identifier
-                std::string_view interior = current().text.substr(1, current().text.length() - 2);
+                std::string_view interior = current().text;  // Already stripped of brackets
                 (void)advance();
                 // Parse the interior as a simple identifier
                 auto elem = this->template create_node<Column>(interior);
@@ -363,20 +394,9 @@ public:
             expect(TK::LPAREN);
             auto expr = parse_expression();
             expect(TK::AS);
-
-            // Parse type name
-            std::string type_str;
-            while (!check(TK::RPAREN) && !this->is_eof()) {
-                if (!current().text.empty()) {
-                    if (!type_str.empty()) type_str += " ";
-                    type_str += std::string(current().text);
-                }
-                (void)advance();  // Acknowledge nodiscard warning
-            }
+            std::string_view type_str = parse_cast_type_name();
             expect(TK::RPAREN);
-            // type_str is a local; copy into the arena so the string_view
-            // stored in CastExpr outlives this function.
-            return this->template create_node<CastExpr>(expr, this->arena().copy_source(type_str));
+            return this->template create_node<CastExpr>(expr, type_str);
         }
 
         if (check(TK::SAFE_CAST)) {
@@ -384,19 +404,9 @@ public:
             expect(TK::LPAREN);
             auto expr = parse_expression();
             expect(TK::AS);
-
-            // Parse type name
-            std::string type_str;
-            while (!check(TK::RPAREN) && !this->is_eof()) {
-                if (!current().text.empty()) {
-                    if (!type_str.empty()) type_str += " ";
-                    type_str += std::string(current().text);
-                }
-                (void)advance();
-            }
+            std::string_view type_str = parse_cast_type_name();
             expect(TK::RPAREN);
-            // Copy the locally built type string into the arena (see CAST).
-            return this->template create_node<CastExpr>(expr, this->arena().copy_source(type_str));
+            return this->template create_node<CastExpr>(expr, type_str);
         }
 
         if (check(TK::STRUCT_KW)) {
@@ -517,6 +527,29 @@ public:
     /// Check if we're at a ".." range operator
     [[nodiscard]] bool check_double_dot() const noexcept {
         return check(TK::DOT) && peek(1).type == TK::DOT;
+    }
+
+    /// Parse the target type of CAST(expr AS <type>) up to the CAST's own
+    /// closing paren. Paren-depth aware so parameterized types like
+    /// VARCHAR(10) or DECIMAL(10, 2) are captured whole - stopping at the
+    /// first ')' used to leave the CAST's closing paren and everything after
+    /// it (the FROM clause!) unconsumed. Returns a view into the
+    /// arena-owned source, preserving original spacing.
+    [[nodiscard]] std::string_view parse_cast_type_name() {
+        size_t type_start = current().start;
+        size_t type_end = type_start;
+        int paren_depth = 0;
+        while (!is_eof()) {
+            if (check(TK::RPAREN)) {
+                if (paren_depth == 0) break;  // CAST's closing paren
+                paren_depth--;
+            } else if (check(TK::LPAREN)) {
+                paren_depth++;
+            }
+            type_end = current().end;
+            (void)advance();
+        }
+        return source_.substr(type_start, type_end - type_start);
     }
 
     /// Parse postfix expression (array indexing, JSON operators, etc.)
@@ -670,9 +703,12 @@ public:
             stmt->distinct = true;
         }
 
-        // TOP n (SQL Server, Access)
+        // TOP n (SQL Server, Access). The count is parsed as a primary
+        // expression only: a full parse_expression would treat the select
+        // list's leading '*' as multiplication (TOP 10 * FROM ... -> 10 * ?)
+        // and reject the generator's own TOP output on re-parse.
         if (match(TK::TOP)) {
-            stmt->limit = parse_expression();
+            stmt->limit = parse_prefix();
             // Optional: PERCENT ('%' operator token or PERCENT keyword/identifier)
             if (check(TK::PERCENT) || check(TK::PERCENT_KW) ||
                 (check(TK::IDENTIFIER) && (current().text == "PERCENT" || current().text == "percent"))) {
@@ -706,6 +742,11 @@ public:
         // Validate that we have at least one column
         if (stmt->columns.empty()) {
             error("Expected column list after SELECT");
+        }
+
+        // SELECT ... INTO target (T-SQL SELECT INTO #temp, PL/SQL SELECT INTO var)
+        if (match(TK::INTO)) {
+            stmt->into_table = parse_table_ref();
         }
 
         // FROM clause
@@ -748,9 +789,50 @@ public:
             stmt->limit = parse_expression();
         }
 
-        // OFFSET
+        // OFFSET n [ROW | ROWS]  (the ROW/ROWS suffix is the ANSI
+        // OFFSET..FETCH form used by SQL Server / Oracle / DB2)
         if (match(TK::OFFSET)) {
             stmt->offset = parse_expression();
+            if (!match(TK::ROWS)) {
+                (void)match(TK::ROW);
+            }
+        }
+
+        // FETCH {FIRST | NEXT} n {ROW | ROWS} ONLY  (ANSI / Oracle 12c+ /
+        // DB2 / SQL Server OFFSET..FETCH) - a limit by another name
+        if (match(TK::FETCH)) {
+            if (!match(TK::FIRST)) {
+                (void)match(TK::NEXT);
+            }
+            stmt->limit = parse_expression();
+            if (!match(TK::ROWS)) {
+                (void)match(TK::ROW);
+            }
+            (void)match(TK::ONLY);
+        }
+
+        // FOR UPDATE [OF col, ...] [NOWAIT | SKIP LOCKED]  (row locking)
+        if (check(TK::FOR) && peek(1).type == TK::UPDATE) {
+            (void)advance();  // FOR
+            (void)advance();  // UPDATE
+            stmt->for_update = true;
+
+            if (match(TK::OF)) {
+                do {
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name after FOR UPDATE OF");
+                    }
+                    stmt->for_update_of.push_back(advance().text);
+                } while (match(TK::COMMA));
+            }
+
+            if (match(TK::NOWAIT)) {
+                stmt->for_update_wait = ForUpdateWait::NOWAIT;
+            } else if (check(TK::SKIP) && peek(1).type == TK::LOCKED) {
+                (void)advance();  // SKIP
+                (void)advance();  // LOCKED
+                stmt->for_update_wait = ForUpdateWait::SKIP_LOCKED;
+            }
         }
 
         return stmt;
@@ -1124,7 +1206,8 @@ public:
 
         // Handle comma-separated tables (old-style implicit CROSS JOIN) and explicit JOINs
         while (check(TK::COMMA) || check(TK::JOIN) || check(TK::INNER) || check(TK::LEFT) ||
-               check(TK::RIGHT) || check(TK::FULL) || check(TK::CROSS) || check(TK::OUTER)) {
+               check(TK::RIGHT) || check(TK::FULL) || check(TK::CROSS) || check(TK::OUTER) ||
+               check(TK::ASOF)) {
 
             // Comma-separated tables are implicit CROSS JOINs
             if (match(TK::COMMA)) {
@@ -1136,6 +1219,12 @@ public:
             // Explicit JOIN syntax
             JoinType join_type = JoinType::INNER;
             bool saw_apply = false;
+            bool asof = false;
+
+            // ASOF prefix (DuckDB / ClickHouse): ASOF [LEFT] JOIN
+            if (match(TK::ASOF)) {
+                asof = true;
+            }
 
             if (match(TK::INNER)) {
                 expect(TK::JOIN);
@@ -1185,7 +1274,9 @@ public:
                 condition = parse_expression();
             }
 
-            table = this->template create_node<JoinClause>(join_type, table, right_table, condition);
+            auto* join = this->template create_node<JoinClause>(join_type, table, right_table, condition);
+            join->asof = asof;
+            table = join;
         }
 
         return table;
@@ -1519,8 +1610,9 @@ public:
         expect(TK::ON);
         stmt->on_condition = parse_expression();
 
-        // WHEN MATCHED/NOT MATCHED clauses (simplified - just parse first one)
-        if (check(TK::WHEN)) {
+        // WHEN MATCHED / WHEN NOT MATCHED clauses (a MERGE commonly has both;
+        // parsing only the first silently dropped the other action)
+        while (check(TK::WHEN)) {
             (void)advance();
 
             bool matched = false;
@@ -1652,7 +1744,7 @@ public:
         stmt->temporary = is_temporary;
 
         // IF NOT EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::NOT);
             expect(TK::EXISTS);
             stmt->if_not_exists = true;
@@ -1685,6 +1777,14 @@ public:
             } while (match(TK::COMMA));
         }
         expect(TK::RPAREN);
+
+        // Deliberately skip trailing dialect-specific table options we do
+        // not model (ENGINE=InnoDB, DISTSTYLE KEY, DISTRIBUTED BY (...),
+        // DUPLICATE KEY(...) ... BUCKETS n, ON COMMIT ..., etc.) up to the
+        // statement terminator, mirroring parse_column_def's permissiveness.
+        while (!check(TK::SEMICOLON) && !is_eof()) {
+            (void)advance();
+        }
 
         return stmt;
     }
@@ -1921,7 +2021,7 @@ public:
         }
 
         // IF NOT EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::NOT);
             expect(TK::EXISTS);
             stmt->if_not_exists = true;
@@ -2028,7 +2128,7 @@ public:
         expect(TK::VIEW);
 
         // IF EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
             stmt->if_exists = true;
         }
@@ -2046,7 +2146,7 @@ public:
         expect(TK::INDEX);
 
         // IF EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
             stmt->if_exists = true;
         }
@@ -2068,7 +2168,7 @@ public:
         }
 
         // IF EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
             stmt->if_exists = true;
         }
@@ -2231,7 +2331,7 @@ public:
             if (match(TK::SEMICOLON)) {
                 continue;
             }
-            statements.push_back(parse_top_level());
+            statements.push_back(parse_statement());
         }
 
         // Check if we have EXCEPTION handlers
@@ -2266,7 +2366,7 @@ public:
                     if (match(TK::SEMICOLON)) {
                         continue;
                     }
-                    handler_stmts.push_back(parse_top_level());
+                    handler_stmts.push_back(parse_statement());
                 }
 
                 exc_block->handlers.push_back({exception_name, handler_stmts});
@@ -2321,7 +2421,8 @@ public:
         auto stmt = this->template create_node<SetStmt>();
         expect(TK::SET);
         do {
-            if (!check(TK::IDENTIFIER)) {
+            // T-SQL variables lex as PARAMETER tokens (SET @i = @i + 1)
+            if (!check(TK::IDENTIFIER) && !check(TK::PARAMETER)) {
                 error("Expected variable name in SET statement");
             }
             std::string_view var = advance().text;
@@ -2361,7 +2462,7 @@ public:
         if (match(TK::ANALYZE)) {
             stmt->analyze = true;
         }
-        stmt->statement = parse_top_level();
+        stmt->statement = parse_statement();
         return stmt;
     }
 
@@ -3315,7 +3416,7 @@ public:
         }
 
         // IF EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
             stmt->if_exists = true;
         }
@@ -3336,8 +3437,9 @@ public:
         }
 
         // Check if it's a cursor or variable declaration
-        // Many keywords can be used as identifiers in DECLARE context
-        if (check(TK::IDENTIFIER) || check(TK::TEMP) || check(TK::COUNT) ||
+        // Many keywords can be used as identifiers in DECLARE context.
+        // T-SQL variables lex as PARAMETER tokens (DECLARE @i INT = 1).
+        if (check(TK::IDENTIFIER) || check(TK::PARAMETER) || check(TK::TEMP) || check(TK::COUNT) ||
             check(TK::SUM) || check(TK::AVG) || check(TK::MIN) || check(TK::MAX) ||
             check(TK::ORDER) || check(TK::RANK)) {
             auto name_tok = current();
@@ -3424,7 +3526,7 @@ public:
             if (match(TK::SEMICOLON)) {
                 continue;
             }
-            stmt->then_stmts.push_back(parse_top_level());
+            stmt->then_stmts.push_back(parse_statement());
         }
 
         // ELSIF clauses - use elseif_branches field (supports multiple)
@@ -3439,7 +3541,7 @@ public:
                 if (match(TK::SEMICOLON)) {
                     continue;
                 }
-                elsif_stmts.push_back(parse_top_level());
+                elsif_stmts.push_back(parse_statement());
             }
 
             stmt->elseif_branches.emplace_back(elsif_condition, elsif_stmts);
@@ -3452,7 +3554,7 @@ public:
                 if (match(TK::SEMICOLON)) {
                     continue;
                 }
-                stmt->else_stmts.push_back(parse_top_level());
+                stmt->else_stmts.push_back(parse_statement());
             }
         }
 
@@ -3476,6 +3578,19 @@ public:
 
         stmt->condition = parse_expression();
 
+        // T-SQL form: WHILE condition BEGIN ... END (no DO/LOOP keyword,
+        // the body is a single BEGIN..END block that also terminates the
+        // loop - there is no END WHILE).
+        if (!check(TK::DO) && !check(TK::LOOP) && check(TK::BEGIN)) {
+            auto* body_block = parse_begin();
+            if (body_block->type == SQLNodeKind::BEGIN_END_BLOCK) {
+                stmt->body = static_cast<BeginEndBlock*>(body_block)->statements;
+            } else {
+                stmt->body.push_back(body_block);
+            }
+            return stmt;
+        }
+
         // DO or LOOP keyword (optional in some dialects)
         if (check(TK::DO) || check(TK::LOOP)) {
             (void)advance();
@@ -3487,7 +3602,7 @@ public:
             if (match(TK::SEMICOLON)) {
                 continue;
             }
-            stmt->body.push_back(parse_top_level());
+            stmt->body.push_back(parse_statement());
         }
 
         // END WHILE, ENDWHILE, or END LOOP
@@ -3532,7 +3647,7 @@ public:
             if (match(TK::SEMICOLON)) {
                 continue;
             }
-            stmt->body.push_back(parse_top_level());
+            stmt->body.push_back(parse_statement());
         }
 
         // END LOOP or ENDLOOP
@@ -3559,7 +3674,7 @@ public:
             if (match(TK::SEMICOLON)) {
                 continue;
             }
-            stmt->body.push_back(parse_top_level());
+            stmt->body.push_back(parse_statement());
         }
 
         // END LOOP or ENDLOOP
@@ -3583,7 +3698,7 @@ public:
         if (check(TK::RAISE)) {
             (void)advance();
 
-            // PostgreSQL RAISE: RAISE level 'message'
+            // PostgreSQL RAISE: RAISE level 'message'[, format_args...]
             // Level: EXCEPTION, NOTICE, WARNING, INFO, LOG, DEBUG
             if (check(TK::IDENTIFIER) || check(TK::EXCEPTION)) {
                 stmt->level = advance().text;
@@ -3592,6 +3707,11 @@ public:
             // Message string
             if (check(TK::STRING)) {
                 stmt->message = advance().text;
+            }
+
+            // Format arguments: RAISE EXCEPTION 'value is %', 5
+            while (match(TK::COMMA)) {
+                stmt->args.push_back(parse_expression());
             }
         } else if (check(TK::SIGNAL)) {
             (void)advance();
@@ -3622,12 +3742,44 @@ public:
         return stmt;
     }
 
+    /// Parse T-SQL RAISERROR('message', severity, state[, args...])
+    RaiseStmt* parse_raiserror() {
+        auto stmt = this->template create_node<RaiseStmt>();
+        stmt->tsql_raiserror = true;
+        stmt->level = "EXCEPTION";
+
+        (void)advance();  // RAISERROR (lexes as an identifier)
+        expect(TK::LPAREN);
+
+        if (check(TK::STRING)) {
+            stmt->message = advance().text;
+        }
+
+        // severity, state, and optional substitution arguments
+        while (match(TK::COMMA)) {
+            stmt->args.push_back(parse_expression());
+        }
+
+        expect(TK::RPAREN);
+        return stmt;
+    }
+
     OpenCursorStmt* parse_open_cursor() {
         auto stmt = this->template create_node<OpenCursorStmt>();
         expect(TK::OPEN);
 
         if (check(TK::IDENTIFIER)) {
             stmt->cursor_name = advance().text;
+        }
+
+        // Optional cursor arguments: OPEN cur(100, 'active')
+        if (match(TK::LPAREN)) {
+            if (!check(TK::RPAREN)) {
+                do {
+                    stmt->args.push_back(parse_expression());
+                } while (match(TK::COMMA));
+            }
+            expect(TK::RPAREN);
         }
 
         return stmt;
@@ -3818,7 +3970,7 @@ public:
         expect(TK::TRIGGER);
 
         // IF EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
             stmt->if_exists = true;
         }
@@ -3852,7 +4004,7 @@ public:
         }
 
         // IF NOT EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::NOT);
             expect(TK::EXISTS);
         }
@@ -3893,7 +4045,7 @@ public:
         }
 
         // IF EXISTS?
-        if (match(TK::IF)) {
+        if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
             stmt->if_exists = true;
         }
@@ -3950,7 +4102,7 @@ private:
     /// This ensures all token string_views point to arena memory
     static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source, SQLDialect dialect) {
         auto arena_source = arena.copy_source(source);
-        auto tokens = tokenize(arena_source, dialect);
+        auto tokens = tokenize(arena, arena_source, dialect);
         return {std::move(tokens), arena_source};
     }
 
@@ -3958,7 +4110,7 @@ private:
     // Tokenization (uses libsqlglot's existing tokenizer)
     // ========================================================================
 
-    static std::vector<TokenType> tokenize(std::string_view source, SQLDialect dialect) {
+    static std::vector<TokenType> tokenize(libglot::Arena& arena, std::string_view source, SQLDialect dialect) {
         libglot::sql::lex::LocalStringPool pool;
 
         // Convert SQLDialect to TokenizerConfig
@@ -3972,8 +4124,20 @@ private:
         result.reserve(tokens.size());
 
         for (const auto& tok : tokens) {
-            // Extract text from source using start/end offsets (libsqlglot's text is pool-allocated)
+            // Default: the raw source span. `source` is the arena-owned copy,
+            // so this view is lifetime-safe.
             std::string_view token_text = tok.view(source);
+
+            // Quoted identifiers: the tokenizer's interned text is the
+            // quote-stripped (and escape-collapsed) form; the raw span still
+            // carries the quote characters. Using the raw span made every
+            // re-parse of generated SQL double the quoting ("""id""").
+            // tok.text points into the tokenizer's LocalStringPool, which
+            // dies at the end of this function, so when it differs from the
+            // source span it must be copied into the arena (see LIFETIME.md).
+            if (tok.text != nullptr && token_text != std::string_view(tok.text)) {
+                token_text = arena.copy_source(tok.text);
+            }
 
             result.push_back(TokenType{
                 tok.type,     // type
@@ -3981,7 +4145,7 @@ private:
                 tok.end,      // end
                 tok.line,     // line
                 tok.col,      // col
-                token_text    // text (from source, not pool)
+                token_text    // text (quote-stripped, arena-backed)
             });
         }
 

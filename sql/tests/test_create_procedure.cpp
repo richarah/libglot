@@ -199,7 +199,8 @@ TEST_CASE("CREATE FUNCTION with procedural logic", "[procedural][create_function
     }();
 
         REQUIRE(result.find("WHILE") != std::string::npos);
-        REQUIRE(result.find("DO") != std::string::npos);
+        // PostgreSQL (PL/pgSQL) uses WHILE .. LOOP .. END LOOP, not DO .. END WHILE
+        REQUIRE(result.find("LOOP") != std::string::npos);
     }
 
     SECTION("Function with FOR loop") {

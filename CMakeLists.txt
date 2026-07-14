@@ -119,6 +119,11 @@ if(LIBGLOT_BUILD_FUZZERS)
     add_subdirectory(fuzz)
 endif()
 
+option(LIBGLOT_BUILD_EXAMPLES "Build example programs" ON)
+if(LIBGLOT_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
 # ============================================================================
 # Installation
 # ============================================================================

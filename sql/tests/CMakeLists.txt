@@ -7,6 +7,7 @@ set(SQL_TESTS
     test_arena
     test_assignments
     test_begin_end_blocks
+    test_bugfix_regressions
     test_create_procedure
     test_cte_windows_subqueries
     test_cursors

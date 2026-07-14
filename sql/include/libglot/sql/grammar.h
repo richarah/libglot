@@ -34,7 +34,8 @@ struct SQLGrammarSpec {
     // ========================================================================
     ///
     /// Precedence levels (higher number = higher precedence):
-    /// 15: Unary +, -, NOT
+    /// 16: Unary +, -, NOT
+    /// 15: ^ (exponentiation / bitwise xor, dialect-dependent)
     /// 14: *, /, %
     /// 13: +, -, || (concat), JSON operators (->, ->>, #>, #>>)
     /// 12: =, <>, <, <=, >, >=, LIKE, ILIKE, IN, BETWEEN, @>, <@, ?
@@ -52,6 +53,10 @@ private:
     using TK = libglot::sql::lex::TokenType;
 
     static constexpr OpInfo kOperatorTable[] = {
+            // Exponentiation / bitwise xor (precedence 15): binds tighter
+            // than * / % but looser than unary +/- (PostgreSQL rules).
+            {TK::CARET, 15, Associativity::LEFT},      // ^
+
             // Arithmetic (precedence 13-14)
             {TK::STAR, 14, Associativity::LEFT},       // *
             {TK::SLASH, 14, Associativity::LEFT},      // /
@@ -68,6 +73,7 @@ private:
 
             // Comparison (precedence 12)
             {TK::EQ, 12, Associativity::LEFT},         // =
+            {TK::NULL_SAFE_EQ, 12, Associativity::LEFT}, // <=> (MySQL/Spark null-safe equality)
             {TK::NEQ, 12, Associativity::LEFT},        // <>, !=
             {TK::LT, 12, Associativity::LEFT},         // <
             {TK::LTE, 12, Associativity::LEFT},        // <=

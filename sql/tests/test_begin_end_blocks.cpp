@@ -157,8 +157,9 @@ TEST_CASE("PostgreSQL PL/pgSQL BEGIN...END blocks", "[procedural][plpgsql]") {
     }();
         REQUIRE(result.find("BEGIN") != std::string::npos);
         REQUIRE(result.find("WHILE") != std::string::npos);
-        REQUIRE(result.find("DO") != std::string::npos);
-        REQUIRE(result.find("END WHILE") != std::string::npos);
+        // PostgreSQL (PL/pgSQL) uses WHILE .. LOOP .. END LOOP, not DO .. END WHILE
+        REQUIRE(result.find("LOOP") != std::string::npos);
+        REQUIRE(result.find("END LOOP") != std::string::npos);
         REQUIRE(result.find("END") != std::string::npos);
     }
 
@@ -364,15 +365,14 @@ TEST_CASE("BEGIN...END error handling", "[procedural][error]") {
 
     SECTION("Unmatched END throws error") {
         std::string sql = "SELECT 1; END";
-        // This might not throw immediately in all parsers, but should be caught
-        // For now, just ensure it doesn't crash
-        auto result = [&]() {
+        // The stray END is trailing input after a complete statement; the
+        // parser now rejects it instead of silently dropping it.
+        REQUIRE_THROWS_AS([&]() {
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto ast = parser.parse_top_level();
         SQLGenerator gen(SQLDialect::PostgreSQL);
         return gen.generate(ast);
-    }();
-        // Result may contain error or unexpected output
+    }(), ParseError);
     }
 }

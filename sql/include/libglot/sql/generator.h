@@ -539,6 +539,21 @@ private:
             return;
         }
 
+        // Datetime keyword expressions - these are function-like keywords,
+        // not string literals ('CURRENT_TIMESTAMP' would be a plain string).
+        if (val == "CURRENT_TIMESTAMP" || val == "CURRENT_DATE" || val == "CURRENT_TIME") {
+            this->write(val);
+            return;
+        }
+
+        // Hex (0x1F) and binary (0b1010) numeric literals - emit verbatim
+        // (the digit heuristic below rejects the x/b marker and would quote
+        // them as strings).
+        if (is_hex_or_binary_literal(val)) {
+            this->write(val);
+            return;
+        }
+
         // String literal from the parser: the token text carries the outer
         // quotes and source-level doubled quotes ('O''Brien'). Unescape the
         // content and re-emit through write_string_literal so every embedded
@@ -574,6 +589,29 @@ private:
         }
     }
 
+    /// Is `val` a hex (0x...) or binary (0b...) numeric literal?
+    static bool is_hex_or_binary_literal(std::string_view val) noexcept {
+        if (val.size() < 3 || val[0] != '0') return false;
+        const char marker = val[1];
+        if (marker == 'x' || marker == 'X') {
+            for (size_t i = 2; i < val.size(); ++i) {
+                const char c = val[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                      (c >= 'A' && c <= 'F'))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (marker == 'b' || marker == 'B') {
+            for (size_t i = 2; i < val.size(); ++i) {
+                if (val[i] != '0' && val[i] != '1') return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
     // ========================================================================
     // Expression Precedence (for parenthesization)
     // ========================================================================
@@ -583,7 +621,7 @@ private:
     static constexpr int kAtomPrecedence = 100;
     /// Boolean NOT and arithmetic unary +/- (mirrors grammar.h's doc levels)
     static constexpr int kNotPrecedence = 10;
-    static constexpr int kUnaryArithmeticPrecedence = 15;
+    static constexpr int kUnaryArithmeticPrecedence = 16;
     /// Comparison level: BETWEEN / IN / LIKE forms bind here
     static constexpr int kComparisonPrecedence = 12;
 
@@ -625,8 +663,9 @@ private:
     }
 
     void visit_binary_op(BinaryOp* op) {
-        // ILIKE polyfill for MySQL: transform ILIKE to LOWER(col) LIKE LOWER(pattern)
-        if (op->op == TK::ILIKE && this->dialect() == SQLDialect::MySQL) {
+        // ILIKE polyfill for dialects without native ILIKE (MySQL, BigQuery,
+        // SQL Server, ...): transform to LOWER(col) LIKE LOWER(pattern)
+        if (op->op == TK::ILIKE && !this->features().supports_ilike) {
             this->write("LOWER");
             this->write('(');
             visit(op->left);
@@ -717,6 +756,24 @@ private:
 
         this->write("SELECT");
 
+        // Row-limiting strategy is dialect-specific (SQLFeatures::
+        // supports_limit_offset):
+        //  - T-SQL (SQL Server / Azure Synapse): TOP n, or - when an OFFSET
+        //    is present AND there is an ORDER BY (T-SQL requires one) -
+        //    ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY. With an
+        //    OFFSET but no ORDER BY there is no valid T-SQL form; we emit
+        //    plain TOP n and drop the offset (documented limitation).
+        //  - Firebird / Informix: FIRST n [SKIP m] before the column list.
+        //  - Oracle 12c+ / DB2 9.7+ / Derby (supports_limit_offset=false):
+        //    [OFFSET m ROWS] FETCH FIRST/NEXT n ROWS ONLY.
+        //  - Everything else: LIMIT n [OFFSET m].
+        const auto select_dialect = this->dialect();
+        const bool tsql_limit = (select_dialect == SQLDialect::SQLServer ||
+                                 select_dialect == SQLDialect::AzureSynapse);
+        const bool first_skip_limit = (select_dialect == SQLDialect::Firebird ||
+                                       select_dialect == SQLDialect::Informix);
+        const bool tsql_offset_fetch = tsql_limit && stmt->offset && !stmt->order_by.empty();
+
         // DISTINCT
         if (stmt->distinct) {
             this->space();
@@ -724,7 +781,7 @@ private:
         }
 
         // TOP n (SQL Server) - output before column list
-        if (stmt->limit && this->dialect() == SQLDialect::SQLServer) {
+        if (stmt->limit && tsql_limit && !tsql_offset_fetch) {
             this->space();
             this->write("TOP");
             this->space();
@@ -740,7 +797,7 @@ private:
         }
 
         // FIRST n [SKIP m] (Firebird, Informix) - output before column list
-        if (stmt->limit && (this->dialect() == SQLDialect::Firebird || this->dialect() == SQLDialect::Informix)) {
+        if (stmt->limit && first_skip_limit) {
             this->space();
             this->write("FIRST");
             this->space();
@@ -759,6 +816,14 @@ private:
         this->write_list(stmt->columns, [this](SQLNode* col) {
             visit(col);
         });
+
+        // SELECT ... INTO target
+        if (stmt->into_table) {
+            this->space();
+            this->write("INTO");
+            this->space();
+            visit(stmt->into_table);
+        }
 
         // FROM clause
         if (stmt->from) {
@@ -804,21 +869,93 @@ private:
             });
         }
 
-        // LIMIT clause (but skip for SQL Server, Firebird, Informix since we already output TOP/FIRST)
-        if (stmt->limit && this->dialect() != SQLDialect::SQLServer &&
-            this->dialect() != SQLDialect::Firebird && this->dialect() != SQLDialect::Informix) {
-            this->space();
-            this->write("LIMIT");
-            this->space();
-            visit(stmt->limit);
-        }
-
-        // OFFSET clause (but skip for Firebird, Informix since we already output SKIP)
-        if (stmt->offset && this->dialect() != SQLDialect::Firebird && this->dialect() != SQLDialect::Informix) {
+        // Row-limiting clauses after ORDER BY (see the strategy comment at
+        // the top of this function). TOP / FIRST..SKIP were already emitted
+        // before the column list for their dialects.
+        if (tsql_offset_fetch) {
+            // T-SQL: ORDER BY ... OFFSET m ROWS [FETCH NEXT n ROWS ONLY]
             this->space();
             this->write("OFFSET");
             this->space();
             visit(stmt->offset);
+            this->space();
+            this->write("ROWS");
+            if (stmt->limit) {
+                this->space();
+                this->write("FETCH NEXT");
+                this->space();
+                visit(stmt->limit);
+                this->space();
+                this->write("ROWS ONLY");
+            }
+        } else if (!tsql_limit && !first_skip_limit) {
+            if (this->features().supports_limit_offset) {
+                // LIMIT n [OFFSET m]
+                if (stmt->limit) {
+                    this->space();
+                    this->write("LIMIT");
+                    this->space();
+                    visit(stmt->limit);
+                }
+                if (stmt->offset) {
+                    this->space();
+                    this->write("OFFSET");
+                    this->space();
+                    visit(stmt->offset);
+                }
+            } else {
+                // Oracle 12c+ / DB2 9.7+ / Derby:
+                // [OFFSET m ROWS] FETCH FIRST/NEXT n ROWS ONLY
+                if (stmt->offset) {
+                    this->space();
+                    this->write("OFFSET");
+                    this->space();
+                    visit(stmt->offset);
+                    this->space();
+                    this->write("ROWS");
+                    if (stmt->limit) {
+                        this->space();
+                        this->write("FETCH NEXT");
+                        this->space();
+                        visit(stmt->limit);
+                        this->space();
+                        this->write("ROWS ONLY");
+                    }
+                } else if (stmt->limit) {
+                    this->space();
+                    this->write("FETCH FIRST");
+                    this->space();
+                    visit(stmt->limit);
+                    this->space();
+                    this->write("ROWS ONLY");
+                }
+            }
+        }
+
+        // FOR UPDATE [OF col, ...] [NOWAIT | SKIP LOCKED]
+        if (stmt->for_update) {
+            this->space();
+            this->write("FOR UPDATE");
+            if (!stmt->for_update_of.empty()) {
+                this->space();
+                this->write("OF");
+                this->space();
+                this->write_list(stmt->for_update_of, [this](std::string_view col) {
+                    write_identifier(col);
+                });
+            }
+            switch (stmt->for_update_wait) {
+                case ForUpdateWait::NOWAIT:
+                    this->space();
+                    this->write("NOWAIT");
+                    break;
+                case ForUpdateWait::SKIP_LOCKED:
+                    this->space();
+                    this->write("SKIP LOCKED");
+                    break;
+                case ForUpdateWait::NONE:
+                    break;
+            }
         }
     }
 
@@ -854,6 +991,22 @@ private:
     }
 
     void visit_function_call(FunctionCall* func) {
+        // EXTRACT(field FROM expr): the field is a bare keyword and the
+        // operand a regular expression - EXTRACT('YEAR', 'CURRENT_DATE')
+        // is not valid SQL in any dialect.
+        if (func->name == "EXTRACT" && func->args.size() == 2 &&
+            func->args[0] && func->args[0]->type == SQLNodeKind::LITERAL) {
+            this->write("EXTRACT");
+            this->write('(');
+            this->write(static_cast<Literal*>(func->args[0])->value);
+            this->space();
+            this->write("FROM");
+            this->space();
+            visit(func->args[1]);
+            this->write(')');
+            return;
+        }
+
         this->write(func->name);
         this->write('(');
 
@@ -980,6 +1133,14 @@ private:
         this->write('(');
         visit(subquery->query);
         this->write(')');
+
+        // Derived-table alias: (SELECT a FROM t) AS x
+        if (!subquery->alias.empty()) {
+            this->space();
+            this->write("AS");
+            this->space();
+            write_identifier(subquery->alias);
+        }
     }
 
     void visit_window_function(WindowFunction* wf) {
@@ -1140,9 +1301,13 @@ private:
             visit(lateral->table_expr);
         } else {
             // Standard JOIN syntax
+            if (join->asof) {
+                // ASOF [LEFT] JOIN (DuckDB / ClickHouse)
+                this->write("ASOF ");
+            }
             switch (join->join_type) {
                 case JoinType::INNER:
-                    this->write("INNER JOIN");
+                    this->write(join->asof ? "JOIN" : "INNER JOIN");
                     break;
                 case JoinType::LEFT:
                     this->write("LEFT JOIN");
@@ -1560,6 +1725,7 @@ private:
     static const char* operator_string(TK op) {
         switch (op) {
             case TK::EQ: return "=";
+            case TK::NULL_SAFE_EQ: return "<=>";
             case TK::NEQ: return "<>";
             case TK::LT: return "<";
             case TK::LTE: return "<=";
@@ -1570,6 +1736,7 @@ private:
             case TK::STAR: return "*";
             case TK::SLASH: return "/";
             case TK::PERCENT: return "%";
+            case TK::CARET: return "^";
             case TK::AND: return "AND";
             case TK::OR: return "OR";
             case TK::NOT: return "NOT";
@@ -1997,7 +2164,14 @@ private:
         this->write("SET");
         this->space();
         this->write_list(stmt->assignments, [this](const auto& assign) {
-            write_identifier(assign.first);
+            // Parameter-style variables (@x, :x, $x) are written verbatim;
+            // quoting them would produce an invalid target ([@x]).
+            std::string_view name = assign.first;
+            if (!name.empty() && (name[0] == '@' || name[0] == ':' || name[0] == '$')) {
+                this->write(name);
+            } else {
+                write_identifier(name);
+            }
             this->space();
             this->write('=');
             this->space();
@@ -2412,10 +2586,7 @@ private:
         } else {
             // Multiple statements or simple statements - wrap in BEGIN...END
             this->write("BEGIN");
-            for (auto* s : stmt->body) {
-                this->space();
-                visit(s);
-            }
+            write_statement_body(stmt->body);
             this->space();
             this->write("END");
         }
@@ -2451,6 +2622,7 @@ private:
     }
 
     void visit_declare_var_stmt(DeclareVarStmt* stmt) {
+        const auto dialect = this->dialect();
         this->write("DECLARE");
         this->space();
         // Variable names in DECLARE are not quoted
@@ -2459,7 +2631,12 @@ private:
         this->write(stmt->type);
         if (stmt->default_value) {
             this->space();
-            this->write("DEFAULT");
+            // T-SQL uses the initializer form: DECLARE @x INT = 5
+            if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+                this->write('=');
+            } else {
+                this->write("DEFAULT");
+            }
             this->space();
             visit(stmt->default_value);
         }
@@ -2516,10 +2693,7 @@ private:
         if (stmt->condition) visit(stmt->condition);
         this->space();
         this->write("THEN");
-        for (auto* s : stmt->then_stmts) {
-            this->space();
-            visit(s);
-        }
+        write_statement_body(stmt->then_stmts);
 
         // Handle ELSEIF clauses using the proper elseif_branches field
         for (const auto& elsif_branch : stmt->elseif_branches) {
@@ -2529,20 +2703,14 @@ private:
             if (elsif_branch.first) visit(elsif_branch.first);  // condition
             this->space();
             this->write("THEN");
-            for (auto* s : elsif_branch.second) {  // statements
-                this->space();
-                visit(s);
-            }
+            write_statement_body(elsif_branch.second);
         }
 
         // Handle ELSE clause
         if (!stmt->else_stmts.empty()) {
             this->space();
             this->write("ELSE");
-            for (auto* s : stmt->else_stmts) {
-                this->space();
-                visit(s);
-            }
+            write_statement_body(stmt->else_stmts);
         }
 
         this->space();
@@ -2550,31 +2718,51 @@ private:
     }
 
     void visit_while_loop(WhileLoop* loop) {
+        const auto dialect = this->dialect();
+
         this->write("WHILE");
         this->space();
         if (loop->condition) visit(loop->condition);
         this->space();
-        this->write("DO");
-        for (auto* s : loop->body) {
+
+        if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+            // T-SQL: WHILE condition BEGIN ... END
+            this->write("BEGIN");
+            write_statement_body(loop->body);
             this->space();
-            visit(s);
+            this->write("END");
+        } else if (dialect == SQLDialect::PostgreSQL || dialect == SQLDialect::Oracle) {
+            // PL/pgSQL and PL/SQL: WHILE condition LOOP ... END LOOP
+            this->write("LOOP");
+            write_statement_body(loop->body);
+            this->space();
+            this->write("END LOOP");
+        } else {
+            // MySQL / ANSI SQL/PSM: WHILE condition DO ... END WHILE
+            this->write("DO");
+            write_statement_body(loop->body);
+            this->space();
+            this->write("END WHILE");
         }
-        this->space();
-        this->write("END WHILE");
     }
 
     void visit_for_loop(ForLoop* loop) {
         const auto dialect = this->dialect();
 
-        // T-SQL doesn't support FOR..IN..LOOP syntax - transpile to WHILE loop
-        if (dialect == SQLDialect::SQLServer) {
-            // DECLARE @variable INT = start_value
-            this->write("DECLARE @");
+        // T-SQL doesn't support FOR..IN..LOOP syntax - transpile to a
+        // counter WHILE loop. The whole lowering is wrapped in BEGIN..END so
+        // it stays a single re-parseable statement, and the exact shape
+        // matches what re-parsing + re-generating the lowered form produces
+        // (fixed-point property).
+        if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+            // BEGIN DECLARE @variable INT = start_value;
+            this->write("BEGIN DECLARE @");
             this->write(loop->variable);
             this->space();
             this->write("INT =");
             this->space();
             if (loop->start_value) visit(loop->start_value);
+            this->write(';');
             this->space();
 
             // WHILE @variable <= end_value
@@ -2586,16 +2774,9 @@ private:
             if (loop->end_value) visit(loop->end_value);
             this->space();
 
-            // BEGIN
+            // BEGIN body; SET @variable = @variable + 1; END; END
             this->write("BEGIN");
-
-            // Loop body
-            for (auto* s : loop->body) {
-                this->space();
-                visit(s);
-            }
-
-            // SET @variable = @variable + 1
+            write_statement_body(loop->body);
             this->space();
             this->write("SET @");
             this->write(loop->variable);
@@ -2603,11 +2784,7 @@ private:
             this->write("= @");
             this->write(loop->variable);
             this->space();
-            this->write("+ 1");
-
-            // END
-            this->space();
-            this->write("END");
+            this->write("+ 1; END; END");
         } else {
             // Other dialects support FOR loops natively
             this->write("FOR");
@@ -2622,21 +2799,26 @@ private:
             if (loop->end_value) visit(loop->end_value);
             this->space();
             this->write("LOOP");
-            for (auto* s : loop->body) {
-                this->space();
-                visit(s);
-            }
+            write_statement_body(loop->body);
             this->space();
             this->write("END LOOP");
         }
     }
 
-    void visit_loop_stmt(LoopStmt* loop) {
-        this->write("LOOP");
-        for (auto* s : loop->body) {
+    /// Emit a procedural statement body: each statement is preceded by a
+    /// space and terminated with a semicolon (procedural SQL requires
+    /// statement terminators inside blocks).
+    void write_statement_body(const std::vector<SQLNode*>& stmts) {
+        for (auto* s : stmts) {
             this->space();
             visit(s);
+            this->write(';');
         }
+    }
+
+    void visit_loop_stmt(LoopStmt* loop) {
+        this->write("LOOP");
+        write_statement_body(loop->body);
         this->space();
         this->write("END LOOP");
     }
@@ -2651,10 +2833,7 @@ private:
 
     void visit_begin_end_block(BeginEndBlock* block) {
         this->write("BEGIN");
-        for (auto* s : block->statements) {
-            this->space();
-            visit(s);
-        }
+        write_statement_body(block->statements);
         this->space();
         this->write("END");
     }
@@ -2679,10 +2858,7 @@ private:
 
     void visit_exception_block(ExceptionBlock* block) {
         this->write("BEGIN");
-        for (auto* s : block->try_statements) {
-            this->space();
-            visit(s);
-        }
+        write_statement_body(block->try_statements);
         for (const auto& handler : block->handlers) {
             this->space();
             this->write("EXCEPTION WHEN");
@@ -2690,10 +2866,7 @@ private:
             this->write(handler.first);
             this->space();
             this->write("THEN");
-            for (auto* s : handler.second) {
-                this->space();
-                visit(s);
-            }
+            write_statement_body(handler.second);
         }
         this->space();
         this->write("END");
@@ -2701,6 +2874,35 @@ private:
 
     void visit_raise_stmt(RaiseStmt* stmt) {
         const auto dialect = this->dialect();
+
+        // T-SQL has no RAISE/SIGNAL - use RAISERROR('msg', severity, state)
+        if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+            this->write("RAISERROR(");
+            if (!stmt->message.empty()) {
+                this->write(stmt->message);
+            } else {
+                this->write("'Error'");
+            }
+            if (stmt->tsql_raiserror) {
+                // Round-trip: args already carry severity, state[, subst args]
+                for (auto* arg : stmt->args) {
+                    this->write(',');
+                    this->space();
+                    visit(arg);
+                }
+            } else {
+                // Lowered from RAISE/SIGNAL: severity 16 (user error),
+                // state 1, then any RAISE format args as substitution args.
+                this->write(", 16, 1");
+                for (auto* arg : stmt->args) {
+                    this->write(',');
+                    this->space();
+                    visit(arg);
+                }
+            }
+            this->write(')');
+            return;
+        }
 
         // MySQL uses SIGNAL, PostgreSQL uses RAISE
         if (dialect == SQLDialect::MySQL) {
@@ -2731,7 +2933,7 @@ private:
                 }
             }
         } else {
-            // PostgreSQL, Oracle, SQL Server use RAISE
+            // PostgreSQL, Oracle, ANSI use RAISE
             if (stmt->level == "SIGNAL" && !stmt->sqlstate.empty()) {
                 // Convert MySQL SIGNAL to PostgreSQL RAISE
                 this->write("RAISE EXCEPTION");
@@ -2750,6 +2952,16 @@ private:
                     this->space();
                     this->write(stmt->message);
                 }
+                // Format arguments: RAISE EXCEPTION 'value is %', 5.
+                // Args parsed from T-SQL RAISERROR are severity/state
+                // numbers, not format args - drop those.
+                if (!stmt->tsql_raiserror) {
+                    for (auto* arg : stmt->args) {
+                        this->write(',');
+                        this->space();
+                        visit(arg);
+                    }
+                }
             }
         }
     }
@@ -2759,6 +2971,13 @@ private:
         this->space();
         // Cursor names in OPEN are not quoted
         this->write(stmt->cursor_name);
+        if (!stmt->args.empty()) {
+            this->write('(');
+            this->write_list(stmt->args, [this](SQLNode* arg) {
+                visit(arg);
+            });
+            this->write(')');
+        }
     }
 
     void visit_fetch_cursor_stmt(FetchCursorStmt* stmt) {

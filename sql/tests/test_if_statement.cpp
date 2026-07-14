@@ -33,7 +33,7 @@ TEST_CASE("Simple IF THEN END IF", "[parser][if]") {
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 0 THEN RETURN 1 END IF");
+    REQUIRE(sql == "IF \"x\" > 0 THEN RETURN 1; END IF");
 }
 
 TEST_CASE("IF THEN ELSE END IF", "[parser][if]") {
@@ -54,7 +54,7 @@ TEST_CASE("IF THEN ELSE END IF", "[parser][if]") {
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 0 THEN RETURN 1 ELSE RETURN 0 END IF");
+    REQUIRE(sql == "IF \"x\" > 0 THEN RETURN 1; ELSE RETURN 0; END IF");
 }
 
 TEST_CASE("IF THEN ELSEIF END IF", "[parser][if]") {
@@ -79,7 +79,7 @@ TEST_CASE("IF THEN ELSEIF END IF", "[parser][if]") {
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 10 THEN RETURN 1 ELSEIF \"x\" > 5 THEN RETURN 2 END IF");
+    REQUIRE(sql == "IF \"x\" > 10 THEN RETURN 1; ELSEIF \"x\" > 5 THEN RETURN 2; END IF");
 }
 
 TEST_CASE("IF with multiple ELSEIF and ELSE", "[parser][if]") {
@@ -101,7 +101,7 @@ TEST_CASE("IF with multiple ELSEIF and ELSE", "[parser][if]") {
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 10 THEN RETURN 1 ELSEIF \"x\" > 5 THEN RETURN 2 ELSEIF \"x\" > 0 THEN RETURN 3 ELSE RETURN 0 END IF");
+    REQUIRE(sql == "IF \"x\" > 10 THEN RETURN 1; ELSEIF \"x\" > 5 THEN RETURN 2; ELSEIF \"x\" > 0 THEN RETURN 3; ELSE RETURN 0; END IF");
 }
 
 TEST_CASE("IF with ENDIF (single token)", "[parser][if]") {
@@ -119,7 +119,7 @@ TEST_CASE("IF with ENDIF (single token)", "[parser][if]") {
     // Test generation (always outputs END IF)
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 0 THEN RETURN 1 END IF");
+    REQUIRE(sql == "IF \"x\" > 0 THEN RETURN 1; END IF");
 }
 
 TEST_CASE("IF with multiple statements in THEN", "[parser][if]") {
@@ -137,5 +137,5 @@ TEST_CASE("IF with multiple statements in THEN", "[parser][if]") {
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 0 THEN DECLARE y INTEGER RETURN \"y\" END IF");
+    REQUIRE(sql == "IF \"x\" > 0 THEN DECLARE y INTEGER; RETURN \"y\"; END IF");
 }

@@ -245,15 +245,39 @@ private:
             char end_quote = (quote == '[') ? ']' : quote;
             uint32_t content_start = pos_;  // Start of actual identifier (after opening quote)
 
-            while (!is_eof() && peek() != end_quote) {
+            // A doubled closing quote inside the identifier is an escaped
+            // literal quote character ("emb""edded" -> emb"edded). When one
+            // is present, build the unescaped text in a scratch buffer and
+            // intern that; otherwise intern the raw content span directly.
+            bool has_escape = false;
+            std::string unescaped;
+            while (!is_eof()) {
+                char c = peek();
+                if (c == end_quote) {
+                    if (peek(1) == end_quote) {
+                        if (!has_escape) {
+                            unescaped.assign(source_.substr(content_start, pos_ - content_start));
+                            has_escape = true;
+                        }
+                        unescaped.push_back(end_quote);
+                        advance();
+                        advance();
+                        continue;
+                    }
+                    break;  // Genuine closing quote
+                }
+                if (has_escape) {
+                    unescaped.push_back(c);
+                }
                 advance();
             }
             uint32_t content_end = pos_;  // End of actual identifier (before closing quote)
             if (!is_eof()) advance(); // Skip closing quote
 
-            // Store identifier WITHOUT quotes
-            std::string_view text = source_.substr(content_start, content_end - content_start);
-            const char* interned = pool_->intern(text);
+            // Store identifier WITHOUT quotes (and with escapes collapsed)
+            const char* interned = has_escape
+                ? pool_->intern(unescaped)
+                : pool_->intern(source_.substr(content_start, content_end - content_start));
             return make_token(TokenType::IDENTIFIER, start_pos, pos_, start_line, start_col, interned);
         }
 
