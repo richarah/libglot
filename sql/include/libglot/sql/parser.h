@@ -499,6 +499,103 @@ public:
             return this->template create_node<UnaryOp>(TK::PRIOR, operand);
         }
 
+        // Sequence NEXTVAL('seq') / CURRVAL('seq') function-style call
+        // (PostgreSQL/DB2/MariaDB/... ; the Oracle member-style seq.NEXTVAL
+        // is recognized below, in the column-reference '.' handling).
+        // NEXTVAL/CURRVAL are not reserved keywords, so this must be
+        // disambiguated from an ordinary function call by name + LPAREN.
+        if (check(TK::IDENTIFIER) && (ieq(current().text, "NEXTVAL") || ieq(current().text, "CURRVAL")) &&
+            peek(1).type == TK::LPAREN) {
+            bool is_next = ieq(current().text, "NEXTVAL");
+            (void)advance();  // NEXTVAL / CURRVAL
+            expect(TK::LPAREN);
+            if (!check(TK::STRING) && !check(TK::IDENTIFIER)) {
+                error("Expected sequence name in NEXTVAL()/CURRVAL()");
+            }
+            std::string_view raw = advance().text;
+            // Strip surrounding quotes so the canonical AST always holds the
+            // bare sequence name, regardless of surface spelling.
+            if (raw.size() >= 2 && raw.front() == '\'' && raw.back() == '\'') {
+                raw = raw.substr(1, raw.size() - 2);
+            }
+            expect(TK::RPAREN);
+            return this->template create_node<SequenceRefExpr>(raw, is_next);
+        }
+
+        // MySQL/MariaDB fulltext search: MATCH (col, ...) AGAINST ('expr' [modifier])
+        // MATCH/AGAINST are not reserved keywords (soft keywords).
+        if (check(TK::IDENTIFIER) && ieq(current().text, "MATCH") && peek(1).type == TK::LPAREN) {
+            (void)advance();  // MATCH
+            expect(TK::LPAREN);
+            auto* match_node = this->template create_node<MatchAgainst>();
+            do {
+                if (!check(TK::IDENTIFIER)) {
+                    error("Expected column name in MATCH(...)");
+                }
+                match_node->columns.push_back(advance().text);
+            } while (match(TK::COMMA));
+            expect(TK::RPAREN);
+
+            if (!(check(TK::IDENTIFIER) && ieq(current().text, "AGAINST"))) {
+                error("Expected AGAINST after MATCH(...)");
+            }
+            (void)advance();  // AGAINST
+            expect(TK::LPAREN);
+            {
+                // Suppress the generic "expr IN (...)" postfix so a
+                // trailing "IN NATURAL LANGUAGE MODE"/"IN BOOLEAN MODE"
+                // modifier isn't mistaken for a value-list IN operator.
+                ScopedNoInPostfix guard(*this);
+                match_node->against_expr = parse_expression();
+            }
+
+            if (match(TK::IN)) {
+                match_node->mode_specified = true;
+                if (match(TK::NATURAL)) {
+                    expect(TK::LANGUAGE);
+                    if (!(check(TK::IDENTIFIER) && ieq(current().text, "MODE"))) {
+                        error("Expected MODE after IN NATURAL LANGUAGE");
+                    }
+                    (void)advance();  // MODE
+                    if (match(TK::WITH)) {
+                        if (!(check(TK::IDENTIFIER) && ieq(current().text, "QUERY"))) {
+                            error("Expected QUERY EXPANSION after WITH");
+                        }
+                        (void)advance();  // QUERY
+                        if (!(check(TK::IDENTIFIER) && ieq(current().text, "EXPANSION"))) {
+                            error("Expected EXPANSION after WITH QUERY");
+                        }
+                        (void)advance();  // EXPANSION
+                        match_node->mode = FulltextMode::NATURAL_LANGUAGE_EXPANSION;
+                    } else {
+                        match_node->mode = FulltextMode::NATURAL_LANGUAGE;
+                    }
+                } else if (match(TK::BOOLEAN)) {
+                    if (!(check(TK::IDENTIFIER) && ieq(current().text, "MODE"))) {
+                        error("Expected MODE after IN BOOLEAN");
+                    }
+                    (void)advance();  // MODE
+                    match_node->mode = FulltextMode::BOOLEAN_MODE;
+                } else {
+                    error("Expected NATURAL LANGUAGE MODE or BOOLEAN MODE after IN");
+                }
+            } else if (match(TK::WITH)) {
+                match_node->mode_specified = true;
+                if (!(check(TK::IDENTIFIER) && ieq(current().text, "QUERY"))) {
+                    error("Expected QUERY EXPANSION after WITH");
+                }
+                (void)advance();  // QUERY
+                if (!(check(TK::IDENTIFIER) && ieq(current().text, "EXPANSION"))) {
+                    error("Expected EXPANSION after WITH QUERY");
+                }
+                (void)advance();  // EXPANSION
+                match_node->mode = FulltextMode::QUERY_EXPANSION;
+            }
+
+            expect(TK::RPAREN);
+            return match_node;
+        }
+
         // Function call or column reference (including keywords used as identifiers)
         if (check(TK::IDENTIFIER) || check(TK::RANK) || check(TK::ORDER) || check(TK::TEMP) || check(TK::LEVEL) ||
             check(TK::COUNT) || check(TK::SUM) || check(TK::AVG) || check(TK::MIN) || check(TK::MAX) ||
@@ -530,6 +627,15 @@ public:
                     error("Expected column name after '.'");
                 }
                 auto second = advance();
+
+                // Oracle member-style sequence reference: seq.NEXTVAL / seq.CURRVAL.
+                // Gated to Oracle so an ordinary column named "nextval" (however
+                // unlikely) still parses as a plain column in every other dialect.
+                if (dialect_ == SQLDialect::Oracle &&
+                    (ieq(second.text, "NEXTVAL") || ieq(second.text, "CURRVAL"))) {
+                    return this->template create_node<SequenceRefExpr>(name, ieq(second.text, "NEXTVAL"));
+                }
+
                 return this->template create_node<Column>(name, second.text);
             }
 
@@ -543,6 +649,20 @@ public:
     /// Check if we're at a ".." range operator
     [[nodiscard]] bool check_double_dot() const noexcept {
         return check(TK::DOT) && peek(1).type == TK::DOT;
+    }
+
+    /// Case-insensitive comparison of token text against an UPPERCASE literal.
+    /// Used for soft keywords recognized purely by their identifier spelling
+    /// (SEQUENCE, NEXTVAL, MODE, OF, TO, CONTAINED, ...) where a reserved
+    /// token would cost every dialect a common word.
+    [[nodiscard]] static bool ieq(std::string_view text, std::string_view upper) noexcept {
+        if (text.size() != upper.size()) return false;
+        for (size_t i = 0; i < text.size(); ++i) {
+            char c = text[i];
+            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+            if (c != upper[i]) return false;
+        }
+        return true;
     }
 
     /// Parse the target type of CAST(expr AS <type>) up to the CAST's own
@@ -572,7 +692,7 @@ public:
     [[nodiscard]] SQLNode* parse_postfix(SQLNode* base) {
         while (true) {
             // IN operator: expr IN (value1, value2, ...) or expr IN (SELECT ...)
-            if (check(TK::IN)) {
+            if (!no_in_postfix_ && check(TK::IN)) {
                 (void)advance();  // Consume IN
                 base = parse_in_rest(base, /*not_in=*/false);
                 continue;
@@ -608,8 +728,30 @@ public:
                 continue;
             }
 
-            // Array indexing: expr[index]
+            // Array indexing: expr[index], and BigQuery's subscript
+            // functions expr[OFFSET(n)] (0-based), expr[ORDINAL(n)]
+            // (1-based), expr[SAFE_OFFSET(n)] (0-based, NULL if out of
+            // range). OFFSET/ORDINAL/SAFE_OFFSET are reserved keyword
+            // tokens, not soft keywords, so they can't be mistaken for a
+            // plain indexing expression that happens to call a same-named
+            // function.
             if (match(TK::LBRACKET)) {
+                ArraySubscript subscript = ArraySubscript::NONE;
+                if ((check(TK::OFFSET) || check(TK::ORDINAL) || check(TK::SAFE_OFFSET)) &&
+                    peek(1).type == TK::LPAREN) {
+                    TK fn = advance().type;
+                    subscript = (fn == TK::OFFSET) ? ArraySubscript::OFFSET
+                              : (fn == TK::ORDINAL) ? ArraySubscript::ORDINAL
+                                                     : ArraySubscript::SAFE_OFFSET;
+                    expect(TK::LPAREN);
+                    auto index = parse_expression();
+                    expect(TK::RPAREN);
+                    expect(TK::RBRACKET);
+                    auto* node = this->template create_node<ArrayIndex>(base, index);
+                    node->subscript = subscript;
+                    base = node;
+                    continue;
+                }
                 auto index = parse_expression();
                 expect(TK::RBRACKET);
                 base = this->template create_node<ArrayIndex>(base, index);
@@ -1492,6 +1634,47 @@ public:
     SQLNode* parse_table_or_subquery() {
         // LATERAL join (PostgreSQL, Oracle 12c+)
         if (match(TK::LATERAL)) {
+            // Snowflake: LATERAL FLATTEN(INPUT => expr [, PATH => 'p'] [, OUTER => bool]) [alias]
+            // FLATTEN is a reserved keyword token (shared across dialects),
+            // so it can't collide with an ordinary table-valued function
+            // named "flatten".
+            if (check(TK::FLATTEN)) {
+                (void)advance();  // FLATTEN
+                expect(TK::LPAREN);
+                auto* flatten = this->template create_node<FlattenClause>();
+                do {
+                    // OUTER is a reserved keyword token (shared with OUTER
+                    // JOIN) everywhere else, not a soft keyword here.
+                    if (!check(TK::IDENTIFIER) && !check(TK::OUTER)) {
+                        error("Expected named argument (INPUT, PATH, OUTER, ...) in FLATTEN(...)");
+                    }
+                    std::string_view arg_name = advance().text;
+                    expect(TK::FAT_ARROW);
+                    auto* value = parse_expression();
+                    if (ieq(arg_name, "INPUT")) {
+                        flatten->input = value;
+                    } else if (ieq(arg_name, "PATH")) {
+                        flatten->path = value;
+                    } else if (ieq(arg_name, "OUTER")) {
+                        flatten->outer = value;
+                    }
+                    // Other named arguments (RECURSIVE, MODE) are accepted
+                    // syntactically but not modeled - FLATTEN's own default
+                    // behavior applies when they're omitted.
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+                if (!flatten->input) {
+                    error("FLATTEN(...) requires an INPUT => argument");
+                }
+
+                // Optional bare alias (no AS keyword in Snowflake's own examples)
+                if (check(TK::IDENTIFIER)) {
+                    flatten->alias = advance().text;
+                }
+
+                return this->template create_node<LateralJoin>(flatten);
+            }
+
             SQLNode* lateral_expr = nullptr;
 
             // LATERAL (SELECT ...) or LATERAL function_name(...) or LATERAL UNNEST(...)
@@ -1659,6 +1842,55 @@ public:
 
         // Regular table reference
         auto table = parse_table_ref();
+
+        // SQL:2011 system-versioned temporal table clause (T-SQL / MariaDB /
+        // Azure Synapse): FOR SYSTEM_TIME AS OF <ts> | FROM <a> TO <b> |
+        // BETWEEN <a> AND <b> | CONTAINED IN (<a>, <b>) | ALL. It comes
+        // directly after the table name, before any alias. SYSTEM_TIME/OF/TO
+        // /CONTAINED are soft keywords (matched by identifier text).
+        if (check(TK::FOR) && peek(1).type == TK::IDENTIFIER && ieq(peek(1).text, "SYSTEM_TIME")) {
+            (void)advance();  // FOR
+            (void)advance();  // SYSTEM_TIME
+            if (match(TK::AS)) {
+                // OF is a reserved token (shared with INSTEAD OF triggers), not a soft keyword.
+                if (!check(TK::OF)) {
+                    error("Expected OF after FOR SYSTEM_TIME AS");
+                }
+                (void)advance();  // OF
+                table->temporal_kind = TemporalKind::AS_OF;
+                table->temporal_arg1 = parse_expression();
+            } else if (match(TK::FROM)) {
+                table->temporal_kind = TemporalKind::FROM_TO;
+                table->temporal_arg1 = parse_expression();
+                if (!(check(TK::IDENTIFIER) && ieq(current().text, "TO"))) {
+                    error("Expected TO in FOR SYSTEM_TIME FROM ... TO ...");
+                }
+                (void)advance();  // TO
+                table->temporal_arg2 = parse_expression();
+            } else if (match(TK::BETWEEN)) {
+                // Bounds parse above comparison precedence so the AND
+                // separating them isn't absorbed as boolean AND (same trick
+                // as the BETWEEN expression form - see parse_between_rest).
+                table->temporal_kind = TemporalKind::BETWEEN_AND;
+                table->temporal_arg1 = parse_expression(kComparisonOperandPrecedence);
+                expect(TK::AND);
+                table->temporal_arg2 = parse_expression(kComparisonOperandPrecedence);
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "CONTAINED")) {
+                (void)advance();  // CONTAINED
+                expect(TK::IN);
+                expect(TK::LPAREN);
+                table->temporal_kind = TemporalKind::CONTAINED_IN;
+                table->temporal_arg1 = parse_expression();
+                expect(TK::COMMA);
+                table->temporal_arg2 = parse_expression();
+                expect(TK::RPAREN);
+            } else if (match(TK::ALL)) {
+                table->temporal_kind = TemporalKind::ALL;
+            } else {
+                error("Expected AS OF, FROM ... TO ..., BETWEEN ... AND ..., "
+                      "CONTAINED IN (...), or ALL after FOR SYSTEM_TIME");
+            }
+        }
 
         // Check for optional alias: table_name AS alias or table_name alias
         if (match(TK::AS)) {
@@ -2023,26 +2255,53 @@ public:
         expect(TK::ON);
         stmt->on_condition = parse_expression();
 
-        // WHEN MATCHED / WHEN NOT MATCHED clauses (a MERGE commonly has both;
-        // parsing only the first silently dropped the other action)
+        // WHEN [NOT] MATCHED [BY SOURCE|BY TARGET] [AND cond] THEN
+        //   UPDATE SET ... | DELETE | INSERT (...) VALUES (...) | DO NOTHING
+        // A MERGE commonly has several WHEN clauses; each is collected
+        // in order so none are silently dropped.
         while (check(TK::WHEN)) {
             (void)advance();
 
-            bool matched = false;
+            MergeWhenClause clause;
             if (match(TK::MATCHED)) {
-                matched = true;
+                clause.match_kind = MergeMatchKind::MATCHED;
             } else if (match(TK::NOT)) {
                 expect(TK::MATCHED);
-                matched = false;
+                // T-SQL/Azure Synapse: WHEN NOT MATCHED BY SOURCE (fires for
+                // target rows with no matching source row) vs the ANSI
+                // default WHEN NOT MATCHED [BY TARGET] (fires for source
+                // rows with no matching target row).
+                if (check(TK::BY)) {
+                    (void)advance();  // BY
+                    if (check(TK::IDENTIFIER) && ieq(current().text, "SOURCE")) {
+                        (void)advance();
+                        clause.match_kind = MergeMatchKind::NOT_MATCHED_BY_SOURCE;
+                    } else if (check(TK::IDENTIFIER) && ieq(current().text, "TARGET")) {
+                        (void)advance();
+                        clause.match_kind = MergeMatchKind::NOT_MATCHED;
+                    } else {
+                        error("Expected SOURCE or TARGET after WHEN NOT MATCHED BY");
+                    }
+                } else {
+                    clause.match_kind = MergeMatchKind::NOT_MATCHED;
+                }
+            } else {
+                error("Expected MATCHED or NOT MATCHED after WHEN");
+            }
+
+            // Optional extra condition: WHEN MATCHED AND <cond> THEN ...
+            if (match(TK::AND)) {
+                clause.extra_condition = parse_expression();
             }
 
             expect(TK::THEN);
 
-            // Action: UPDATE SET ... or INSERT ...
-            if (check(TK::UPDATE) && matched) {
+            const bool matched = (clause.match_kind == MergeMatchKind::MATCHED);
+
+            if (check(TK::UPDATE)) {
                 (void)advance();
                 expect(TK::SET);
-                // Parse SET assignments
+                clause.action = MergeActionKind::UPDATE;
                 do {
                     if (!check(TK::IDENTIFIER)) {
                         error("Expected column name");
@@ -2061,15 +2320,19 @@ public:
 
                     expect(TK::EQ);
                     auto val = parse_expression();
-                    stmt->update_assignments.push_back({col, val});
+                    clause.update_assignments.push_back({col, val});
                 } while (match(TK::COMMA));
+            } else if (check(TK::DELETE)) {
+                (void)advance();
+                clause.action = MergeActionKind::DELETE_ACTION;
             } else if (check(TK::INSERT) && !matched) {
                 (void)advance();
+                clause.action = MergeActionKind::INSERT;
                 // INSERT (columns) VALUES (values)
                 if (match(TK::LPAREN)) {
                     do {
                         if (check(TK::IDENTIFIER)) {
-                            stmt->insert_columns.push_back(advance().text);
+                            clause.insert_columns.push_back(advance().text);
                         }
                     } while (match(TK::COMMA));
                     expect(TK::RPAREN);
@@ -2078,10 +2341,14 @@ public:
                 expect(TK::VALUES);
                 expect(TK::LPAREN);
                 do {
-                    stmt->insert_values.push_back(parse_expression());
+                    clause.insert_values.push_back(parse_expression());
                 } while (match(TK::COMMA));
                 expect(TK::RPAREN);
+            } else {
+                error("Expected UPDATE, DELETE, or INSERT after WHEN ... THEN");
             }
+
+            stmt->when_clauses.push_back(std::move(clause));
         }
 
         return stmt;
@@ -2142,10 +2409,72 @@ public:
             return parse_create_projection();
         } else if (check(TK::IDENTIFIER) && (current().text == "REFLECTION" || current().text == "reflection")) {
             return parse_create_reflection();
+        } else if (check(TK::IDENTIFIER) && ieq(current().text, "SEQUENCE")) {
+            return parse_create_sequence();
         }
 
-        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, PROJECTION, or REFLECTION after CREATE");
+        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, PROJECTION, REFLECTION, or SEQUENCE after CREATE");
         return nullptr;
+    }
+
+    /// Parse CREATE SEQUENCE name [START WITH n] [INCREMENT BY n]
+    ///   [{MINVALUE n | NO MINVALUE}] [{MAXVALUE n | NO MAXVALUE}]
+    ///   [{CYCLE | NO CYCLE}] [CACHE n]
+    CreateSequenceStmt* parse_create_sequence() {
+        auto stmt = this->template create_node<CreateSequenceStmt>();
+        (void)advance();  // SEQUENCE (soft keyword)
+
+        if (match(TK::IF_KW) || match(TK::IF)) {
+            expect(TK::NOT);
+            expect(TK::EXISTS);
+            stmt->if_not_exists = true;
+        }
+
+        if (!check(TK::IDENTIFIER)) {
+            error("Expected sequence name after CREATE SEQUENCE");
+        }
+        stmt->name = advance().text;
+
+        while (true) {
+            if (check(TK::IDENTIFIER) && ieq(current().text, "START")) {
+                (void)advance();  // START
+                (void)match(TK::WITH);  // optional WITH
+                stmt->start_with = parse_expression();
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "INCREMENT")) {
+                (void)advance();  // INCREMENT
+                (void)match(TK::BY);  // optional BY
+                stmt->increment_by = parse_expression();
+            } else if (match(TK::MINVALUE)) {
+                stmt->min_value = parse_expression();
+            } else if (match(TK::MAXVALUE)) {
+                stmt->max_value = parse_expression();
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "NO") &&
+                       peek(1).type == TK::MINVALUE) {
+                (void)advance();  // NO
+                (void)advance();  // MINVALUE
+                stmt->no_min_value = true;
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "NO") &&
+                       peek(1).type == TK::MAXVALUE) {
+                (void)advance();  // NO
+                (void)advance();  // MAXVALUE
+                stmt->no_max_value = true;
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "NO") &&
+                       peek(1).type == TK::IDENTIFIER && ieq(peek(1).text, "CYCLE")) {
+                (void)advance();  // NO
+                (void)advance();  // CYCLE
+                stmt->no_cycle = true;
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "CYCLE")) {
+                (void)advance();  // CYCLE
+                stmt->cycle = true;
+            } else if (check(TK::IDENTIFIER) && ieq(current().text, "CACHE")) {
+                (void)advance();  // CACHE
+                stmt->cache = parse_expression();
+            } else {
+                break;
+            }
+        }
+
+        return stmt;
     }
 
     /// Parse CREATE TABLE (simplified for now)
@@ -2191,15 +2520,106 @@ public:
         }
         expect(TK::RPAREN);
 
-        // Deliberately skip trailing dialect-specific table options we do
-        // not model (ENGINE=InnoDB, DISTSTYLE KEY, DISTRIBUTED BY (...),
-        // DUPLICATE KEY(...) ... BUCKETS n, ON COMMIT ..., etc.) up to the
-        // statement terminator, mirroring parse_column_def's permissiveness.
+        // Trailing dialect-specific table options (ENGINE=InnoDB,
+        // AUTO_INCREMENT=n, DEFAULT CHARSET=x, COMMENT='...', DISTSTYLE KEY,
+        // DISTKEY(col), SORTKEY(col), DISTRIBUTED BY (...), PARTITION BY
+        // ..., TABLESPACE x, ...) are modeled as an ordered list of (name,
+        // value) pairs and regenerated verbatim, rather than being consumed
+        // and discarded.
         while (!check(TK::SEMICOLON) && !is_eof()) {
-            (void)advance();
+            if (match(TK::COMMA)) continue;  // Some dialects comma-separate options
+            stmt->table_options.push_back(parse_table_option());
         }
 
         return stmt;
+    }
+
+    /// Is the current token the start of a recognized trailing table option
+    /// keyword? Used both to detect the start of the next option and, when
+    /// scanning a bare (no '=') option's value, to know where that value
+    /// ends without an explicit separator (`DISTSTYLE KEY DISTKEY(id)` is
+    /// two options, not one).
+    [[nodiscard]] bool at_table_option_start() const noexcept {
+        if (check(TK::ENGINE) || check(TK::AUTO_INCREMENT) || check(TK::CHARSET) ||
+            check(TK::COLLATE) || check(TK::DISTSTYLE) || check(TK::DISTKEY) ||
+            check(TK::SORTKEY) || check(TK::DISTRIBUTED) || check(TK::PARTITION) ||
+            check(TK::TABLESPACE) || check(TK::DEFAULT)) {
+            return true;
+        }
+        if (check(TK::IDENTIFIER)) {
+            std::string_view t = current().text;
+            return ieq(t, "COMMENT") || ieq(t, "ROW_FORMAT") || ieq(t, "COMPRESSION") ||
+                   ieq(t, "CHARACTER");
+        }
+        return false;
+    }
+
+    /// Parse one trailing CREATE TABLE option: a (possibly multi-word) name,
+    /// optionally followed by `=value`, or a bare `name value` pair.
+    TableOption parse_table_option() {
+        TableOption opt;
+
+        size_t name_start = current().start;
+        size_t name_end = current().end;
+        (void)advance();  // First name word
+
+        // Recognized two-word name prefixes: DEFAULT CHARSET/CHARACTER,
+        // CHARACTER SET, DISTRIBUTED BY, PARTITION BY.
+        if (check(TK::CHARSET) ||
+            (check(TK::IDENTIFIER) && ieq(current().text, "CHARACTER")) ||
+            check(TK::BY)) {
+            name_end = current().end;
+            (void)advance();
+            // DEFAULT CHARACTER SET (three words)
+            if (check(TK::SET)) {
+                name_end = current().end;
+                (void)advance();
+            }
+        } else if (check(TK::SET) && ieq(source_.substr(name_start, name_end - name_start), "CHARACTER")) {
+            name_end = current().end;
+            (void)advance();
+        }
+
+        opt.name = source_.substr(name_start, name_end - name_start);
+
+        if (match(TK::EQ)) {
+            opt.has_equals = true;
+            size_t val_start = current().start;
+            size_t val_end = val_start;
+            if (check(TK::LPAREN)) {
+                int depth = 0;
+                do {
+                    if (check(TK::LPAREN)) depth++;
+                    else if (check(TK::RPAREN)) depth--;
+                    val_end = current().end;
+                    (void)advance();
+                } while (depth > 0 && !is_eof());
+            } else if (!check(TK::SEMICOLON) && !is_eof()) {
+                val_end = current().end;
+                (void)advance();
+            }
+            opt.value = source_.substr(val_start, val_end - val_start);
+        } else {
+            // Bare `name value` form: capture tokens (paren-depth aware)
+            // until a top-level comma/semicolon/EOF, or the start of the
+            // next recognized option keyword.
+            size_t val_start = current().start;
+            size_t val_end = val_start;
+            int depth = 0;
+            bool first = true;
+            while (!is_eof() && !check(TK::SEMICOLON)) {
+                if (depth == 0 && check(TK::COMMA)) break;
+                if (depth == 0 && !first && at_table_option_start()) break;
+                if (check(TK::LPAREN)) depth++;
+                else if (check(TK::RPAREN)) depth--;
+                val_end = current().end;
+                (void)advance();
+                first = false;
+            }
+            opt.value = source_.substr(val_start, val_end - val_start);
+        }
+
+        return opt;
     }
 
     /// Check whether the current token begins a table-level constraint
@@ -2510,10 +2930,30 @@ public:
             return parse_drop_trigger();
         } else if (check(TK::IDENTIFIER) && (current().text == "MODEL" || current().text == "model")) {
             return parse_drop_model();
+        } else if (check(TK::IDENTIFIER) && ieq(current().text, "SEQUENCE")) {
+            return parse_drop_sequence();
         }
 
-        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, or MODEL after DROP");
+        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, or SEQUENCE after DROP");
         return nullptr;
+    }
+
+    /// Parse DROP SEQUENCE [IF EXISTS] name
+    DropSequenceStmt* parse_drop_sequence() {
+        auto stmt = this->template create_node<DropSequenceStmt>();
+        (void)advance();  // SEQUENCE (soft keyword)
+
+        if (match(TK::IF_KW) || match(TK::IF)) {
+            expect(TK::EXISTS);
+            stmt->if_exists = true;
+        }
+
+        if (!check(TK::IDENTIFIER)) {
+            error("Expected sequence name after DROP SEQUENCE");
+        }
+        stmt->name = advance().text;
+
+        return stmt;
     }
 
     /// Parse DROP TABLE
@@ -2595,8 +3035,13 @@ public:
 
     /// Parse ALTER TABLE statement
     SQLNode* parse_alter_statement() {
-        auto stmt = this->template create_node<AlterTableStmt>();
         expect(TK::ALTER);
+
+        if (check(TK::IDENTIFIER) && ieq(current().text, "SEQUENCE")) {
+            return parse_alter_sequence();
+        }
+
+        auto stmt = this->template create_node<AlterTableStmt>();
         expect(TK::TABLE);
 
         // Table name
@@ -2704,6 +3149,29 @@ public:
                     }
                 }
             }
+        }
+
+        return stmt;
+    }
+
+    /// Parse ALTER SEQUENCE name RESTART [WITH n]
+    AlterSequenceStmt* parse_alter_sequence() {
+        auto stmt = this->template create_node<AlterSequenceStmt>();
+        (void)advance();  // SEQUENCE (soft keyword)
+
+        if (!check(TK::IDENTIFIER)) {
+            error("Expected sequence name after ALTER SEQUENCE");
+        }
+        stmt->name = advance().text;
+
+        if (check(TK::IDENTIFIER) && ieq(current().text, "RESTART")) {
+            (void)advance();  // RESTART
+            stmt->restart = true;
+            if (match(TK::WITH)) {
+                stmt->restart_with = parse_expression();
+            }
+        } else {
+            error("Expected RESTART after ALTER SEQUENCE name");
         }
 
         return stmt;
@@ -4044,10 +4512,28 @@ public:
         // IN keyword
         expect(TK::IN);
 
-        // Range: start..end
-        stmt->start_value = parse_expression();
-        expect(TK::DOUBLE_DOT);
-        stmt->end_value = parse_expression();
+        // Optional REVERSE (Oracle/PostgreSQL PL/SQL): FOR i IN REVERSE a..b LOOP
+        if (check(TK::IDENTIFIER) && ieq(current().text, "REVERSE")) {
+            (void)advance();
+            stmt->reverse = true;
+        }
+
+        // Record iteration form (PL/pgSQL / Oracle cursor FOR loop):
+        // FOR rec IN SELECT ... LOOP, or Oracle's FOR rec IN (SELECT ...) LOOP.
+        // Accept both spellings regardless of dialect; the generator picks
+        // the dialect-appropriate one when regenerating.
+        if (check(TK::LPAREN) && (peek(1).type == TK::SELECT || peek(1).type == TK::WITH)) {
+            (void)advance();  // (
+            stmt->query = parse_select();
+            expect(TK::RPAREN);
+        } else if (check(TK::SELECT) || check(TK::WITH)) {
+            stmt->query = parse_select();
+        } else {
+            // Range: start..end
+            stmt->start_value = parse_expression();
+            expect(TK::DOUBLE_DOT);
+            stmt->end_value = parse_expression();
+        }
 
         // LOOP keyword
         if (check(TK::LOOP)) {
@@ -4492,6 +4978,8 @@ private:
                 return libglot::sql::lex::TokenizerConfig::postgresql();
             case SQLDialect::Snowflake:
                 return libglot::sql::lex::TokenizerConfig::snowflake();
+            case SQLDialect::BigQuery:
+                return libglot::sql::lex::TokenizerConfig::bigquery();
             default:
                 // Most dialects support # comments (MySQL-style)
                 // SQL Server is the exception
@@ -4567,6 +5055,25 @@ private:
 
     std::string_view source_;
     SQLDialect dialect_;
+
+public:
+    // Suppresses parse_postfix's unconditional `expr IN (...)` consumption
+    // for the duration of a scoped guard. Needed where IN introduces a
+    // trailing modifier rather than a value list right after an expression
+    // parsed with parse_expression() - e.g. MySQL's
+    // `AGAINST('x' IN NATURAL LANGUAGE MODE)`, where the plain
+    // `check(TK::IN)` in parse_postfix would otherwise swallow the IN and
+    // then fail expecting '(' for a value list.
+    bool no_in_postfix_ = false;
+
+    struct ScopedNoInPostfix {
+        SQLParser& p;
+        bool prev;
+        explicit ScopedNoInPostfix(SQLParser& parser) : p(parser), prev(parser.no_in_postfix_) {
+            p.no_in_postfix_ = true;
+        }
+        ~ScopedNoInPostfix() { p.no_in_postfix_ = prev; }
+    };
 };
 
 } // namespace libglot::sql

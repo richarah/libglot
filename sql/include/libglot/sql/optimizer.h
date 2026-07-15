@@ -426,10 +426,13 @@ private:
                 auto* stmt = static_cast<MergeStmt*>(node);
                 stmt->source = opt(stmt->source);
                 stmt->on_condition = opt(stmt->on_condition);
-                for (auto& assign : stmt->update_assignments) {
-                    assign.second = opt(assign.second);
+                for (auto& clause : stmt->when_clauses) {
+                    clause.extra_condition = opt(clause.extra_condition);
+                    for (auto& assign : clause.update_assignments) {
+                        assign.second = opt(assign.second);
+                    }
+                    opt_each(clause.insert_values);
                 }
-                opt_each(stmt->insert_values);
                 return stmt;
             }
 

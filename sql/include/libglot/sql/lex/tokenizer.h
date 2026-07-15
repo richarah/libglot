@@ -46,6 +46,14 @@ struct TokenizerConfig {
         return {.hash_line_comment = true, .hash_identifier_start = false, .colon_parameters = false,
                 .question_is_operator = false, .bracket_identifiers = false};
     }
+    /// BigQuery quotes identifiers with backticks, never `[ident]` brackets -
+    /// bracket_identifiers must be off so `arr[OFFSET(0)]` lexes as
+    /// array-subscript brackets rather than a single bracket-quoted
+    /// identifier token.
+    static constexpr TokenizerConfig bigquery() noexcept {
+        return {.hash_line_comment = true, .hash_identifier_start = false, .colon_parameters = true,
+                .question_is_operator = false, .bracket_identifiers = false};
+    }
 };
 
 /// Tokenizer - converts SQL source text into tokens
@@ -530,6 +538,7 @@ private:
         if (c == '<' && next == '=') { advance(); return make_token(TokenType::LTE, start_pos, pos_, start_line, start_col); }
         if (c == '>' && next == '=') { advance(); return make_token(TokenType::GTE, start_pos, pos_, start_line, start_col); }
         if (c == '!' && next == '=') { advance(); return make_token(TokenType::NEQ, start_pos, pos_, start_line, start_col); }
+        if (c == '=' && next == '>') { advance(); return make_token(TokenType::FAT_ARROW, start_pos, pos_, start_line, start_col); }
         if (c == ':' && next == '=') { advance(); return make_token(TokenType::COLON_EQUALS, start_pos, pos_, start_line, start_col); }
         if (c == ':' && next == ':') { advance(); return make_token(TokenType::DOUBLE_COLON, start_pos, pos_, start_line, start_col); }
         if (c == '.' && next == '.') { advance(); return make_token(TokenType::DOUBLE_DOT, start_pos, pos_, start_line, start_col); }

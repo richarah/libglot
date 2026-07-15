@@ -152,6 +152,18 @@ public:
                 visit_regex_match(static_cast<RegexMatch*>(node));
                 break;
 
+            case SQLNodeKind::SEQUENCE_REF_EXPR:
+                visit_sequence_ref_expr(static_cast<SequenceRefExpr*>(node));
+                break;
+
+            case SQLNodeKind::MATCH_AGAINST:
+                visit_match_against(static_cast<MatchAgainst*>(node));
+                break;
+
+            case SQLNodeKind::FLATTEN_CLAUSE:
+                visit_flatten_clause(static_cast<FlattenClause*>(node));
+                break;
+
             // ================================================================
             // FROM Clause Elements
             // ================================================================
@@ -265,6 +277,18 @@ public:
 
             case SQLNodeKind::ALTER_TABLE_STMT:
                 visit_alter_table_stmt(static_cast<AlterTableStmt*>(node));
+                break;
+
+            case SQLNodeKind::CREATE_SEQUENCE_STMT:
+                visit_create_sequence_stmt(static_cast<CreateSequenceStmt*>(node));
+                break;
+
+            case SQLNodeKind::DROP_SEQUENCE_STMT:
+                visit_drop_sequence_stmt(static_cast<DropSequenceStmt*>(node));
+                break;
+
+            case SQLNodeKind::ALTER_SEQUENCE_STMT:
+                visit_alter_sequence_stmt(static_cast<AlterSequenceStmt*>(node));
                 break;
 
             case SQLNodeKind::COLUMN_DEF:
@@ -776,12 +800,75 @@ private:
         }
         write_identifier(tbl->table);
 
+        if (tbl->temporal_kind != TemporalKind::NONE) {
+            write_temporal_clause(tbl);
+        }
+
         // Output alias if present
         if (!tbl->alias.empty()) {
             this->space();
             this->write("AS");
             this->space();
             write_identifier(tbl->alias);
+        }
+    }
+
+    /// SQL:2011 system-versioned temporal table clause: only T-SQL (SQL
+    /// Server / Azure Synapse) and MariaDB (which adopted the same syntax)
+    /// support it; every other dialect throws.
+    void write_temporal_clause(TableRef* tbl) {
+        const auto d = this->dialect();
+        if (d != SQLDialect::SQLServer && d != SQLDialect::AzureSynapse && d != SQLDialect::MariaDB) {
+            throw std::logic_error(
+                "FOR SYSTEM_TIME (system-versioned temporal tables) has no equivalent in " +
+                std::string(SQLDialectTraits::name(d)));
+        }
+        this->space();
+        this->write("FOR SYSTEM_TIME");
+        switch (tbl->temporal_kind) {
+            case TemporalKind::AS_OF:
+                this->space();
+                this->write("AS OF");
+                this->space();
+                visit(tbl->temporal_arg1);
+                break;
+            case TemporalKind::FROM_TO:
+                this->space();
+                this->write("FROM");
+                this->space();
+                visit(tbl->temporal_arg1);
+                this->space();
+                this->write("TO");
+                this->space();
+                visit(tbl->temporal_arg2);
+                break;
+            case TemporalKind::BETWEEN_AND:
+                this->space();
+                this->write("BETWEEN");
+                this->space();
+                visit(tbl->temporal_arg1);
+                this->space();
+                this->write("AND");
+                this->space();
+                visit(tbl->temporal_arg2);
+                break;
+            case TemporalKind::CONTAINED_IN:
+                this->space();
+                this->write("CONTAINED IN");
+                this->space();
+                this->write('(');
+                visit(tbl->temporal_arg1);
+                this->write(',');
+                this->space();
+                visit(tbl->temporal_arg2);
+                this->write(')');
+                break;
+            case TemporalKind::ALL:
+                this->space();
+                this->write("ALL");
+                break;
+            case TemporalKind::NONE:
+                break;
         }
     }
 
@@ -1158,6 +1245,14 @@ private:
             visit(func->args[1]);
             this->write(')');
             return;
+        }
+
+        // STRUCT(...) is a BigQuery type constructor; every other dialect
+        // either has no equivalent or a different literal syntax entirely.
+        if (func->name == "STRUCT" && this->dialect() != SQLDialect::BigQuery) {
+            throw std::logic_error(
+                "STRUCT(...) literal has no equivalent outside BigQuery in " +
+                std::string(SQLDialectTraits::name(this->dialect())));
         }
 
         this->write(func->name);
@@ -1770,42 +1865,79 @@ private:
         this->space();
         visit(stmt->on_condition);
 
-        // WHEN MATCHED (UPDATE) - assignments are std::pair<string_view, SQLNode*>
-        if (!stmt->update_assignments.empty()) {
-            this->space();
-            this->write("WHEN MATCHED THEN UPDATE SET");
-            this->space();
-            this->write_list(stmt->update_assignments, [this](const auto& assign) {
-                write_identifier(assign.first);  // column name
-                this->space();
-                this->write('=');
-                this->space();
-                visit(assign.second);  // value
-            });
-        }
-
-        // WHEN NOT MATCHED (INSERT)
-        if (!stmt->insert_values.empty()) {
-            this->space();
-            this->write("WHEN NOT MATCHED THEN INSERT");
-
-            if (!stmt->insert_columns.empty()) {
-                this->space();
-                this->write('(');
-                this->write_list(stmt->insert_columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
-                this->write(')');
+        const auto d = this->dialect();
+        for (const auto& clause : stmt->when_clauses) {
+            if (clause.match_kind == MergeMatchKind::NOT_MATCHED_BY_SOURCE &&
+                d != SQLDialect::SQLServer && d != SQLDialect::AzureSynapse) {
+                throw std::logic_error(
+                    "MERGE ... WHEN NOT MATCHED BY SOURCE has no equivalent outside T-SQL in " +
+                    std::string(SQLDialectTraits::name(d)));
             }
 
             this->space();
-            this->write("VALUES");
+            this->write("WHEN");
             this->space();
-            this->write('(');
-            this->write_list(stmt->insert_values, [this](SQLNode* val) {
-                visit(val);
-            });
-            this->write(')');
+            switch (clause.match_kind) {
+                case MergeMatchKind::MATCHED:
+                    this->write("MATCHED");
+                    break;
+                case MergeMatchKind::NOT_MATCHED:
+                    this->write("NOT MATCHED");
+                    break;
+                case MergeMatchKind::NOT_MATCHED_BY_SOURCE:
+                    this->write("NOT MATCHED BY SOURCE");
+                    break;
+            }
+
+            if (clause.extra_condition) {
+                this->space();
+                this->write("AND");
+                this->space();
+                visit(clause.extra_condition);
+            }
+
+            this->space();
+            this->write("THEN");
+            this->space();
+
+            switch (clause.action) {
+                case MergeActionKind::UPDATE:
+                    this->write("UPDATE SET");
+                    this->space();
+                    this->write_list(clause.update_assignments, [this](const auto& assign) {
+                        write_identifier(assign.first);  // column name
+                        this->space();
+                        this->write('=');
+                        this->space();
+                        visit(assign.second);  // value
+                    });
+                    break;
+                case MergeActionKind::DELETE_ACTION:
+                    this->write("DELETE");
+                    break;
+                case MergeActionKind::INSERT:
+                    this->write("INSERT");
+                    if (!clause.insert_columns.empty()) {
+                        this->space();
+                        this->write('(');
+                        this->write_list(clause.insert_columns, [this](std::string_view col) {
+                            write_identifier(col);
+                        });
+                        this->write(')');
+                    }
+                    this->space();
+                    this->write("VALUES");
+                    this->space();
+                    this->write('(');
+                    this->write_list(clause.insert_values, [this](SQLNode* val) {
+                        visit(val);
+                    });
+                    this->write(')');
+                    break;
+                case MergeActionKind::DO_NOTHING:
+                    this->write("DO NOTHING");
+                    break;
+            }
         }
     }
 
@@ -1866,6 +1998,25 @@ private:
                 visit_table_constraint(constraint);
             }
             this->write(')');
+
+            // Trailing dialect-specific table options (ENGINE=, DISTSTYLE,
+            // PARTITION BY, ...), regenerated verbatim in the order parsed.
+            for (const auto& opt : stmt->table_options) {
+                this->space();
+                this->write(opt.name);
+                if (opt.has_equals) {
+                    this->write('=');
+                    this->write(opt.value);
+                } else if (!opt.value.empty()) {
+                    // A parenthesized value directly follows its name
+                    // (DISTKEY(col)); a word-like value gets a separating
+                    // space (DISTSTYLE KEY, PARTITION BY RANGE (...)).
+                    if (opt.value.front() != '(') {
+                        this->space();
+                    }
+                    this->write(opt.value);
+                }
+            }
         }
     }
 
@@ -2093,7 +2244,25 @@ private:
     void visit_array_index(ArrayIndex* idx) {
         visit(idx->array);
         this->write('[');
-        visit(idx->index);
+        if (idx->subscript != ArraySubscript::NONE) {
+            if (this->dialect() != SQLDialect::BigQuery) {
+                throw std::logic_error(
+                    "Array subscript functions (OFFSET/ORDINAL/SAFE_OFFSET) are BigQuery-specific; "
+                    "plain arr[index] has different (0- vs 1-based) semantics in " +
+                    std::string(SQLDialectTraits::name(this->dialect())));
+            }
+            switch (idx->subscript) {
+                case ArraySubscript::OFFSET: this->write("OFFSET"); break;
+                case ArraySubscript::ORDINAL: this->write("ORDINAL"); break;
+                case ArraySubscript::SAFE_OFFSET: this->write("SAFE_OFFSET"); break;
+                case ArraySubscript::NONE: break;
+            }
+            this->write('(');
+            visit(idx->index);
+            this->write(')');
+        } else {
+            visit(idx->index);
+        }
         this->write(']');
     }
 
@@ -2126,6 +2295,113 @@ private:
         }
         this->space();
         visit(regex->pattern);
+    }
+
+    /// Dialects with no native sequence object at all. Every other dialect
+    /// modeled here (PostgreSQL, Oracle, SQL Server, DB2, MariaDB, Firebird,
+    /// Snowflake, ...) accepts the CREATE/DROP/ALTER SEQUENCE syntax parsed
+    /// above closely enough to regenerate it verbatim.
+    static bool lacks_sequences(SQLDialect d) noexcept {
+        return d == SQLDialect::MySQL || d == SQLDialect::SQLite;
+    }
+
+    void visit_sequence_ref_expr(SequenceRefExpr* seq) {
+        const auto d = this->dialect();
+        if (lacks_sequences(d)) {
+            throw std::logic_error(
+                "Sequences (" + std::string(seq->is_next ? "NEXTVAL" : "CURRVAL") +
+                ") have no equivalent in " + std::string(SQLDialectTraits::name(d)));
+        }
+        if (d == SQLDialect::Oracle) {
+            // Oracle member-style: seq.NEXTVAL / seq.CURRVAL
+            write_identifier(seq->sequence_name);
+            this->write('.');
+            this->write(seq->is_next ? "NEXTVAL" : "CURRVAL");
+        } else {
+            // Function-style: nextval('seq') / currval('seq')
+            this->write(seq->is_next ? "NEXTVAL" : "CURRVAL");
+            this->write('(');
+            this->write_string_literal(seq->sequence_name);
+            this->write(')');
+        }
+    }
+
+    void visit_match_against(MatchAgainst* m) {
+        const auto d = this->dialect();
+        if (d != SQLDialect::MySQL && d != SQLDialect::MariaDB) {
+            throw std::logic_error(
+                "MATCH ... AGAINST (fulltext search) has no equivalent outside MySQL/MariaDB in " +
+                std::string(SQLDialectTraits::name(d)));
+        }
+        this->write("MATCH");
+        this->space();
+        this->write('(');
+        this->write_list(m->columns, [this](std::string_view col) {
+            write_identifier(col);
+        });
+        this->write(')');
+        this->space();
+        this->write("AGAINST");
+        this->space();
+        this->write('(');
+        visit(m->against_expr);
+        if (m->mode_specified) {
+            this->space();
+            switch (m->mode) {
+                case FulltextMode::NATURAL_LANGUAGE:
+                    this->write("IN NATURAL LANGUAGE MODE");
+                    break;
+                case FulltextMode::NATURAL_LANGUAGE_EXPANSION:
+                    this->write("IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION");
+                    break;
+                case FulltextMode::BOOLEAN_MODE:
+                    this->write("IN BOOLEAN MODE");
+                    break;
+                case FulltextMode::QUERY_EXPANSION:
+                    this->write("WITH QUERY EXPANSION");
+                    break;
+            }
+        }
+        this->write(')');
+    }
+
+    void visit_flatten_clause(FlattenClause* f) {
+        const auto d = this->dialect();
+        if (d != SQLDialect::Snowflake) {
+            throw std::logic_error(
+                "LATERAL FLATTEN has no equivalent outside Snowflake in " +
+                std::string(SQLDialectTraits::name(d)));
+        }
+        this->write("FLATTEN");
+        this->write('(');
+        this->write("INPUT");
+        this->space();
+        this->write("=>");
+        this->space();
+        visit(f->input);
+        if (f->path) {
+            this->write(',');
+            this->space();
+            this->write("PATH");
+            this->space();
+            this->write("=>");
+            this->space();
+            visit(f->path);
+        }
+        if (f->outer) {
+            this->write(',');
+            this->space();
+            this->write("OUTER");
+            this->space();
+            this->write("=>");
+            this->space();
+            visit(f->outer);
+        }
+        this->write(')');
+        if (!f->alias.empty()) {
+            this->space();
+            write_identifier(f->alias);
+        }
     }
 
     // ========================================================================
@@ -2240,6 +2516,100 @@ private:
                 this->space();
                 write_identifier(stmt->new_name);
                 break;
+        }
+    }
+
+    void visit_create_sequence_stmt(CreateSequenceStmt* stmt) {
+        if (lacks_sequences(this->dialect())) {
+            throw std::logic_error(
+                "CREATE SEQUENCE has no equivalent in " +
+                std::string(SQLDialectTraits::name(this->dialect())));
+        }
+        this->write("CREATE SEQUENCE");
+        if (stmt->if_not_exists) {
+            this->space();
+            this->write("IF NOT EXISTS");
+        }
+        this->space();
+        write_identifier(stmt->name);
+        if (stmt->start_with) {
+            this->space();
+            this->write("START WITH");
+            this->space();
+            visit(stmt->start_with);
+        }
+        if (stmt->increment_by) {
+            this->space();
+            this->write("INCREMENT BY");
+            this->space();
+            visit(stmt->increment_by);
+        }
+        if (stmt->min_value) {
+            this->space();
+            this->write("MINVALUE");
+            this->space();
+            visit(stmt->min_value);
+        } else if (stmt->no_min_value) {
+            this->space();
+            this->write("NO MINVALUE");
+        }
+        if (stmt->max_value) {
+            this->space();
+            this->write("MAXVALUE");
+            this->space();
+            visit(stmt->max_value);
+        } else if (stmt->no_max_value) {
+            this->space();
+            this->write("NO MAXVALUE");
+        }
+        if (stmt->cycle) {
+            this->space();
+            this->write("CYCLE");
+        } else if (stmt->no_cycle) {
+            this->space();
+            this->write("NO CYCLE");
+        }
+        if (stmt->cache) {
+            this->space();
+            this->write("CACHE");
+            this->space();
+            visit(stmt->cache);
+        }
+    }
+
+    void visit_drop_sequence_stmt(DropSequenceStmt* stmt) {
+        if (lacks_sequences(this->dialect())) {
+            throw std::logic_error(
+                "DROP SEQUENCE has no equivalent in " +
+                std::string(SQLDialectTraits::name(this->dialect())));
+        }
+        this->write("DROP SEQUENCE");
+        if (stmt->if_exists) {
+            this->space();
+            this->write("IF EXISTS");
+        }
+        this->space();
+        write_identifier(stmt->name);
+    }
+
+    void visit_alter_sequence_stmt(AlterSequenceStmt* stmt) {
+        if (lacks_sequences(this->dialect())) {
+            throw std::logic_error(
+                "ALTER SEQUENCE has no equivalent in " +
+                std::string(SQLDialectTraits::name(this->dialect())));
+        }
+        this->write("ALTER SEQUENCE");
+        this->space();
+        write_identifier(stmt->name);
+        if (stmt->restart) {
+            this->space();
+            this->write("RESTART");
+            if (stmt->restart_with) {
+                this->space();
+                this->write("WITH");
+                this->space();
+                visit(stmt->restart_with);
+            }
         }
     }
 
@@ -3060,6 +3430,38 @@ private:
     void visit_for_loop(ForLoop* loop) {
         const auto dialect = this->dialect();
 
+        // Record iteration form (FOR rec IN SELECT ... LOOP): PL/pgSQL and
+        // Oracle PL/SQL both have native cursor FOR loops (Oracle requires
+        // the query in parens; PostgreSQL does not), but T-SQL has no direct
+        // equivalent short of a real cursor - throw rather than silently
+        // mis-lowering it.
+        if (loop->query) {
+            if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+                throw std::logic_error(
+                    "FOR record IN SELECT loops have no direct T-SQL equivalent "
+                    "(rewrite using a DECLARE CURSOR / FETCH loop)");
+            }
+            this->write("FOR");
+            this->space();
+            this->write(loop->variable);
+            this->space();
+            this->write("IN");
+            this->space();
+            if (dialect == SQLDialect::Oracle) {
+                this->write('(');
+                visit(loop->query);
+                this->write(')');
+            } else {
+                visit(loop->query);
+            }
+            this->space();
+            this->write("LOOP");
+            write_statement_body(loop->body);
+            this->space();
+            this->write("END LOOP");
+            return;
+        }
+
         // T-SQL doesn't support FOR..IN..LOOP syntax - transpile to a
         // counter WHILE loop. The whole lowering is wrapped in BEGIN..END so
         // it stays a single re-parseable statement, and the exact shape
@@ -3076,16 +3478,16 @@ private:
             this->write(';');
             this->space();
 
-            // WHILE @variable <= end_value
+            // WHILE @variable <= end_value (>= when REVERSE)
             this->write("WHILE @");
             this->write(loop->variable);
             this->space();
-            this->write("<=");
+            this->write(loop->reverse ? ">=" : "<=");
             this->space();
             if (loop->end_value) visit(loop->end_value);
             this->space();
 
-            // BEGIN body; SET @variable = @variable + 1; END; END
+            // BEGIN body; SET @variable = @variable +/- 1; END; END
             this->write("BEGIN");
             write_statement_body(loop->body);
             this->space();
@@ -3095,7 +3497,7 @@ private:
             this->write("= @");
             this->write(loop->variable);
             this->space();
-            this->write("+ 1; END; END");
+            this->write(loop->reverse ? "- 1; END; END" : "+ 1; END; END");
         } else {
             // Other dialects support FOR loops natively
             this->write("FOR");
@@ -3105,6 +3507,10 @@ private:
             this->space();
             this->write("IN");
             this->space();
+            if (loop->reverse) {
+                this->write("REVERSE");
+                this->space();
+            }
             if (loop->start_value) visit(loop->start_value);
             this->write("..");
             if (loop->end_value) visit(loop->end_value);

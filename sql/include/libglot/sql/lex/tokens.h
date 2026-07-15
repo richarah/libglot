@@ -48,6 +48,7 @@ enum class TokenType : uint16_t {
     LT_AT,            // <@ (contained by)
     QUESTION,         // ? (JSON exists)
     DOUBLE_COLON,     // :: (Postgres cast)
+    FAT_ARROW,        // => (named argument, e.g. Snowflake LATERAL FLATTEN)
 
     // Delimiters
     LPAREN,           // (
@@ -312,6 +313,7 @@ struct Token {
         case TokenType::ARROW: return "->";
         case TokenType::LONG_ARROW: return "->>";
         case TokenType::DOUBLE_COLON: return "::";
+        case TokenType::FAT_ARROW: return "=>";
         case TokenType::LPAREN: return "(";
         case TokenType::RPAREN: return ")";
         case TokenType::LBRACKET: return "[";

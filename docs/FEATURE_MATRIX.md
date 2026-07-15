@@ -26,16 +26,16 @@ parser must fail cleanly, never silently mis-parse).
 | INTERVAL literals | DONE | test_interval_literals, test_roundtrip_property corpus; replaced a broken `FunctionCall("INTERVAL", ...)` encoding (regenerated as `INTERVAL(7, DAY)`, invalid SQL and not a fixed point) with a dedicated `IntervalLiteral` node covering both `INTERVAL '1 day'` and `INTERVAL '2' HOUR` / `INTERVAL 7 DAY` |
 | INSERT ... ON CONFLICT (PG) / ON DUPLICATE KEY UPDATE (MySQL) | DONE | test_upsert, test_roundtrip_property ("upsert forms"); same-dialect fixpoint only - cross-dialect PG&lt;-&gt;MySQL transpile throws std::logic_error (conflict-target columns and EXCLUDED/VALUES() semantics don't map over cleanly) |
 | MERGE (all WHEN arms) | DONE | test_bugfix_regressions |
-| MERGE ... WHEN NOT MATCHED BY SOURCE (T-SQL) | GAP (wave 2) | |
+| MERGE ... WHEN NOT MATCHED BY SOURCE (T-SQL) | DONE | test_merge_extended, test_roundtrip_property ("MERGE WHEN NOT MATCHED BY SOURCE"); `MergeStmt` reworked from single UPDATE/INSERT slots into an ordered `when_clauses` list (`MergeWhenClause`: match kind, optional `AND` condition, action) so WHEN MATCHED THEN DELETE and a WHEN MATCHED AND cond THEN ... condition are also modeled, not just the T-SQL-specific clause; NOT_MATCHED_BY_SOURCE throws std::logic_error outside SQL Server/Azure Synapse |
 | OUTPUT / RETURNING (cross-dialect) | DONE | test_output_clause |
 | CREATE TABLE full column/constraint schema | DONE | test_schema_type, test_fk_check_constraints |
-| CREATE TABLE trailing table options (ENGINE=, DISTSTYLE, ...) | GAP (wave 2) | currently consumed, not modeled; model + regenerate |
-| CREATE/ALTER/DROP SEQUENCE, NEXTVAL/CURRVAL | GAP (wave 2) | historically claimed "partial" |
-| Temporal tables (`FOR SYSTEM_TIME AS OF ...`) | GAP (wave 2) | historically claimed "syntax support" |
+| CREATE TABLE trailing table options (ENGINE=, DISTSTYLE, ...) | DONE | test_table_options, test_roundtrip_property ("CREATE TABLE trailing table options"); modeled as an ordered `(name, value, has_equals)` list on `CreateTableStmt`, regenerated verbatim - never dialect-gated (every dialect's own trailing syntax round-trips); name/value boundaries are a documented best-effort heuristic (a small whitelist of recognized option-start keywords, paren-depth aware) covering the forms in the spec, not a full per-dialect option grammar |
+| CREATE/ALTER/DROP SEQUENCE, NEXTVAL/CURRVAL | DONE | test_sequences, test_roundtrip_property ("sequences"); NEXTVAL('seq')/CURRVAL('seq') function-style and Oracle's member-style `seq.NEXTVAL`/`seq.CURRVAL` both canonicalize to one `SequenceRefExpr` node, regenerated per dialect (Oracle member-style, function-style elsewhere); MySQL/SQLite throw std::logic_error (no sequence object) |
+| Temporal tables (`FOR SYSTEM_TIME AS OF ...`) | DONE | test_temporal_tables, test_roundtrip_property ("temporal tables"); all four SQL:2011 forms (AS OF / FROM..TO / BETWEEN..AND / CONTAINED IN / ALL) parse onto `TableRef`; generates for SQL Server, Azure Synapse, MariaDB; every other dialect throws std::logic_error |
 | CONNECT BY / START WITH (Oracle, Snowflake) | DONE | test_connect_by; non-native dialects throw |
 | CONNECT BY → recursive CTE lowering | GAP (issue #2) | |
 | Procedural SQL (IF/WHILE/FOR, cursors, RAISE map) | DONE | test_procedure_dialects, test_for_keyword |
-| FOR record IN SELECT loops, REVERSE | GAP (wave 2) | currently clean ParseError |
+| FOR record IN SELECT loops, REVERSE | DONE | test_for_keyword, test_roundtrip_property ("FOR record/REVERSE loop forms"); `ForLoop` extended with `reverse` and a `query` slot (mutually exclusive with the range form); record iteration generates PostgreSQL's bare `FOR rec IN SELECT ...` and Oracle's parenthesized `FOR rec IN (SELECT ...)`, and throws std::logic_error for the T-SQL lowering (no direct equivalent); REVERSE lowers to a descending WHILE for T-SQL |
 | GRANT/REVOKE, transactions, utility stmts | DONE | test_grant_revoke, test_utility_statements |
 | XML functions (SQL:2003) | OOS | clean ParseError; revisit on demand |
 | Polymorphic table functions (SQL:2016) | OOS | clean ParseError |
@@ -48,9 +48,9 @@ parser must fail cleanly, never silently mis-parse).
 | Dialect-aware lexing (TokenizerConfig) | DONE | test_tokenizer |
 | LIMIT / TOP / OFFSET-FETCH / FIRST-SKIP mapping | DONE | test_bugfix_regressions, test_dialect_feature_combinations |
 | Boolean spelling, quoting styles, ILIKE polyfill | DONE | test_dialect_feature_combinations |
-| MySQL fulltext `MATCH ... AGAINST` | GAP (wave 2) | historically claimed missing |
-| BigQuery STRUCT literal / ARRAY subscript edge cases | GAP (wave 2) | |
-| Snowflake `FLATTEN` table function | GAP (wave 2) | lateral flatten in FROM |
+| MySQL fulltext `MATCH ... AGAINST` | DONE | test_fulltext_match, test_roundtrip_property ("MySQL fulltext"); dedicated `MatchAgainst` node covers all four AGAINST modifiers (bare/NATURAL LANGUAGE MODE/+WITH QUERY EXPANSION/BOOLEAN MODE/WITH QUERY EXPANSION alone); MySQL/MariaDB only, everything else throws std::logic_error. Parsing the search argument required suppressing the generic `expr IN (...)` postfix (a scoped `no_in_postfix_` flag) so `AGAINST('x' IN NATURAL LANGUAGE MODE)` doesn't misparse "IN" as the value-list operator |
+| BigQuery STRUCT literal / ARRAY subscript edge cases | DONE | test_struct_array_subscript, test_roundtrip_property ("BigQuery STRUCT ... array subscript"); `STRUCT(...)` (already parsed generically as a FunctionCall) now throws std::logic_error for every dialect but BigQuery at generation time; `ArrayIndex` gained a `subscript` field (NONE/OFFSET/ORDINAL/SAFE_OFFSET) so `arr[OFFSET(0)]`/`arr[ORDINAL(1)]`/`arr[SAFE_OFFSET(0)]` generate only for BigQuery while plain `arr[index]` is untouched everywhere. Required adding a BigQuery `TokenizerConfig` (bracket_identifiers=false) - BigQuery previously inherited the ANSI default bracket-quoted-identifier lexing, which made `identifier[...]` unparseable as a subscript at all; PostgreSQL/MySQL/ANSI still can't lex bare `ident[...]` subscripting (pre-existing, asserted in test_tokenizer.cpp) and are out of scope here |
+| Snowflake `FLATTEN` table function | DONE | test_flatten, test_roundtrip_property ("Snowflake LATERAL FLATTEN"); `LATERAL FLATTEN(INPUT => expr [, PATH => '...'] [, OUTER => bool])` parses onto a dedicated `FlattenClause` wrapped in the existing `LateralJoin` node; required a new `=>` token (FAT_ARROW) in the tokenizer. Snowflake only; every other dialect throws std::logic_error |
 | PG `?` key-exists fixpoint (lexes as operator) | DONE (documented exclusion) | test_roundtrip_property header |
 | First-class set: ANSI, PG, MySQL, SQLite, MSSQL, Snowflake | DONE | matrix tests |
 | Promote Oracle, DB2, BigQuery, DuckDB | GAP (issue #3) | |

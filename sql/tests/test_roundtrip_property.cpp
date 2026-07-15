@@ -417,3 +417,69 @@ TEST_CASE("Roundtrip property - upsert forms (each dialect's own syntax only)",
     require_fixpoint("INSERT INTO t (id, c) VALUES (1, 1) ON DUPLICATE KEY UPDATE c = VALUES(c)",
                      SQLDialect::MySQL);
 }
+
+// ============================================================================
+// Wave 2
+// ============================================================================
+
+TEST_CASE("Roundtrip property - sequences (CREATE/DROP/ALTER SEQUENCE, NEXTVAL/CURRVAL)",
+          "[roundtrip-property][sequence]") {
+    require_fixpoint("CREATE SEQUENCE seq_a START WITH 1 INCREMENT BY 1 MINVALUE 1 MAXVALUE 1000 "
+                     "CYCLE CACHE 20",
+                     SQLDialect::PostgreSQL);
+    require_fixpoint("CREATE SEQUENCE seq_a NO MINVALUE NO MAXVALUE NO CYCLE", SQLDialect::PostgreSQL);
+    require_fixpoint("DROP SEQUENCE IF EXISTS seq_a", SQLDialect::PostgreSQL);
+    require_fixpoint("ALTER SEQUENCE seq_a RESTART WITH 5", SQLDialect::PostgreSQL);
+    require_fixpoint("SELECT NEXTVAL('seq_a')", SQLDialect::PostgreSQL);
+    require_fixpoint("SELECT seq_a.NEXTVAL FROM t", SQLDialect::Oracle);
+}
+
+TEST_CASE("Roundtrip property - temporal tables (T-SQL / MariaDB FOR SYSTEM_TIME)",
+          "[roundtrip-property][temporal]") {
+    for (auto d : {SQLDialect::SQLServer, SQLDialect::AzureSynapse, SQLDialect::MariaDB}) {
+        require_fixpoint("SELECT * FROM t FOR SYSTEM_TIME AS OF '2020-01-01'", d);
+        require_fixpoint("SELECT * FROM t FOR SYSTEM_TIME ALL", d);
+    }
+}
+
+TEST_CASE("Roundtrip property - MySQL fulltext MATCH ... AGAINST", "[roundtrip-property][fulltext]") {
+    for (auto d : {SQLDialect::MySQL, SQLDialect::MariaDB}) {
+        require_fixpoint("SELECT * FROM t WHERE MATCH (a) AGAINST ('x' IN BOOLEAN MODE)", d);
+    }
+}
+
+TEST_CASE("Roundtrip property - Snowflake LATERAL FLATTEN", "[roundtrip-property][flatten]") {
+    require_fixpoint("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col, PATH => 'a.b', OUTER => TRUE) f",
+                     SQLDialect::Snowflake);
+}
+
+TEST_CASE("Roundtrip property - BigQuery STRUCT literal and array subscript functions",
+          "[roundtrip-property][bigquery]") {
+    require_fixpoint("SELECT STRUCT(1 AS a, 'x' AS b)", SQLDialect::BigQuery);
+    require_fixpoint("SELECT arr[OFFSET(0)]", SQLDialect::BigQuery);
+    require_fixpoint("SELECT arr[ORDINAL(1)]", SQLDialect::BigQuery);
+}
+
+TEST_CASE("Roundtrip property - FOR record/REVERSE loop forms", "[roundtrip-property][for]") {
+    require_fixpoint("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::PostgreSQL);
+    require_fixpoint("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::Oracle);
+    require_fixpoint("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer);
+    require_fixpoint("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::PostgreSQL);
+    require_fixpoint("FOR rec IN (SELECT id FROM users) LOOP SELECT 1; END LOOP", SQLDialect::Oracle);
+}
+
+TEST_CASE("Roundtrip property - CREATE TABLE trailing table options", "[roundtrip-property][table-options]") {
+    require_fixpoint("CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 "
+                     "COMMENT='hi'",
+                     SQLDialect::MySQL);
+    require_fixpoint("CREATE TABLE t (id INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)", SQLDialect::Redshift);
+}
+
+TEST_CASE("Roundtrip property - MERGE WHEN NOT MATCHED BY SOURCE (T-SQL)",
+          "[roundtrip-property][merge]") {
+    require_fixpoint("MERGE INTO t USING u ON t.id = u.id "
+                     "WHEN MATCHED THEN UPDATE SET a = 1 "
+                     "WHEN NOT MATCHED THEN INSERT (a) VALUES (1) "
+                     "WHEN NOT MATCHED BY SOURCE THEN DELETE",
+                     SQLDialect::SQLServer);
+}

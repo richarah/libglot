@@ -123,20 +123,77 @@ TEST_CASE("FOR keyword - DECLARE CURSOR FOR binds the query", "[for][cursor]") {
 }
 
 // ============================================================================
-// Unsupported FOR forms fail cleanly (ParseError, not a crash)
+// Wave 2: FOR i IN REVERSE a..b LOOP (Oracle/PostgreSQL PL/SQL)
 // ============================================================================
 
-TEST_CASE("FOR keyword - REVERSE range loop raises a clean ParseError", "[for][error]") {
+TEST_CASE("FOR keyword - REVERSE range loop AST shape", "[for][loop][reverse]") {
     libglot::Arena arena;
     SQLParser parser(arena, "FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP");
-    REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
+    auto* ast = parser.parse_top_level();
+
+    REQUIRE(ast->type == SQLNodeKind::FOR_LOOP);
+    auto* loop = static_cast<ForLoop*>(ast);
+    REQUIRE(loop->reverse == true);
+    REQUIRE(loop->variable == "i");
+    REQUIRE(loop->query == nullptr);
 }
 
-TEST_CASE("FOR keyword - query FOR loop (FOR rec IN SELECT) raises a clean ParseError", "[for][error]") {
+TEST_CASE("FOR keyword - REVERSE range loop round-trips for FOR-native dialects",
+          "[for][loop][reverse]") {
+    const std::string sql = "FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP";
+    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) == sql);
+    REQUIRE(transpile(sql, SQLDialect::Oracle) == sql);
+}
+
+TEST_CASE("FOR keyword - REVERSE loop lowered to a descending WHILE for SQL Server",
+          "[for][loop][reverse][transpile]") {
+    REQUIRE(transpile("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer)
+            == "BEGIN DECLARE @i INT = 10; WHILE @i >= 1 BEGIN SELECT 1; SET @i = @i - 1; END; END");
+}
+
+// ============================================================================
+// Wave 2: FOR rec IN SELECT ... LOOP (PL/pgSQL / Oracle record iteration)
+// ============================================================================
+
+TEST_CASE("FOR keyword - record iteration (FOR rec IN SELECT) AST shape",
+          "[for][loop][record]") {
     libglot::Arena arena;
     SQLParser parser(arena, "FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP");
-    REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
+    auto* ast = parser.parse_top_level();
+
+    REQUIRE(ast->type == SQLNodeKind::FOR_LOOP);
+    auto* loop = static_cast<ForLoop*>(ast);
+    REQUIRE(loop->variable == "rec");
+    REQUIRE(loop->query != nullptr);
+    REQUIRE(loop->query->type == SQLNodeKind::SELECT_STMT);
+    REQUIRE(loop->start_value == nullptr);
 }
+
+TEST_CASE("FOR keyword - record iteration round-trips for PostgreSQL (no parens)",
+          "[for][loop][record]") {
+    REQUIRE(transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::PostgreSQL)
+            == "FOR rec IN SELECT \"id\" FROM \"users\" LOOP SELECT 1; END LOOP");
+}
+
+TEST_CASE("FOR keyword - record iteration generates Oracle's parenthesized form",
+          "[for][loop][record]") {
+    REQUIRE(transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::Oracle)
+            == "FOR rec IN (SELECT \"id\" FROM \"users\") LOOP SELECT 1; END LOOP");
+    // Oracle's own parenthesized spelling parses too, and is a fixed point.
+    REQUIRE(transpile("FOR rec IN (SELECT id FROM users) LOOP SELECT 1; END LOOP", SQLDialect::Oracle)
+            == "FOR rec IN (SELECT \"id\" FROM \"users\") LOOP SELECT 1; END LOOP");
+}
+
+TEST_CASE("FOR keyword - record iteration has no T-SQL lowering (clean std::logic_error)",
+          "[for][loop][record][error]") {
+    REQUIRE_THROWS_AS(
+        transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::SQLServer),
+        std::logic_error);
+}
+
+// ============================================================================
+// Unsupported FOR forms fail cleanly (ParseError, not a crash)
+// ============================================================================
 
 TEST_CASE("FOR keyword - missing END LOOP raises a clean ParseError", "[for][error]") {
     libglot::Arena arena;

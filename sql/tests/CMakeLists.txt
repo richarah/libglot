@@ -26,9 +26,11 @@ set(SQL_TESTS
     test_exceptions
     test_extract
     test_fk_check_constraints
+    test_flatten
     test_for_keyword
     test_for_loop
     test_for_while_transpile
+    test_fulltext_match
     test_grant_revoke
     test_group_by_extensions
     test_if_statement
@@ -39,6 +41,7 @@ set(SQL_TESTS
     test_lateral_joins
     test_loop_break_continue
     test_mad_queries
+    test_merge_extended
     test_named_windows
     test_optimizer
     test_order_by_nulls
@@ -55,8 +58,12 @@ set(SQL_TESTS
     test_scalar_functions
     test_schema_type
     test_security
+    test_sequences
     test_stored_procedures
+    test_struct_array_subscript
+    test_table_options
     test_tablesample
+    test_temporal_tables
     test_temporary_tables
     test_tokenizer
     test_transpiler

@@ -117,6 +117,14 @@ enum class SQLNodeKind : uint16_t {
     DROP_INDEX_STMT,      // DROP INDEX
 
     // ========================================================================
+    // DDL Statements - Sequences (wave 2)
+    // ========================================================================
+    CREATE_SEQUENCE_STMT, // CREATE SEQUENCE
+    DROP_SEQUENCE_STMT,   // DROP SEQUENCE
+    ALTER_SEQUENCE_STMT,  // ALTER SEQUENCE ... RESTART [WITH n]
+    SEQUENCE_REF_EXPR,    // NEXTVAL('seq') / seq.NEXTVAL (and CURRVAL forms)
+
+    // ========================================================================
     // DDL Statements - Views & Schemas
     // ========================================================================
     CREATE_VIEW_STMT,     // CREATE VIEW
@@ -197,6 +205,8 @@ enum class SQLNodeKind : uint16_t {
     OUTPUT_CLAUSE,           // T-SQL OUTPUT / PostgreSQL RETURNING
     ON_CONFLICT_CLAUSE,      // PostgreSQL INSERT ... ON CONFLICT ...
     ON_DUPLICATE_KEY_CLAUSE, // MySQL INSERT ... ON DUPLICATE KEY UPDATE ...
+    MATCH_AGAINST,           // MySQL/MariaDB MATCH (col, ...) AGAINST ('expr' [modifier])
+    FLATTEN_CLAUSE,          // Snowflake LATERAL FLATTEN(INPUT => expr, ...)
 
     // ========================================================================
     // BigQuery ML
@@ -289,6 +299,10 @@ struct ColumnDef;
 struct TableConstraint;
 struct CreateIndexStmt;
 struct DropIndexStmt;
+struct CreateSequenceStmt;
+struct DropSequenceStmt;
+struct AlterSequenceStmt;
+struct SequenceRefExpr;
 struct CreateViewStmt;
 struct DropViewStmt;
 struct CreateSchemaStmt;
@@ -351,6 +365,8 @@ struct StartWithClause;
 struct OutputClause;
 struct OnConflictClause;
 struct OnDuplicateKeyClause;
+struct MatchAgainst;
+struct FlattenClause;
 
 // BigQuery ML
 struct CreateModelStmt;
@@ -445,6 +461,19 @@ struct FunctionCall : SQLNode {
         : SQLNode(SQLNodeKind::FUNCTION_CALL), name(n), args(std::move(a)), distinct(d) {}
 };
 
+/// Sequence NEXTVAL/CURRVAL reference, canonicalized from either surface
+/// syntax: PostgreSQL/DB2-style `nextval('seq')` function calls or Oracle's
+/// member-style `seq.NEXTVAL`. Both spellings map onto this one node;
+/// `sequence_name` is stored unquoted (no surrounding quotes) so the
+/// generator can re-quote or leave it bare per dialect.
+struct SequenceRefExpr : SQLNode {
+    std::string_view sequence_name;
+    bool is_next;  // true: NEXTVAL, false: CURRVAL
+
+    SequenceRefExpr(std::string_view name, bool next)
+        : SQLNode(SQLNodeKind::SEQUENCE_REF_EXPR), sequence_name(name), is_next(next) {}
+};
+
 struct CaseExpr : SQLNode {
     SQLNode* case_value;  // Optional (for simple CASE expr WHEN ...)
     std::vector<std::pair<SQLNode*, SQLNode*>> when_clauses;  // (condition, result)
@@ -537,9 +566,16 @@ struct ArrayLiteral : SQLNode {
         : SQLNode(SQLNodeKind::ARRAY_LITERAL), elements(std::move(elems)) {}
 };
 
+/// BigQuery array subscript function: arr[OFFSET(0)] (0-based), arr[ORDINAL(1)]
+/// (1-based), arr[SAFE_OFFSET(0)] (0-based, NULL instead of an error when out
+/// of range). NONE is a plain arr[index] subscript, unchanged in every
+/// dialect.
+enum class ArraySubscript { NONE, OFFSET, ORDINAL, SAFE_OFFSET };
+
 struct ArrayIndex : SQLNode {
     SQLNode* array;
     SQLNode* index;
+    ArraySubscript subscript = ArraySubscript::NONE;
 
     ArrayIndex(SQLNode* arr, SQLNode* idx)
         : SQLNode(SQLNodeKind::ARRAY_INDEX), array(arr), index(idx) {}
@@ -617,11 +653,20 @@ struct WindowFunction : SQLNode {
 /// Table References & Joins
 /// ============================================================================
 
+/// SQL:2011 system-versioned temporal table clause attached to a table
+/// reference: `FOR SYSTEM_TIME AS OF ...` and friends (T-SQL / MariaDB).
+/// NONE means the clause was not written; ALL has no argument nodes.
+enum class TemporalKind : uint8_t { NONE, AS_OF, FROM_TO, BETWEEN_AND, CONTAINED_IN, ALL };
+
 struct TableRef : SQLNode {
     std::string_view database;  // Optional
     std::string_view schema;    // Optional
     std::string_view table;
     std::string_view alias;     // Optional
+
+    TemporalKind temporal_kind = TemporalKind::NONE;
+    SQLNode* temporal_arg1 = nullptr;  // AS OF ts / FROM a / BETWEEN a / CONTAINED IN (a, ...)
+    SQLNode* temporal_arg2 = nullptr;  // TO b / AND b / CONTAINED IN (..., b)
 
     explicit TableRef(std::string_view tbl)
         : SQLNode(SQLNodeKind::TABLE_REF), table(tbl) {}
@@ -851,13 +896,29 @@ struct DeleteStmt : SQLNode {
           output(nullptr) {}
 };
 
+/// Which side of the join a MERGE `WHEN` clause fires on. NOT_MATCHED_BY_SOURCE
+/// is T-SQL/Azure Synapse only (`WHEN NOT MATCHED BY SOURCE`); NOT_MATCHED
+/// is the ANSI `WHEN NOT MATCHED [BY TARGET]` form (always generated without
+/// the optional "BY TARGET" for brevity, matching every dialect's default).
+enum class MergeMatchKind : uint8_t { MATCHED, NOT_MATCHED, NOT_MATCHED_BY_SOURCE };
+
+/// Action taken by a MERGE `WHEN` clause.
+enum class MergeActionKind : uint8_t { UPDATE, DELETE_ACTION, INSERT, DO_NOTHING };
+
+struct MergeWhenClause {
+    MergeMatchKind match_kind = MergeMatchKind::MATCHED;
+    SQLNode* extra_condition = nullptr;  // WHEN MATCHED AND <cond> THEN ...
+    MergeActionKind action = MergeActionKind::UPDATE;
+    std::vector<std::pair<std::string_view, SQLNode*>> update_assignments;  // UPDATE SET
+    std::vector<std::string_view> insert_columns;                          // INSERT (cols)
+    std::vector<SQLNode*> insert_values;                                   // VALUES (...)
+};
+
 struct MergeStmt : SQLNode {
     TableRef* target;
     SQLNode* source;
     SQLNode* on_condition;
-    std::vector<std::pair<std::string_view, SQLNode*>> update_assignments;  // WHEN MATCHED UPDATE
-    std::vector<std::string_view> insert_columns;
-    std::vector<SQLNode*> insert_values;
+    std::vector<MergeWhenClause> when_clauses;
 
     MergeStmt()
         : SQLNode(SQLNodeKind::MERGE_STMT), target(nullptr), source(nullptr), on_condition(nullptr) {}
@@ -910,6 +971,17 @@ struct TableConstraint : SQLNode {
         : SQLNode(SQLNodeKind::TABLE_CONSTRAINT), ref_table(nullptr), check_expr(nullptr) {}
 };
 
+/// A single trailing CREATE TABLE option (`ENGINE=InnoDB`, `DISTSTYLE KEY`,
+/// `PARTITION BY RANGE (...)  (...)`, ...). `has_equals` records whether the
+/// source used the `name=value` form or the bare `name value` form so the
+/// generator can reproduce the same spelling. `value` may be empty for a
+/// bare, valueless flag word.
+struct TableOption {
+    std::string_view name;
+    std::string_view value;
+    bool has_equals = false;
+};
+
 struct CreateTableStmt : SQLNode {
     TableRef* table;
     std::vector<ColumnDef*> columns;
@@ -917,6 +989,7 @@ struct CreateTableStmt : SQLNode {
     bool if_not_exists;
     bool temporary;
     SQLNode* as_select;  // CREATE TABLE AS SELECT (may be a set operation)
+    std::vector<TableOption> table_options;  // Trailing ENGINE=/DISTSTYLE/PARTITION BY/... options
 
     CreateTableStmt()
         : SQLNode(SQLNodeKind::CREATE_TABLE_STMT), table(nullptr),
@@ -965,6 +1038,47 @@ struct DropIndexStmt : SQLNode {
 
     DropIndexStmt()
         : SQLNode(SQLNodeKind::DROP_INDEX_STMT), table(nullptr), if_exists(false) {}
+};
+
+/// ============================================================================
+/// DDL Statements - Sequences (wave 2)
+/// ============================================================================
+
+/// CREATE SEQUENCE name [START WITH n] [INCREMENT BY n]
+///   [{MINVALUE n | NO MINVALUE}] [{MAXVALUE n | NO MAXVALUE}]
+///   [{CYCLE | NO CYCLE}] [CACHE n]
+/// Every clause is optional and independently nullable/unset so the
+/// generator only emits what was written.
+struct CreateSequenceStmt : SQLNode {
+    std::string_view name;
+    bool if_not_exists = false;
+    SQLNode* start_with = nullptr;
+    SQLNode* increment_by = nullptr;
+    SQLNode* min_value = nullptr;    // MINVALUE n
+    bool no_min_value = false;       // NO MINVALUE
+    SQLNode* max_value = nullptr;    // MAXVALUE n
+    bool no_max_value = false;       // NO MAXVALUE
+    bool cycle = false;              // CYCLE
+    bool no_cycle = false;           // NO CYCLE (explicit)
+    SQLNode* cache = nullptr;        // CACHE n
+
+    CreateSequenceStmt() : SQLNode(SQLNodeKind::CREATE_SEQUENCE_STMT) {}
+};
+
+struct DropSequenceStmt : SQLNode {
+    std::string_view name;
+    bool if_exists = false;
+
+    DropSequenceStmt() : SQLNode(SQLNodeKind::DROP_SEQUENCE_STMT) {}
+};
+
+/// ALTER SEQUENCE name RESTART [WITH n]
+struct AlterSequenceStmt : SQLNode {
+    std::string_view name;
+    bool restart = false;
+    SQLNode* restart_with = nullptr;  // Optional value after RESTART WITH
+
+    AlterSequenceStmt() : SQLNode(SQLNodeKind::ALTER_SEQUENCE_STMT) {}
 };
 
 /// ============================================================================
@@ -1217,8 +1331,11 @@ struct WhileLoop : SQLNode {
 
 struct ForLoop : SQLNode {
     std::string_view variable;
+    bool reverse = false;         // FOR i IN REVERSE a..b LOOP (Oracle/PostgreSQL)
     SQLNode* start_value;
     SQLNode* end_value;
+    SQLNode* query = nullptr;     // FOR rec IN SELECT ... LOOP (record iteration form);
+                                  // mutually exclusive with start_value/end_value
     std::vector<SQLNode*> body;
 
     ForLoop()
@@ -1436,6 +1553,49 @@ struct OnDuplicateKeyClause : SQLNode {
 
     OnDuplicateKeyClause()
         : SQLNode(SQLNodeKind::ON_DUPLICATE_KEY_CLAUSE) {}
+};
+
+/// ============================================================================
+/// MySQL / MariaDB Fulltext Search
+/// ============================================================================
+
+/// The optional search-mode modifier of AGAINST(...). NATURAL_LANGUAGE with
+/// `mode_specified == false` means the modifier was omitted entirely (MySQL's
+/// own default), so the generator reproduces the bare form rather than
+/// spelling out "IN NATURAL LANGUAGE MODE".
+enum class FulltextMode : uint8_t {
+    NATURAL_LANGUAGE,
+    NATURAL_LANGUAGE_EXPANSION,
+    BOOLEAN_MODE,
+    QUERY_EXPANSION
+};
+
+/// MySQL/MariaDB `MATCH (col, ...) AGAINST ('expr' [modifier])` fulltext
+/// predicate/expression.
+struct MatchAgainst : SQLNode {
+    std::vector<std::string_view> columns;
+    SQLNode* against_expr;
+    FulltextMode mode = FulltextMode::NATURAL_LANGUAGE;
+    bool mode_specified = false;
+
+    MatchAgainst() : SQLNode(SQLNodeKind::MATCH_AGAINST), against_expr(nullptr) {}
+};
+
+/// ============================================================================
+/// Snowflake LATERAL FLATTEN
+/// ============================================================================
+
+/// `LATERAL FLATTEN(INPUT => expr [, PATH => 'p'] [, OUTER => bool])` as a
+/// FROM-clause table source (always wrapped in a LateralJoin by the parser,
+/// matching the required surface syntax). `alias` is the optional bare
+/// identifier following the call, e.g. the `f` in `LATERAL FLATTEN(...) f`.
+struct FlattenClause : SQLNode {
+    SQLNode* input;
+    SQLNode* path = nullptr;
+    SQLNode* outer = nullptr;
+    std::string_view alias;
+
+    FlattenClause() : SQLNode(SQLNodeKind::FLATTEN_CLAUSE), input(nullptr) {}
 };
 
 /// ============================================================================
