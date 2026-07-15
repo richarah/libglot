@@ -51,22 +51,22 @@ struct ParserLimits {
     /// Maximum total header section size (all headers combined)
     /// Default: 2 MB (prevents memory exhaustion)
     /// Real-world: Enron max = 64 KB, SpamAssassin max = 128 KB
-    size_t max_header_size = 2 * 1024 * 1024;
+    size_t max_header_size = size_t{2} * 1024 * 1024;
 
     /// Maximum single header field size (name + value)
     /// Default: 128 KB (RFC 5322 recommends 998 bytes per line, but folding allows unlimited)
     /// Real-world: Enron max = 16 KB, SpamAssassin max = 32 KB
-    size_t max_header_field_size = 128 * 1024;
+    size_t max_header_field_size = size_t{128} * 1024;
 
     /// Maximum line length (single unfolded line)
     /// Default: 1 MB (RFC 5322 recommends 998 bytes, but real-world exceeds)
     /// Real-world: Enron max = 4 KB, SpamAssassin max = 16 KB (Base64 lines can be long)
-    size_t max_line_length = 1 * 1024 * 1024;
+    size_t max_line_length = size_t{1} * 1024 * 1024;
 
     /// Maximum total message size (headers + body)
     /// Default: 256 MB (reasonable email attachment limit)
     /// Real-world: Most email servers limit to 25-50 MB
-    size_t max_message_size = 256 * 1024 * 1024;
+    size_t max_message_size = size_t{256} * 1024 * 1024;
 
     /// Maximum boundary parameter length
     /// Default: 70 (RFC 2046 recommends no more than 70 characters)
@@ -99,10 +99,10 @@ struct ParserLimits {
         limits.max_nesting_depth = 16;
         limits.max_total_parts = 100;
         limits.max_headers_per_part = 100;
-        limits.max_header_size = 128 * 1024;        // 128 KB
-        limits.max_header_field_size = 16 * 1024;   // 16 KB
-        limits.max_line_length = 16 * 1024;         // 16 KB
-        limits.max_message_size = 10 * 1024 * 1024; // 10 MB
+        limits.max_header_size = size_t{128} * 1024;        // 128 KB
+        limits.max_header_field_size = size_t{16} * 1024;   // 16 KB
+        limits.max_line_length = size_t{16} * 1024;         // 16 KB
+        limits.max_message_size = size_t{10} * 1024 * 1024; // 10 MB
         limits.max_boundary_length = 70;
         limits.max_filename_length = 255;
         limits.max_encoded_word_length = 75;
@@ -121,10 +121,10 @@ struct ParserLimits {
         limits.max_nesting_depth = 1024;
         limits.max_total_parts = 100'000;
         limits.max_headers_per_part = 10'000;
-        limits.max_header_size = 16 * 1024 * 1024;      // 16 MB
-        limits.max_header_field_size = 1 * 1024 * 1024; // 1 MB
-        limits.max_line_length = 16 * 1024 * 1024;      // 16 MB
-        limits.max_message_size = 1024 * 1024 * 1024;   // 1 GB
+        limits.max_header_size = size_t{16} * 1024 * 1024;      // 16 MB
+        limits.max_header_field_size = size_t{1} * 1024 * 1024; // 1 MB
+        limits.max_line_length = size_t{16} * 1024 * 1024;      // 16 MB
+        limits.max_message_size = size_t{1024} * 1024 * 1024;   // 1 GB
         limits.max_boundary_length = 256;
         limits.max_filename_length = 4096;
         limits.max_encoded_word_length = 1024;

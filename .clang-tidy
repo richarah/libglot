@@ -1,3 +1,7 @@
+# Style-tier checks that conflict with the project's accepted idiom
+# (single-statement ifs without braces, aggregate initialization of
+# keyword tables, pointer-truthiness tests) are disabled deliberately;
+# everything bugprone/performance/analyzer stays on.
 Checks: >
   bugprone-*,
   performance-*,
@@ -5,9 +9,13 @@ Checks: >
   readability-*,
   clang-analyzer-*,
   -modernize-use-trailing-return-type,
+  -modernize-use-designated-initializers,
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-else-after-return,
   -bugprone-easily-swappable-parameters
 WarningsAsErrors: ''
 HeaderFilterRegex: '(core|sql|mime)/include/libglot/.*'
