@@ -238,6 +238,22 @@ const std::vector<std::string>& fixpoint_corpus() {
         "WHILE 1 = 1 LOOP BREAK; END LOOP",
         "IF 1 > 0 THEN SELECT 1; END IF",
         "IF 1 > 0 THEN SELECT 1; ELSE SELECT 2; END IF",
+        // Wave 1: VALUES as a FROM-clause table source
+        "SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)",
+        "SELECT * FROM (VALUES (1), (2)) AS v",
+        // Wave 1: USING / NATURAL joins
+        "SELECT * FROM a JOIN b USING (id)",
+        "SELECT * FROM a JOIN b USING (id, name)",
+        "SELECT * FROM a NATURAL JOIN b",
+        "SELECT * FROM a NATURAL LEFT JOIN b",
+        // Wave 1: named windows
+        "SELECT a, ROW_NUMBER() OVER w FROM t WINDOW w AS (PARTITION BY a ORDER BY b)",
+        "SELECT RANK() OVER w, ROW_NUMBER() OVER w FROM t WINDOW w AS (ORDER BY a)",
+        // Wave 1: INTERVAL literals (bare string form and value + unit form)
+        "SELECT INTERVAL '1 day'",
+        "SELECT INTERVAL '2' HOUR",
+        "SELECT INTERVAL 7 DAY",
+        "SELECT NOW() - INTERVAL '1 day'",
     };
     return corpus;
 }
@@ -364,4 +380,40 @@ TEST_CASE("Roundtrip property - trailing input is rejected, not dropped", "[roun
         SQLParser parser(arena, "SELECT 1;", d);
         REQUIRE(parser.parse_top_level() != nullptr);
     }
+}
+
+TEST_CASE("Roundtrip property - ORDER BY NULLS FIRST/LAST", "[roundtrip-property][nulls]") {
+    // No native syntax in MySQL/MariaDB or T-SQL (see test_order_by_nulls.cpp),
+    // so this only runs where it is a fixed point.
+    for (auto d : {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::Snowflake, SQLDialect::SQLite}) {
+        require_fixpoint("SELECT a FROM t ORDER BY a NULLS FIRST", d);
+        require_fixpoint("SELECT a FROM t ORDER BY a DESC NULLS LAST", d);
+    }
+}
+
+TEST_CASE("Roundtrip property - DISTINCT ON (PostgreSQL only)", "[roundtrip-property][distinct-on]") {
+    require_fixpoint("SELECT DISTINCT ON (a) a, b FROM t", SQLDialect::PostgreSQL);
+    require_fixpoint("SELECT DISTINCT ON (a, b) a, b, c FROM t ORDER BY a, b", SQLDialect::PostgreSQL);
+}
+
+TEST_CASE("Roundtrip property - TABLESAMPLE (PG/ANSI; MySQL throws)", "[roundtrip-property][tablesample]") {
+    for (auto d : {SQLDialect::ANSI, SQLDialect::PostgreSQL}) {
+        require_fixpoint("SELECT * FROM t TABLESAMPLE BERNOULLI(10)", d);
+        require_fixpoint("SELECT * FROM t AS x TABLESAMPLE SYSTEM(20) REPEATABLE(7)", d);
+    }
+}
+
+TEST_CASE("Roundtrip property - QUALIFY (Snowflake/BigQuery/DuckDB)", "[roundtrip-property][qualify]") {
+    for (auto d : {SQLDialect::Snowflake, SQLDialect::BigQuery, SQLDialect::DuckDB}) {
+        require_fixpoint("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1", d);
+    }
+}
+
+TEST_CASE("Roundtrip property - upsert forms (each dialect's own syntax only)",
+          "[roundtrip-property][upsert]") {
+    require_fixpoint("INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING", SQLDialect::PostgreSQL);
+    require_fixpoint("INSERT INTO t (id, c) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET c = EXCLUDED.c",
+                     SQLDialect::PostgreSQL);
+    require_fixpoint("INSERT INTO t (id, c) VALUES (1, 1) ON DUPLICATE KEY UPDATE c = VALUES(c)",
+                     SQLDialect::MySQL);
 }

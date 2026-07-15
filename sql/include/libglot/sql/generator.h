@@ -476,6 +476,22 @@ public:
                 write_output_clause(static_cast<OutputClause*>(node), "INSERTED");
                 break;
 
+            case SQLNodeKind::ON_CONFLICT_CLAUSE:
+                visit_on_conflict_clause(static_cast<OnConflictClause*>(node));
+                break;
+
+            case SQLNodeKind::ON_DUPLICATE_KEY_CLAUSE:
+                visit_on_duplicate_key_clause(static_cast<OnDuplicateKeyClause*>(node));
+                break;
+
+            case SQLNodeKind::QUALIFY_CLAUSE:
+                visit_qualify_clause(static_cast<QualifyClause*>(node));
+                break;
+
+            case SQLNodeKind::INTERVAL_LITERAL:
+                visit_interval_literal(static_cast<IntervalLiteral*>(node));
+                break;
+
             // ================================================================
             // BigQuery ML
             // ================================================================
@@ -538,9 +554,22 @@ public:
     // ========================================================================
 
 private:
+    /// PostgreSQL's ON CONFLICT DO UPDATE pseudo-relation "excluded" is a
+    /// case-folded bare identifier, not a real table: quoting it (e.g.
+    /// "EXCLUDED") would make PostgreSQL look for a literal table named
+    /// EXCLUDED instead of resolving the special row image. Emit it
+    /// unquoted, like the T-SQL INSERTED/DELETED qualifiers.
+    static bool is_excluded_qualifier(std::string_view table) noexcept {
+        return table == "EXCLUDED" || table == "excluded";
+    }
+
     void visit_column(Column* col) {
         if (!col->table.empty()) {
-            write_identifier(col->table);
+            if (is_excluded_qualifier(col->table)) {
+                this->write("EXCLUDED");
+            } else {
+                write_identifier(col->table);
+            }
             write('.');
         }
         write_identifier(col->column);
@@ -756,6 +785,16 @@ private:
         }
     }
 
+    /// Dialects with no NULLS FIRST/LAST syntax at all (MySQL family and
+    /// T-SQL). Rather than silently reordering nulls differently than the
+    /// source query intended, an explicit NULLS FIRST/LAST is a hard
+    /// error here - the caller must rewrite it by hand (e.g. an
+    /// `ORDER BY (col IS NULL), col` / `ISNULL()` prefix expression).
+    static bool lacks_nulls_ordering(SQLDialect d) noexcept {
+        return d == SQLDialect::MySQL || d == SQLDialect::MariaDB ||
+               d == SQLDialect::SQLServer || d == SQLDialect::AzureSynapse;
+    }
+
     void visit_order_by_item(OrderByItem* item) {
         visit(item->expr);
         if (!item->ascending) {
@@ -763,6 +802,16 @@ private:
             this->write("DESC");
         }
         // ASC is default, no need to emit
+        if (item->nulls_specified) {
+            if (lacks_nulls_ordering(this->dialect())) {
+                throw std::logic_error(
+                    "NULLS FIRST/LAST has no equivalent syntax in " +
+                    std::string(SQLDialectTraits::name(this->dialect())) +
+                    "; rewrite the ORDER BY with an explicit IS NULL/ISNULL prefix expression");
+            }
+            this->space();
+            this->write(item->nulls_first ? "NULLS FIRST" : "NULLS LAST");
+        }
     }
 
     void visit_select_stmt(SelectStmt* stmt) {
@@ -800,8 +849,22 @@ private:
                                        select_dialect == SQLDialect::Informix);
         const bool tsql_offset_fetch = tsql_limit && stmt->offset && !stmt->order_by.empty();
 
-        // DISTINCT
-        if (stmt->distinct) {
+        // DISTINCT / DISTINCT ON (expr, ...) - PostgreSQL only
+        if (!stmt->distinct_on.empty()) {
+            if (select_dialect != SQLDialect::PostgreSQL) {
+                throw std::logic_error(
+                    "DISTINCT ON is PostgreSQL-specific; not supported for " +
+                    std::string(SQLDialectTraits::name(select_dialect)));
+            }
+            this->space();
+            this->write("DISTINCT ON");
+            this->space();
+            this->write('(');
+            this->write_list(stmt->distinct_on, [this](SQLNode* expr) {
+                visit(expr);
+            });
+            this->write(')');
+        } else if (stmt->distinct) {
             this->space();
             this->write("DISTINCT");
         }
@@ -906,6 +969,37 @@ private:
             this->write("HAVING");
             this->space();
             visit(stmt->having);
+        }
+
+        // QUALIFY clause (Snowflake, BigQuery, DuckDB - a post-window-
+        // function filter with no ANSI equivalent; other dialects would
+        // need it rewritten as a wrapping subquery, so fail loudly).
+        if (stmt->qualify) {
+            if (select_dialect != SQLDialect::Snowflake &&
+                select_dialect != SQLDialect::BigQuery &&
+                select_dialect != SQLDialect::DuckDB) {
+                throw std::logic_error(
+                    "QUALIFY requires Snowflake, BigQuery, or DuckDB; rewrite as "
+                    "a wrapping subquery with a WHERE filter for " +
+                    std::string(SQLDialectTraits::name(select_dialect)));
+            }
+            this->space();
+            visit_qualify_clause(stmt->qualify);
+        }
+
+        // WINDOW clause: WINDOW w AS (...), w2 AS (...)
+        if (!stmt->named_windows.empty()) {
+            this->space();
+            this->write("WINDOW");
+            this->space();
+            this->write_list(stmt->named_windows,
+                [this](const std::pair<std::string_view, WindowSpec*>& nw) {
+                    write_identifier(nw.first);
+                    this->space();
+                    this->write("AS");
+                    this->space();
+                    visit(nw.second);
+                });
         }
 
         // ORDER BY clause (ORDER SIBLINGS BY for Oracle hierarchical queries)
@@ -1014,7 +1108,11 @@ private:
 
     void visit_star(Star* star) {
         if (!star->table.empty()) {
-            write_identifier(star->table);
+            if (is_excluded_qualifier(star->table)) {
+                this->write("EXCLUDED");
+            } else {
+                write_identifier(star->table);
+            }
             this->write('.');
         }
         this->write('*');
@@ -1211,7 +1309,9 @@ private:
         this->write("OVER");
         this->space();
 
-        if (wf->over) {
+        if (!wf->over_name.empty()) {
+            write_identifier(wf->over_name);
+        } else if (wf->over) {
             visit(wf->over);
         } else {
             this->write("()");
@@ -1356,6 +1456,10 @@ private:
             visit(lateral->table_expr);
         } else {
             // Standard JOIN syntax
+            if (join->natural) {
+                this->write("NATURAL");
+                this->space();
+            }
             if (join->asof) {
                 // ASOF [LEFT] JOIN (DuckDB / ClickHouse)
                 this->write("ASOF ");
@@ -1390,6 +1494,15 @@ private:
                 this->write("ON");
                 this->space();
                 visit(join->condition);
+            } else if (!join->using_columns.empty()) {
+                this->space();
+                this->write("USING");
+                this->space();
+                this->write('(');
+                this->write_list(join->using_columns, [this](std::string_view col) {
+                    write_identifier(col);
+                });
+                this->write(')');
             }
         }
     }
@@ -1476,11 +1589,92 @@ private:
             });
         }
 
+        // PostgreSQL upsert (ON CONFLICT) / MySQL upsert (ON DUPLICATE KEY
+        // UPDATE) - each is dialect-gated in its own visitor.
+        if (stmt->on_conflict) {
+            this->space();
+            visit_on_conflict_clause(stmt->on_conflict);
+        }
+        if (stmt->on_duplicate_key) {
+            this->space();
+            visit_on_duplicate_key_clause(stmt->on_duplicate_key);
+        }
+
         // Other dialects: RETURNING at the end of the statement
         if (stmt->output && !is_tsql_dialect(this->dialect())) {
             this->space();
             write_output_clause(stmt->output, "INSERTED");
         }
+    }
+
+    /// PostgreSQL: INSERT ... ON CONFLICT [(col, ...)] DO NOTHING
+    /// / DO UPDATE SET col = expr, ... [WHERE cond]. Cross-dialect
+    /// transpilation (e.g. targeting MySQL's ON DUPLICATE KEY UPDATE) is
+    /// not attempted - the conflict target and EXCLUDED semantics do not
+    /// map over cleanly - so any dialect other than PostgreSQL throws.
+    void visit_on_conflict_clause(OnConflictClause* clause) {
+        if (this->dialect() != SQLDialect::PostgreSQL) {
+            throw std::logic_error(
+                "ON CONFLICT is PostgreSQL-specific (MySQL uses ON DUPLICATE "
+                "KEY UPDATE); transpiling it to " +
+                std::string(SQLDialectTraits::name(this->dialect())) +
+                " is not supported");
+        }
+        this->write("ON CONFLICT");
+        if (!clause->conflict_columns.empty()) {
+            this->space();
+            this->write('(');
+            this->write_list(clause->conflict_columns, [this](std::string_view col) {
+                write_identifier(col);
+            });
+            this->write(')');
+        }
+        this->space();
+        this->write("DO");
+        this->space();
+        if (clause->do_nothing) {
+            this->write("NOTHING");
+        } else {
+            this->write("UPDATE SET");
+            this->space();
+            this->write_list(clause->update_assignments, [this](const auto& assign) {
+                write_identifier(assign.first);
+                this->space();
+                this->write('=');
+                this->space();
+                visit(assign.second);
+            });
+            if (clause->where) {
+                this->space();
+                this->write("WHERE");
+                this->space();
+                visit(clause->where);
+            }
+        }
+    }
+
+    /// MySQL: INSERT ... ON DUPLICATE KEY UPDATE col = expr, ... Cross-
+    /// dialect transpilation (e.g. targeting PostgreSQL's ON CONFLICT) is
+    /// not attempted - MySQL has no conflict-target column list to infer
+    /// a unique constraint from - so any dialect other than MySQL/MariaDB
+    /// throws.
+    void visit_on_duplicate_key_clause(OnDuplicateKeyClause* clause) {
+        if (this->dialect() != SQLDialect::MySQL && this->dialect() != SQLDialect::MariaDB) {
+            throw std::logic_error(
+                "ON DUPLICATE KEY UPDATE is MySQL-specific (PostgreSQL uses ON "
+                "CONFLICT); transpiling it to " +
+                std::string(SQLDialectTraits::name(this->dialect())) +
+                " is not supported");
+        }
+        this->write("ON DUPLICATE KEY UPDATE");
+        this->space();
+        this->write_list(clause->update_assignments, [this](const auto& assign) {
+            write_identifier(assign.first);
+            this->space();
+            this->write('=');
+            this->space();
+            visit(assign.second);
+        });
     }
 
     void visit_update_stmt(UpdateStmt* stmt) {
@@ -1945,6 +2139,12 @@ private:
     }
 
     void visit_values_clause(ValuesClause* values) {
+        // As a FROM-clause table source, VALUES needs to be wrapped in its
+        // own parens with a required alias: (VALUES (...), (...)) AS v(c1, c2).
+        const bool as_table_source = !values->alias.empty();
+        if (as_table_source) {
+            this->write('(');
+        }
         this->write("VALUES");
         this->space();
         this->write_list(values->rows, [this](const std::vector<SQLNode*>& row) {
@@ -1954,9 +2154,30 @@ private:
             });
             this->write(')');
         });
+        if (as_table_source) {
+            this->write(')');
+            this->space();
+            this->write("AS");
+            this->space();
+            write_identifier(values->alias);
+            if (!values->columns.empty()) {
+                this->write('(');
+                this->write_list(values->columns, [this](std::string_view col) {
+                    write_identifier(col);
+                });
+                this->write(')');
+            }
+        }
     }
 
     void visit_tablesample(Tablesample* sample) {
+        if (this->dialect() == SQLDialect::MySQL || this->dialect() == SQLDialect::MariaDB) {
+            throw std::logic_error(
+                "TABLESAMPLE has no equivalent in " +
+                std::string(SQLDialectTraits::name(this->dialect())));
+        }
+        visit(sample->table_expr);
+        this->space();
         this->write("TABLESAMPLE");
         this->space();
         switch (sample->method) {
@@ -1967,14 +2188,12 @@ private:
                 this->write("SYSTEM");
                 break;
         }
-        this->space();
         this->write('(');
         visit(sample->percent);
         this->write(')');
         if (sample->seed) {
             this->space();
             this->write("REPEATABLE");
-            this->space();
             this->write('(');
             visit(sample->seed);
             this->write(')');
@@ -3277,6 +3496,22 @@ private:
             this->space();
         }
         visit(clause->condition);
+    }
+
+    void visit_qualify_clause(QualifyClause* clause) {
+        this->write("QUALIFY");
+        this->space();
+        visit(clause->condition);
+    }
+
+    void visit_interval_literal(IntervalLiteral* lit) {
+        this->write("INTERVAL");
+        this->space();
+        this->write(lit->value);
+        if (!lit->unit.empty()) {
+            this->space();
+            this->write(lit->unit);
+        }
     }
 
     // ========================================================================

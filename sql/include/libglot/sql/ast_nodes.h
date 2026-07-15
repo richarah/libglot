@@ -75,8 +75,9 @@ enum class SQLNodeKind : uint16_t {
     TABLE_REF,        // Table reference (database.schema.table AS alias)
     JOIN_CLAUSE,      // JOIN operation
     LATERAL_JOIN,     // LATERAL subquery
-    VALUES_CLAUSE,    // VALUES (row1), (row2), ...
+    VALUES_CLAUSE,    // VALUES (row1), (row2), ... - also used as a FROM-clause table source
     TABLESAMPLE,      // TABLESAMPLE (percent)
+    INTERVAL_LITERAL, // INTERVAL '1' DAY / INTERVAL '1 day'
 
     // ========================================================================
     // SELECT Components
@@ -194,6 +195,8 @@ enum class SQLNodeKind : uint16_t {
     CONNECT_BY_CLAUSE,       // Oracle CONNECT BY (hierarchical queries)
     START_WITH_CLAUSE,       // Oracle START WITH
     OUTPUT_CLAUSE,           // T-SQL OUTPUT / PostgreSQL RETURNING
+    ON_CONFLICT_CLAUSE,      // PostgreSQL INSERT ... ON CONFLICT ...
+    ON_DUPLICATE_KEY_CLAUSE, // MySQL INSERT ... ON DUPLICATE KEY UPDATE ...
 
     // ========================================================================
     // BigQuery ML
@@ -256,6 +259,7 @@ struct JoinClause;
 struct LateralJoin;
 struct ValuesClause;
 struct Tablesample;
+struct IntervalLiteral;
 
 // SELECT Components
 struct SelectStmt;
@@ -345,6 +349,8 @@ struct CubeClause;
 struct ConnectByClause;
 struct StartWithClause;
 struct OutputClause;
+struct OnConflictClause;
+struct OnDuplicateKeyClause;
 
 // BigQuery ML
 struct CreateModelStmt;
@@ -601,6 +607,7 @@ struct WindowFunction : SQLNode {
     std::string_view function_name;  // ROW_NUMBER, RANK, LEAD, LAG, etc.
     std::vector<SQLNode*> args;
     WindowSpec* over;
+    std::string_view over_name;  // OVER w (named window reference); empty when `over` is inline
 
     WindowFunction(std::string_view fn, WindowSpec* w)
         : SQLNode(SQLNodeKind::WINDOW_FUNCTION), function_name(fn), over(w) {}
@@ -634,8 +641,10 @@ struct JoinClause : SQLNode {
     JoinType join_type;
     SQLNode* left_table;
     SQLNode* right_table;
-    SQLNode* condition;  // ON condition or USING columns
+    SQLNode* condition;  // ON condition
     bool asof = false;   // ASOF JOIN (DuckDB / ClickHouse)
+    bool natural = false;  // NATURAL [INNER|LEFT|RIGHT|FULL] JOIN
+    std::vector<std::string_view> using_columns;  // USING (col, ...) - alternative to ON
 
     JoinClause(JoinType jt, SQLNode* l, SQLNode* r, SQLNode* cond = nullptr)
         : SQLNode(SQLNodeKind::JOIN_CLAUSE), join_type(jt),
@@ -649,8 +658,13 @@ struct LateralJoin : SQLNode {
         : SQLNode(SQLNodeKind::LATERAL_JOIN), table_expr(expr) {}
 };
 
+/// VALUES rows, used either as a bare list (dormant - reserved for future
+/// INSERT use) or - with `alias` set - as a FROM-clause table source:
+/// FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)
 struct ValuesClause : SQLNode {
     std::vector<std::vector<SQLNode*>> rows;
+    std::string_view alias;                  // Table source alias (e.g. "v")
+    std::vector<std::string_view> columns;   // Optional column list, e.g. (id, name)
 
     ValuesClause()
         : SQLNode(SQLNodeKind::VALUES_CLAUSE) {}
@@ -659,12 +673,13 @@ struct ValuesClause : SQLNode {
 enum class SampleMethod { BERNOULLI, SYSTEM };
 
 struct Tablesample : SQLNode {
+    SQLNode* table_expr;  // The table/subquery being sampled
     SampleMethod method;
     SQLNode* percent;
-    SQLNode* seed;  // Optional
+    SQLNode* seed;  // Optional REPEATABLE(seed)
 
-    Tablesample(SampleMethod m, SQLNode* p)
-        : SQLNode(SQLNodeKind::TABLESAMPLE), method(m), percent(p), seed(nullptr) {}
+    Tablesample(SQLNode* t, SampleMethod m, SQLNode* p)
+        : SQLNode(SQLNodeKind::TABLESAMPLE), table_expr(t), method(m), percent(p), seed(nullptr) {}
 };
 
 /// ============================================================================
@@ -686,6 +701,8 @@ struct SelectStmt : SQLNode {
     SQLNode* limit;                       // LIMIT
     SQLNode* offset;                      // OFFSET
     bool distinct;
+    std::vector<SQLNode*> distinct_on;    // PostgreSQL DISTINCT ON (expr, ...)
+    std::vector<std::pair<std::string_view, WindowSpec*>> named_windows;  // WINDOW w AS (...)
     bool limit_percent;                   // TOP n PERCENT (SQL Server)
     bool limit_with_ties;                 // TOP n WITH TIES (SQL Server)
     bool for_update = false;                       // FOR UPDATE row locking
@@ -722,10 +739,12 @@ struct WithClause : SQLNode {
 struct OrderByItem : SQLNode {
     SQLNode* expr;
     bool ascending;
-    bool nulls_first;  // NULLS FIRST / NULLS LAST
+    bool nulls_first;      // NULLS FIRST (true) / NULLS LAST (false) - only meaningful when specified
+    bool nulls_specified;  // Whether NULLS FIRST/LAST was explicitly written
 
-    OrderByItem(SQLNode* e, bool asc = true, bool nf = false)
-        : SQLNode(SQLNodeKind::ORDER_BY_ITEM), expr(e), ascending(asc), nulls_first(nf) {}
+    OrderByItem(SQLNode* e, bool asc = true, bool nf = false, bool nulls_spec = false)
+        : SQLNode(SQLNodeKind::ORDER_BY_ITEM), expr(e), ascending(asc), nulls_first(nf),
+          nulls_specified(nulls_spec) {}
 };
 
 struct LimitClause : SQLNode {
@@ -741,6 +760,19 @@ struct QualifyClause : SQLNode {
 
     explicit QualifyClause(SQLNode* cond)
         : SQLNode(SQLNodeKind::QUALIFY_CLAUSE), condition(cond) {}
+};
+
+/// INTERVAL literal: INTERVAL '1 day' (bare form) or INTERVAL '2' HOUR /
+/// INTERVAL 7 DAY (value + trailing unit keyword). `value` is the raw
+/// token text (a quoted string keeps its quotes, a number stays bare) so
+/// it can be re-emitted verbatim; `unit` is the optional trailing field
+/// name and is empty for the bare single-string form.
+struct IntervalLiteral : SQLNode {
+    std::string_view value;
+    std::string_view unit;
+
+    explicit IntervalLiteral(std::string_view v, std::string_view u = "")
+        : SQLNode(SQLNodeKind::INTERVAL_LITERAL), value(v), unit(u) {}
 };
 
 /// ============================================================================
@@ -788,6 +820,8 @@ struct InsertStmt : SQLNode {
     std::vector<std::vector<SQLNode*>> values;      // VALUES rows
     SQLNode* select_query;                          // INSERT ... SELECT (may be a set operation)
     OutputClause* output;                           // OUTPUT / RETURNING clause
+    OnConflictClause* on_conflict = nullptr;         // PostgreSQL ON CONFLICT ...
+    OnDuplicateKeyClause* on_duplicate_key = nullptr;  // MySQL ON DUPLICATE KEY UPDATE ...
 
     InsertStmt()
         : SQLNode(SQLNodeKind::INSERT_STMT), table(nullptr), select_query(nullptr),
@@ -1377,6 +1411,31 @@ struct OutputClause : SQLNode {
 
     OutputClause()
         : SQLNode(SQLNodeKind::OUTPUT_CLAUSE), from_returning(false) {}
+};
+
+/// PostgreSQL upsert: INSERT ... ON CONFLICT [(col, ...)] DO NOTHING
+/// / DO UPDATE SET col = expr, ... [WHERE cond]. `conflict_columns` is
+/// empty for the bare `ON CONFLICT DO ...` form (relies on any unique
+/// constraint). `EXCLUDED.col` references in the UPDATE SET list parse
+/// as ordinary Column nodes qualified with "EXCLUDED".
+struct OnConflictClause : SQLNode {
+    std::vector<std::string_view> conflict_columns;
+    bool do_nothing;
+    std::vector<std::pair<std::string_view, SQLNode*>> update_assignments;
+    SQLNode* where;
+
+    OnConflictClause()
+        : SQLNode(SQLNodeKind::ON_CONFLICT_CLAUSE), do_nothing(false), where(nullptr) {}
+};
+
+/// MySQL upsert: INSERT ... ON DUPLICATE KEY UPDATE col = expr, ...
+/// `VALUES(col)` references to the row that would have been inserted
+/// parse as an ordinary FunctionCall named "VALUES".
+struct OnDuplicateKeyClause : SQLNode {
+    std::vector<std::pair<std::string_view, SQLNode*>> update_assignments;
+
+    OnDuplicateKeyClause()
+        : SQLNode(SQLNodeKind::ON_DUPLICATE_KEY_CLAUSE) {}
 };
 
 /// ============================================================================

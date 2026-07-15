@@ -370,24 +370,32 @@ public:
             return this->template create_node<Column>("TIME");
         }
 
-        // INTERVAL expressions: INTERVAL <value> <unit>
-        // Example: INTERVAL 7 DAY, INTERVAL '2 days' DAY TO SECOND
+        // INTERVAL literals: INTERVAL '1 day' (bare form, unit embedded in
+        // the string) or INTERVAL '2' HOUR / INTERVAL 7 DAY (value + a
+        // trailing unit keyword). The unit is not a reserved word, so it
+        // lexes as a plain identifier.
         if (match(TK::INTERVAL)) {
-            // Parse the value (can be number or string)
-            SQLNode* value = parse_expression();
-            // Parse the unit (DAY, HOUR, MINUTE, SECOND, YEAR, MONTH, etc.)
-            // The unit is typically an identifier
+            if (!check(TK::STRING) && !check(TK::NUMBER)) {
+                error("Expected a string or number literal after INTERVAL");
+            }
+            auto value_tok = advance();
             std::string_view unit = "";
             if (check(TK::IDENTIFIER)) {
                 unit = advance().text;
             }
-            // Create an interval expression node (we'll treat it as a function call for now)
-            std::vector<SQLNode*> args;
-            args.push_back(value);
-            if (!unit.empty()) {
-                args.push_back(this->template create_node<Literal>(unit));
-            }
-            return this->template create_node<FunctionCall>("INTERVAL", args);
+            return this->template create_node<IntervalLiteral>(value_tok.text, unit);
+        }
+
+        // MySQL upsert pseudo-function: VALUES(col) inside
+        // ON DUPLICATE KEY UPDATE, referring to the row that would have
+        // been inserted. VALUES is a reserved keyword everywhere else
+        // (INSERT ... VALUES (...)), but that form is parsed directly by
+        // parse_insert without going through expression parsing, so this
+        // is unambiguous.
+        if (check(TK::VALUES) && peek(1).type == TK::LPAREN) {
+            (void)advance();  // VALUES
+            (void)advance();  // (
+            return parse_function_call("VALUES");
         }
 
         if (match(TK::CAST)) {
@@ -706,9 +714,16 @@ public:
 
         expect(TK::SELECT);
 
-        // DISTINCT?
+        // DISTINCT? / DISTINCT ON (expr, ...) (PostgreSQL)
         if (match(TK::DISTINCT)) {
             stmt->distinct = true;
+            if (match(TK::ON)) {
+                expect(TK::LPAREN);
+                do {
+                    stmt->distinct_on.push_back(parse_expression());
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+            }
         }
 
         // TOP n (SQL Server, Access). The count is parsed as a primary
@@ -812,6 +827,40 @@ public:
         if (match(TK::QUALIFY)) {
             auto condition = parse_expression();
             stmt->qualify = this->template create_node<QualifyClause>(condition);
+        }
+
+        // WINDOW clause: WINDOW w AS (...), w2 AS (...). WINDOW is not a
+        // reserved word (it lexes as an identifier), so use the
+        // soft-keyword lookahead pattern used for ROLLUP/CUBE/TABLESAMPLE.
+        if (check_soft_keyword("WINDOW", "window")) {
+            (void)advance();
+            do {
+                if (!check(TK::IDENTIFIER)) {
+                    error("Expected window name after WINDOW");
+                }
+                auto name = advance().text;
+                expect(TK::AS);
+                expect(TK::LPAREN);
+                auto* wspec = this->template create_node<WindowSpec>();
+                if (match(TK::PARTITION)) {
+                    expect(TK::BY);
+                    do {
+                        wspec->partition_by.push_back(parse_expression());
+                    } while (match(TK::COMMA));
+                }
+                if (match(TK::ORDER)) {
+                    expect(TK::BY);
+                    auto order_items = parse_order_by_list();
+                    for (auto* item : order_items) {
+                        wspec->order_by.push_back(item);
+                    }
+                }
+                if (check(TK::ROWS) || check(TK::RANGE) || check_groups_keyword()) {
+                    wspec->frame = parse_frame_clause();
+                }
+                expect(TK::RPAREN);
+                stmt->named_windows.push_back({name, wspec});
+            } while (match(TK::COMMA));
         }
 
         // ORDER BY / ORDER SIBLINGS BY (Oracle hierarchical ordering)
@@ -1093,7 +1142,7 @@ public:
         return items;
     }
 
-    /// Parse single ORDER BY item (expression [ASC|DESC])
+    /// Parse single ORDER BY item (expression [ASC|DESC] [NULLS FIRST|NULLS LAST])
     OrderByItem* parse_order_by_item() {
         auto expr = this->parse_expression();
 
@@ -1105,7 +1154,19 @@ public:
             (void)this->match(TK::ASC);  // Acknowledge nodiscard warning
         }
 
-        return this->template create_node<OrderByItem>(expr, ascending);
+        bool nulls_first = false;
+        bool nulls_specified = false;
+        if (this->match(TK::NULLS)) {
+            if (this->match(TK::FIRST)) {
+                nulls_first = true;
+            } else {
+                this->expect(TK::LAST);
+                nulls_first = false;
+            }
+            nulls_specified = true;
+        }
+
+        return this->template create_node<OrderByItem>(expr, ascending, nulls_first, nulls_specified);
     }
 
     /// Parse CASE expression
@@ -1163,9 +1224,20 @@ public:
         return func;
     }
 
-    /// Parse window function (OVER clause)
+    /// Parse window function (OVER clause: inline spec or a named window reference)
     WindowFunction* parse_window_function(std::string_view func_name, std::vector<SQLNode*> args) {
         expect(TK::OVER);
+
+        // OVER w - reference to a window defined in a WINDOW clause,
+        // distinguished from the inline OVER (...) form by the absence of
+        // a following '('.
+        if (check(TK::IDENTIFIER)) {
+            auto window_func = this->template create_node<WindowFunction>(func_name, nullptr);
+            window_func->args = args;
+            window_func->over_name = advance().text;
+            return window_func;
+        }
+
         expect(TK::LPAREN);
 
         auto window_spec = this->template create_node<WindowSpec>();
@@ -1325,7 +1397,7 @@ public:
         // Handle comma-separated tables (old-style implicit CROSS JOIN) and explicit JOINs
         while (check(TK::COMMA) || check(TK::JOIN) || check(TK::INNER) || check(TK::LEFT) ||
                check(TK::RIGHT) || check(TK::FULL) || check(TK::CROSS) || check(TK::OUTER) ||
-               check(TK::ASOF)) {
+               check(TK::ASOF) || check(TK::NATURAL)) {
 
             // Comma-separated tables are implicit CROSS JOINs
             if (match(TK::COMMA)) {
@@ -1338,6 +1410,10 @@ public:
             JoinType join_type = JoinType::INNER;
             bool saw_apply = false;
             bool asof = false;
+
+            // NATURAL [INNER|LEFT|RIGHT|FULL] JOIN - implicit join condition
+            // on all identically-named columns; never combined with ON/USING.
+            bool natural = match(TK::NATURAL);
 
             // ASOF prefix (DuckDB / ClickHouse): ASOF [LEFT] JOIN
             if (match(TK::ASOF)) {
@@ -1388,12 +1464,24 @@ public:
             }
 
             SQLNode* condition = nullptr;
+            std::vector<std::string_view> using_columns;
             if (match(TK::ON)) {
                 condition = parse_expression();
+            } else if (match(TK::USING)) {
+                expect(TK::LPAREN);
+                do {
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name in USING clause");
+                    }
+                    using_columns.push_back(advance().text);
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
             }
 
             auto* join = this->template create_node<JoinClause>(join_type, table, right_table, condition);
             join->asof = asof;
+            join->natural = natural;
+            join->using_columns = std::move(using_columns);
             table = join;
         }
 
@@ -1434,7 +1522,8 @@ public:
                     next_word != "HAVING" && next_word != "LIMIT" && next_word != "UNION" &&
                     next_word != "INTERSECT" && next_word != "EXCEPT" && next_word != "JOIN" &&
                     next_word != "INNER" && next_word != "LEFT" && next_word != "RIGHT" &&
-                    next_word != "FULL" && next_word != "CROSS" && next_word != "LATERAL") {
+                    next_word != "FULL" && next_word != "CROSS" && next_word != "LATERAL" &&
+                    next_word != "WINDOW" && next_word != "window") {
                     alias = advance().text;
                 }
             }
@@ -1480,6 +1569,45 @@ public:
 
                 return this->template create_node<SubqueryExpr>(select, alias);
             }
+
+            // VALUES as a table source: FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)
+            if (check(TK::VALUES)) {
+                (void)advance();
+                auto* values = this->template create_node<ValuesClause>();
+                do {
+                    expect(TK::LPAREN);
+                    std::vector<SQLNode*> row;
+                    do {
+                        row.push_back(parse_expression());
+                    } while (match(TK::COMMA));
+                    expect(TK::RPAREN);
+                    values->rows.push_back(std::move(row));
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+
+                if (match(TK::AS)) {
+                    if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                        check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
+                        error("Expected alias after AS");
+                    }
+                    values->alias = advance().text;
+                } else if (check(TK::IDENTIFIER)) {
+                    values->alias = advance().text;
+                }
+
+                if (match(TK::LPAREN)) {
+                    do {
+                        if (!check(TK::IDENTIFIER)) {
+                            error("Expected column name in VALUES column list");
+                        }
+                        values->columns.push_back(advance().text);
+                    } while (match(TK::COMMA));
+                    expect(TK::RPAREN);
+                }
+
+                return values;
+            }
+
             error("Expected SELECT subquery after '('");
         }
 
@@ -1507,7 +1635,8 @@ public:
                     next_word != "HAVING" && next_word != "LIMIT" && next_word != "UNION" &&
                     next_word != "INTERSECT" && next_word != "EXCEPT" && next_word != "JOIN" &&
                     next_word != "INNER" && next_word != "LEFT" && next_word != "RIGHT" &&
-                    next_word != "FULL" && next_word != "CROSS") {
+                    next_word != "FULL" && next_word != "CROSS" &&
+                    next_word != "WINDOW" && next_word != "window") {
                     alias = advance().text;
 
                     // Check for column list after alias: alias(col1, col2, ...)
@@ -1553,18 +1682,21 @@ public:
                 next_word != "RIGHT" && next_word != "FULL" && next_word != "CROSS" &&
                 next_word != "WHERE" && next_word != "ORDER" && next_word != "GROUP" &&
                 next_word != "HAVING" && next_word != "LIMIT" && next_word != "OFFSET" &&
-                next_word != "UNION" && next_word != "INTERSECT" && next_word != "EXCEPT") {
+                next_word != "UNION" && next_word != "INTERSECT" && next_word != "EXCEPT" &&
+                next_word != "WINDOW" && next_word != "window") {
                 // This is an alias without AS
                 table->alias = advance().text;
             }
         }
 
-        // TABLESAMPLE?
-        if (check(TK::IDENTIFIER) && (current().text == "TABLESAMPLE" || current().text == "tablesample")) {
+        // TABLESAMPLE? (a reserved keyword token, not a soft keyword)
+        // Syntax: TABLESAMPLE [BERNOULLI|SYSTEM] (percent) [REPEATABLE (seed)]
+        // - the sampling method (if present) comes *before* the parenthesized
+        // percentage, not inside it.
+        if (check(TK::TABLESAMPLE)) {
             (void)advance();
-            expect(TK::LPAREN);
 
-            // Method: BERNOULLI or SYSTEM (optional)
+            // Method: BERNOULLI or SYSTEM (optional; defaults to BERNOULLI)
             SampleMethod method = SampleMethod::BERNOULLI;
             if (check(TK::IDENTIFIER)) {
                 std::string_view method_str = current().text;
@@ -1577,11 +1709,24 @@ public:
                 }
             }
 
+            expect(TK::LPAREN);
             // Percentage
             auto percent = parse_expression();
             expect(TK::RPAREN);
 
-            return this->template create_node<Tablesample>(method, percent);
+            auto* sample = this->template create_node<Tablesample>(table, method, percent);
+
+            // Optional REPEATABLE(seed) - REPEATABLE is a reserved keyword
+            // token (shared with transaction isolation levels), not a soft
+            // keyword.
+            if (check(TK::REPEATABLE)) {
+                (void)advance();
+                expect(TK::LPAREN);
+                sample->seed = parse_expression();
+                expect(TK::RPAREN);
+            }
+
+            return sample;
         }
 
         return table;
@@ -1653,6 +1798,68 @@ public:
                 expect(TK::RPAREN);
                 stmt->values.push_back(row);
             } while (match(TK::COMMA));
+        }
+
+        // PostgreSQL upsert: ON CONFLICT [(col, ...)] DO NOTHING
+        // / DO UPDATE SET col = expr, ... [WHERE cond]
+        if (check(TK::ON) && peek(1).type == TK::IDENTIFIER &&
+            (peek(1).text == "CONFLICT" || peek(1).text == "conflict")) {
+            (void)advance();  // ON
+            (void)advance();  // CONFLICT
+            auto* on_conflict = this->template create_node<OnConflictClause>();
+
+            if (match(TK::LPAREN)) {
+                do {
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name in ON CONFLICT target");
+                    }
+                    on_conflict->conflict_columns.push_back(advance().text);
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+            }
+
+            expect(TK::DO);
+            if (check_soft_keyword("NOTHING", "nothing")) {
+                (void)advance();
+                on_conflict->do_nothing = true;
+            } else {
+                expect(TK::UPDATE);
+                expect(TK::SET);
+                do {
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name in ON CONFLICT DO UPDATE SET");
+                    }
+                    auto col = advance().text;
+                    expect(TK::EQ);
+                    auto val = parse_expression();
+                    on_conflict->update_assignments.push_back({col, val});
+                } while (match(TK::COMMA));
+
+                if (match(TK::WHERE)) {
+                    on_conflict->where = parse_expression();
+                }
+            }
+
+            stmt->on_conflict = on_conflict;
+        }
+
+        // MySQL upsert: ON DUPLICATE KEY UPDATE col = expr, ...
+        if (check(TK::ON) && peek(1).type == TK::DUPLICATE) {
+            (void)advance();  // ON
+            (void)advance();  // DUPLICATE
+            expect(TK::KEY);
+            expect(TK::UPDATE);
+            auto* on_dup = this->template create_node<OnDuplicateKeyClause>();
+            do {
+                if (!check(TK::IDENTIFIER)) {
+                    error("Expected column name in ON DUPLICATE KEY UPDATE");
+                }
+                auto col = advance().text;
+                expect(TK::EQ);
+                auto val = parse_expression();
+                on_dup->update_assignments.push_back({col, val});
+            } while (match(TK::COMMA));
+            stmt->on_duplicate_key = on_dup;
         }
 
         // PostgreSQL RETURNING clause (maps onto the same OutputClause AST)

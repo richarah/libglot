@@ -18,6 +18,7 @@ set(SQL_TESTS
     test_dialect_coverage
     test_dialect_feature_combinations
     test_dialect_transpilation
+    test_distinct_on
     test_dml_statements
     test_end_to_end
     test_error_messages
@@ -32,14 +33,19 @@ set(SQL_TESTS
     test_group_by_extensions
     test_if_statement
     test_intern
+    test_interval_literals
+    test_join_using_natural
     test_json_operations
     test_lateral_joins
     test_loop_break_continue
     test_mad_queries
+    test_named_windows
     test_optimizer
+    test_order_by_nulls
     test_output_clause
     test_parser
     test_procedure_dialects
+    test_qualify
     test_raise
     test_recursive_cte
     test_return_keyword
@@ -50,12 +56,15 @@ set(SQL_TESTS
     test_schema_type
     test_security
     test_stored_procedures
+    test_tablesample
     test_temporary_tables
     test_tokenizer
     test_transpiler
     test_unbounded_following
     test_untested_dialects
+    test_upsert
     test_utility_statements
+    test_values_table_source
     test_while_loop
 )
 

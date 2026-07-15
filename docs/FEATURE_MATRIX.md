@@ -15,16 +15,16 @@ parser must fail cleanly, never silently mis-parse).
 |---|---|---|
 | SELECT core (joins, subqueries, CTEs, set ops) | DONE | test_parser, test_cte_windows_subqueries, test_roundtrip_property |
 | Window functions incl. real frames, GROUPS | DONE | test_unbounded_following |
-| Named windows (`WINDOW w AS (...)`) | GAP (wave 1) | parse + regenerate + fixpoint |
+| Named windows (`WINDOW w AS (...)`) | DONE | test_named_windows; `OVER w` references a `WINDOW` clause entry; `WINDOW` is a soft keyword (lexes as IDENTIFIER, no reserved-word cost) |
 | GROUPING SETS / ROLLUP / CUBE (nested, empty set) | DONE | test_group_by_extensions |
-| ORDER BY ... NULLS FIRST/LAST | GAP (wave 1) | AST field exists; verify parse+gen, add tests |
-| DISTINCT ON (PostgreSQL) | GAP (wave 1) | |
-| VALUES as table source (`FROM (VALUES ...) v(c1)`) | GAP (wave 1) | |
-| USING / NATURAL joins | GAP (wave 1) | |
-| TABLESAMPLE | GAP (wave 1) | historically claimed; verify or implement |
-| QUALIFY | GAP (wave 1) | historically claimed; verify or implement |
-| INTERVAL literals | GAP (wave 1) | |
-| INSERT ... ON CONFLICT (PG) / ON DUPLICATE KEY UPDATE (MySQL) | GAP (wave 1) | + cross-dialect transpile or clean error |
+| ORDER BY ... NULLS FIRST/LAST | DONE | test_order_by_nulls, test_roundtrip_property ("ORDER BY NULLS FIRST/LAST"); MySQL/MariaDB/SQLServer/AzureSynapse throw std::logic_error (no native syntax - chose "throw" over the ISNULL/CASE-prefix workaround) |
+| DISTINCT ON (PostgreSQL) | DONE | test_distinct_on, test_roundtrip_property ("DISTINCT ON"); every other dialect throws std::logic_error |
+| VALUES as table source (`FROM (VALUES ...) v(c1)`) | DONE | test_values_table_source, test_roundtrip_property corpus; reuses the previously-dormant `ValuesClause` node with an added alias + column list |
+| USING / NATURAL joins | DONE | test_join_using_natural, test_roundtrip_property corpus |
+| TABLESAMPLE | DONE | test_tablesample, test_roundtrip_property ("TABLESAMPLE"); fixed two bugs - the keyword check tested `TK::IDENTIFIER` but `TABLESAMPLE` lexes as its own reserved token (branch was dead code), and the `Tablesample` node had no field for the sampled table (silently discarded it). Added `REPEATABLE(seed)`. MySQL/MariaDB throw std::logic_error |
+| QUALIFY | DONE | test_qualify, test_roundtrip_property ("QUALIFY"); fixed a silent-drop bug - `SelectStmt::qualify` parsed correctly but `visit_select_stmt` never read it back out, so QUALIFY vanished from generated SQL with no error. Now emitted for Snowflake/BigQuery/DuckDB; every other dialect throws std::logic_error |
+| INTERVAL literals | DONE | test_interval_literals, test_roundtrip_property corpus; replaced a broken `FunctionCall("INTERVAL", ...)` encoding (regenerated as `INTERVAL(7, DAY)`, invalid SQL and not a fixed point) with a dedicated `IntervalLiteral` node covering both `INTERVAL '1 day'` and `INTERVAL '2' HOUR` / `INTERVAL 7 DAY` |
+| INSERT ... ON CONFLICT (PG) / ON DUPLICATE KEY UPDATE (MySQL) | DONE | test_upsert, test_roundtrip_property ("upsert forms"); same-dialect fixpoint only - cross-dialect PG&lt;-&gt;MySQL transpile throws std::logic_error (conflict-target columns and EXCLUDED/VALUES() semantics don't map over cleanly) |
 | MERGE (all WHEN arms) | DONE | test_bugfix_regressions |
 | MERGE ... WHEN NOT MATCHED BY SOURCE (T-SQL) | GAP (wave 2) | |
 | OUTPUT / RETURNING (cross-dialect) | DONE | test_output_clause |
