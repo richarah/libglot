@@ -313,6 +313,13 @@ private:
                                      "message/external-body")) {
             msg->external_body = this->arena().create<ExternalBodyRef>(
                 ExternalBodyParser::parse(content_type->parameters));
+        } else if (detail::ascii_ieq(detail::media_type_of(content_type->value),
+                                     "message/partial")) {
+            msg->message_partial = this->arena().create<MessagePartialRef>(
+                MessagePartialParser::parse(content_type->parameters));
+            record_anomaly(AnomalyKind::MessagePartialDetected,
+                           "message/partial part detected; reassembly with sibling "
+                           "fragments (matching id, ordered by number/total) is required");
         }
     }
 

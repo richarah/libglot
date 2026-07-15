@@ -27,6 +27,7 @@ struct Header;
 // (parser_extended.h) when the corresponding syntax is present.
 struct AddressGroup;
 struct ExternalBodyRef;
+struct MessagePartialRef;
 
 /// ============================================================================
 /// Base Node
@@ -78,6 +79,11 @@ struct Message : MimeNode {
     /// For message/external-body parts (RFC 2046 §5.2.3): the parsed
     /// access-type/name/site/... reference; nullptr otherwise.
     ExternalBodyRef* external_body = nullptr;
+
+    /// For message/partial parts (RFC 2046 §5.2.2): the parsed
+    /// id/number/total reference; nullptr otherwise. Reassembly of the
+    /// fragments is out of scope -- see MessagePartialParser.
+    MessagePartialRef* message_partial = nullptr;
 
     explicit Message()
         : MimeNode(MimeNodeKind::MESSAGE)

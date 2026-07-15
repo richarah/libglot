@@ -8,16 +8,25 @@
 
 namespace libglot::mime {
 
+/// Byte order for UTF-16 conversion (see CharsetConverter::utf16_to_utf8)
+enum class Endianness {
+    Big,
+    Little
+};
+
 /// ============================================================================
 /// MIME Charset Conversion
 /// ============================================================================
 ///
 /// Handles character set conversions for MIME messages per RFC 2047/2231.
-/// Supports common charsets: UTF-8, ISO-8859-1, US-ASCII, Windows-1252
+/// Supports common charsets: UTF-8, ISO-8859-1, US-ASCII, Windows-1252,
+/// UTF-16 (BE/LE, with or without a byte-order mark)
 ///
 /// Limitations:
 /// - Full conversion requires external libraries (like iconv)
 /// - This provides basic conversions for common cases
+/// - Asian legacy charsets (Shift-JIS, EUC-KR, GB2312, ...) are out of
+///   scope: reported as Unknown, never mislabeled
 /// - For production, integrate with ICU or iconv
 /// ============================================================================
 
@@ -28,6 +37,7 @@ public:
         ISO88591,      // Latin-1
         USASCII,
         WINDOWS1252,
+        UTF16,         // bare "UTF-16": BOM-detected, big-endian default (RFC 2781)
         UTF16BE,
         UTF16LE,
         Unknown
@@ -47,6 +57,8 @@ public:
             {"ascii", Charset::USASCII},
             {"windows-1252", Charset::WINDOWS1252},
             {"Windows-1252", Charset::WINDOWS1252},
+            {"UTF-16", Charset::UTF16},
+            {"utf-16", Charset::UTF16},
             {"UTF-16BE", Charset::UTF16BE},
             {"utf-16be", Charset::UTF16BE},
             {"UTF-16LE", Charset::UTF16LE},
@@ -76,8 +88,97 @@ public:
             return windows1252_to_utf8(input);
         }
 
+        if (from_charset == Charset::UTF16BE) {
+            return utf16_to_utf8(input, Endianness::Big);
+        }
+
+        if (from_charset == Charset::UTF16LE) {
+            return utf16_to_utf8(input, Endianness::Little);
+        }
+
+        if (from_charset == Charset::UTF16) {
+            // Bare "UTF-16": a BOM (if present) picks the byte order; RFC
+            // 2781 mandates big-endian as the default when there is none.
+            return utf16_to_utf8(input, Endianness::Big);
+        }
+
         // For other charsets, return as-is (would need external library)
         return std::string(input);
+    }
+
+    /// Convert UTF-16 (optionally BOM-prefixed) to UTF-8 (RFC 2781).
+    ///
+    /// - A byte-order mark (bytes FE FF => big-endian, or FF FE =>
+    ///   little-endian) is detected, consumed, and never re-emitted; it
+    ///   overrides `default_endianness`.
+    /// - Without a BOM, `default_endianness` applies (RFC 2781 mandates
+    ///   big-endian when there is no BOM and no other out-of-band
+    ///   indication -- see Charset::UTF16 above).
+    /// - Surrogate pairs (high surrogate U+D800-DBFF followed by low
+    ///   surrogate U+DC00-DFFF) combine into one astral codepoint
+    ///   (U+10000-U+10FFFF), e.g. emoji.
+    /// - Unpaired high/low surrogates, and a truncated trailing byte, are
+    ///   replaced with U+FFFD. This function never throws and always
+    ///   produces valid UTF-8 (verifiable with is_valid_utf8).
+    static std::string utf16_to_utf8(std::string_view bytes, Endianness default_endianness = Endianness::Big) {
+        Endianness endianness = default_endianness;
+        size_t pos = 0;
+
+        if (bytes.size() >= 2) {
+            unsigned char b0 = static_cast<unsigned char>(bytes[0]);
+            unsigned char b1 = static_cast<unsigned char>(bytes[1]);
+            if (b0 == 0xFE && b1 == 0xFF) {
+                endianness = Endianness::Big;
+                pos = 2;
+            } else if (b0 == 0xFF && b1 == 0xFE) {
+                endianness = Endianness::Little;
+                pos = 2;
+            }
+        }
+
+        std::string result;
+        result.reserve(bytes.size());
+
+        auto read_unit = [&](size_t p) -> uint16_t {
+            unsigned char a = static_cast<unsigned char>(bytes[p]);
+            unsigned char b = static_cast<unsigned char>(bytes[p + 1]);
+            return (endianness == Endianness::Big)
+                ? static_cast<uint16_t>((a << 8) | b)
+                : static_cast<uint16_t>((b << 8) | a);
+        };
+
+        while (pos < bytes.size()) {
+            if (pos + 2 > bytes.size()) {
+                // Odd trailing byte: a truncated code unit
+                append_utf8_codepoint(result, 0xFFFD);
+                break;
+            }
+
+            uint16_t unit = read_unit(pos);
+            pos += 2;
+
+            if (unit >= 0xD800 && unit <= 0xDBFF) {
+                // High surrogate: look for a following low surrogate
+                if (pos + 2 <= bytes.size()) {
+                    uint16_t low = read_unit(pos);
+                    if (low >= 0xDC00 && low <= 0xDFFF) {
+                        pos += 2;
+                        uint32_t cp = 0x10000 +
+                            ((static_cast<uint32_t>(unit) - 0xD800) << 10) +
+                            (static_cast<uint32_t>(low) - 0xDC00);
+                        append_utf8_codepoint(result, cp);
+                        continue;
+                    }
+                }
+                append_utf8_codepoint(result, 0xFFFD);  // unpaired high surrogate
+            } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+                append_utf8_codepoint(result, 0xFFFD);  // unpaired low surrogate
+            } else {
+                append_utf8_codepoint(result, unit);
+            }
+        }
+
+        return result;
     }
 
     /// Convert ISO-8859-1 (Latin-1) to UTF-8
@@ -119,7 +220,7 @@ public:
             } else if (c < 0xA0) {
                 // Windows-1252 special range (0x80-0x9F)
                 uint16_t unicode = win1252_map[c - 0x80];
-                append_utf8(result, unicode);
+                append_utf8_codepoint(result, unicode);
             } else {
                 // 0xA0-0xFF: same as ISO-8859-1
                 result.push_back(static_cast<char>(0xC0 | (c >> 6)));
@@ -196,15 +297,21 @@ public:
     }
 
 private:
-    /// Append Unicode codepoint as UTF-8
-    static void append_utf8(std::string& output, uint16_t codepoint) {
+    /// Append a Unicode codepoint (up to U+10FFFF, the full range produced
+    /// by UTF-16 surrogate pairs) as UTF-8.
+    static void append_utf8_codepoint(std::string& output, uint32_t codepoint) {
         if (codepoint < 0x80) {
             output.push_back(static_cast<char>(codepoint));
         } else if (codepoint < 0x800) {
             output.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
             output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        } else {
+        } else if (codepoint < 0x10000) {
             output.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+            output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+            output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        } else {
+            output.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+            output.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
             output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
             output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
         }

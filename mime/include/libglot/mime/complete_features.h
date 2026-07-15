@@ -483,4 +483,59 @@ public:
     }
 };
 
+/// ============================================================================
+/// message/partial Support (RFC 2046 Section 5.2.2)
+/// ============================================================================
+///
+/// A large message split across several message/partial fragments carries
+/// id/number/total parameters on Content-Type identifying the fragment.
+/// Reassembly (collecting fragments sharing `id`, ordering by `number` up to
+/// `total`, and concatenating their bodies) is out of scope here: this only
+/// detects the reference and exposes its parameters so a caller can perform
+/// (or refuse) reassembly.
+/// ============================================================================
+
+struct MessagePartialRef {
+    std::string id;   // Shared identifier across all fragments of one message
+    int number = 0;    // This fragment's 1-based sequence number (0 = absent/invalid)
+    int total = 0;     // Total fragment count (0 = absent/invalid)
+};
+
+class MessagePartialParser {
+public:
+    /// Parse id/number/total parameters off a `Content-Type: message/partial`
+    /// header. `number` and `total` are attacker-controlled: parsed with
+    /// std::from_chars (never throws); a malformed, negative, or
+    /// out-of-range value leaves the field at 0 rather than propagating
+    /// garbage.
+    static MessagePartialRef parse(const std::vector<std::pair<std::string_view, std::string_view>>& params) {
+        MessagePartialRef ref;
+
+        for (const auto& [key, value] : params) {
+            std::string key_lower(key);
+            std::transform(key_lower.begin(), key_lower.end(), key_lower.begin(), ::tolower);
+
+            if (key_lower == "id") {
+                ref.id = value;
+            } else if (key_lower == "number") {
+                ref.number = parse_positive_int(value);
+            } else if (key_lower == "total") {
+                ref.total = parse_positive_int(value);
+            }
+        }
+
+        return ref;
+    }
+
+private:
+    static int parse_positive_int(std::string_view value) {
+        int parsed = 0;
+        auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+        if (ec == std::errc() && ptr == value.data() + value.size() && parsed > 0) {
+            return parsed;
+        }
+        return 0;
+    }
+};
+
 } // namespace libglot::mime

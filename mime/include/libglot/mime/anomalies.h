@@ -334,6 +334,15 @@ enum class AnomalyKind : uint16_t {
     /// Malformed boundary delimiter (extra characters after boundary)
     MalformedBoundaryDelimiter,
 
+    // ========================================================================
+    // message/partial (RFC 2046 §5.2.2)
+    // ========================================================================
+
+    /// Content-Type: message/partial detected; the message is one fragment
+    /// of a larger message and requires reassembly (out of scope here) with
+    /// the other fragments sharing the same id/number/total parameters.
+    MessagePartialDetected,
+
     /// ========================================================================
     /// Sentinel (for iteration)
     /// ========================================================================
@@ -505,6 +514,7 @@ struct AnomalyConfig {
             case AnomalyKind::MultipartTypo:
             case AnomalyKind::InvalidMediaType:
             case AnomalyKind::MissingMediaSubtype:
+            case AnomalyKind::MessagePartialDetected:
                 return AnomalySeverity::Structural;
 
             // Security
@@ -618,6 +628,7 @@ struct AnomalyConfig {
         case AnomalyKind::BoundaryInEpilogue: return "BoundaryInEpilogue";
         case AnomalyKind::MissingBoundaryPrefix: return "MissingBoundaryPrefix";
         case AnomalyKind::MalformedBoundaryDelimiter: return "MalformedBoundaryDelimiter";
+        case AnomalyKind::MessagePartialDetected: return "MessagePartialDetected";
         default: return "Unknown";
     }
 }

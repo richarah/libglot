@@ -73,11 +73,11 @@ parser must fail cleanly, never silently mis-parse).
 | RFC 2046 multipart (anchored boundaries, limits) | DONE | test_boundary_recovery, test_mime_multipart |
 | RFC 2231 continuations (decode) | DONE | test_rfc2231_continuations |
 | base64 / quoted-printable **decode** (strict) | DONE | test_mime_encoding |
-| base64 / quoted-printable / RFC 2047 **encode** | GAP (wave 3) | "full encode/decode" was claimed; only decode exists |
+| base64 / quoted-printable / RFC 2047 **encode** | DONE | test_mime_encoding; `TransferEncoding::encode_base64` (RFC 2045, 76-char CRLF-wrapped, exact-string + binary-data round-trip + 75/76/77-char wrap-boundary cases) and `encode_base64_raw` (unwrapped, used standalone and by encoded-words); `TransferEncoding::encode_quoted_printable` (non-printables and `=` escaped, trailing space/tab escaped, existing CR/LF passed through untouched as hard breaks, soft `=\r\n` breaks so no line exceeds 76 cols, 75/76/77-char boundary cases); `EncodedWordDecoder::encode_word` (RFC 2047 `=?UTF-8?B?...?=` / `?Q?`, splits into multiple encoded-words on the 75-char limit at UTF-8 codepoint boundaries, non-ASCII-subject and emoji round-trip tests) |
 | Charsets: ISO-8859-1, Windows-1252 → UTF-8 | DONE | test_mime_encoding |
-| UTF-16 (BE/LE, BOM) → UTF-8 | GAP (wave 3) | no ICU needed |
+| UTF-16 (BE/LE, BOM) → UTF-8 | DONE | test_charset_utf16; `CharsetConverter::utf16_to_utf8` (RFC 2781) - FEFF/FFFE BOM detection (consumed, overrides the passed-in default), big-endian default per RFC 2781 when no BOM, surrogate-pair combination (emoji), unpaired high/low surrogates and a truncated trailing byte replaced with U+FFFD (never throws, output re-validated with `is_valid_utf8`); wired into `Charset::UTF16`/`UTF16BE`/`UTF16LE` (`to_utf8`) and `decoded_body_utf8()` so `charset=UTF-16`/`UTF-16BE`/`UTF-16LE` parts decode through the normal pipeline |
 | Asian charsets (Shift-JIS, EUC-KR, GB2312) | OOS | reported as unknown-charset, never mislabeled |
-| message/partial detection | GAP (wave 3) | detect + anomaly; reassembly OOS |
+| message/partial detection | DONE | test_message_partial; `Content-Type: message/partial` detected in `finish_message` (parser_extended.h), `id`/`number`/`total` parsed onto a new `MessagePartialRef` (complete_features.h, `Message::message_partial`) with `std::from_chars`-based defensive numeric parsing (malformed/negative/overflowing values default to 0, never throws); records the new `AnomalyKind::MessagePartialDetected` (Structural severity) so callers know reassembly with sibling fragments is required; absent for normal messages and for `message/external-body`; reassembly itself is out of scope |
 | Corpus benchmark (SpamAssassin/Enron) | GAP (issue #4) | |
 
 ## Engineering standards

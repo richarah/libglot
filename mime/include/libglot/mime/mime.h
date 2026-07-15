@@ -136,7 +136,8 @@ inline std::optional<std::string> decoded_body_utf8(const Message& part) {
         return decoded;
     }
 
-    switch (CharsetConverter::detect_charset(detail::ascii_lower(charset_name))) {
+    auto charset = CharsetConverter::detect_charset(detail::ascii_lower(charset_name));
+    switch (charset) {
         case CharsetConverter::Charset::UTF8:
         case CharsetConverter::Charset::USASCII:
             return decoded;
@@ -144,8 +145,12 @@ inline std::optional<std::string> decoded_body_utf8(const Message& part) {
             return CharsetConverter::iso88591_to_utf8(*decoded);
         case CharsetConverter::Charset::WINDOWS1252:
             return CharsetConverter::windows1252_to_utf8(*decoded);
+        case CharsetConverter::Charset::UTF16:
+        case CharsetConverter::Charset::UTF16BE:
+        case CharsetConverter::Charset::UTF16LE:
+            return CharsetConverter::to_utf8(*decoded, charset);
         default:
-            // Unknown or unconvertible (e.g. UTF-16) charset
+            // Unknown or unconvertible charset
             return std::nullopt;
     }
 }

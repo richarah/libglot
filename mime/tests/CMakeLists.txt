@@ -4,8 +4,10 @@
 set(MIME_TESTS
     test_address_groups
     test_boundary_recovery
+    test_charset_utf16
     test_external_body
     test_header_comments
+    test_message_partial
     test_mime_anomalies
     test_mime_encoding
     test_mime_multipart
