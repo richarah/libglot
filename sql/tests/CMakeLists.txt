@@ -8,6 +8,7 @@ set(SQL_TESTS
     test_assignments
     test_begin_end_blocks
     test_bugfix_regressions
+    test_connect_by
     test_create_procedure
     test_cte_windows_subqueries
     test_cursors
@@ -28,12 +29,15 @@ set(SQL_TESTS
     test_for_loop
     test_for_while_transpile
     test_grant_revoke
+    test_group_by_extensions
     test_if_statement
     test_intern
     test_json_operations
     test_lateral_joins
     test_loop_break_continue
     test_mad_queries
+    test_optimizer
+    test_output_clause
     test_parser
     test_procedure_dialects
     test_raise

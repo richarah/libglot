@@ -483,6 +483,14 @@ public:
             return this->template create_node<UnaryOp>(TK::PLUS, operand);
         }
 
+        // Oracle hierarchical PRIOR operator (CONNECT BY PRIOR id = parent_id).
+        // Binds like arithmetic unary +/- so `PRIOR a = b` parses as
+        // (PRIOR a) = b.
+        if (match(TK::PRIOR)) {
+            auto operand = parse_expression(kUnaryArithmeticPrecedence);
+            return this->template create_node<UnaryOp>(TK::PRIOR, operand);
+        }
+
         // Function call or column reference (including keywords used as identifiers)
         if (check(TK::IDENTIFIER) || check(TK::RANK) || check(TK::ORDER) || check(TK::TEMP) || check(TK::LEVEL) ||
             check(TK::COUNT) || check(TK::SUM) || check(TK::AVG) || check(TK::MIN) || check(TK::MAX) ||
@@ -759,11 +767,39 @@ public:
             stmt->where = parse_expression();
         }
 
-        // GROUP BY
+        // Oracle hierarchical query clauses: START WITH cond / CONNECT BY
+        // [NOCYCLE] cond. Oracle accepts the two clauses in either order,
+        // so loop until neither matches. START is not a reserved word (it
+        // lexes as an identifier), hence the two-token lookahead.
+        while (true) {
+            if (check(TK::CONNECT)) {
+                (void)advance();
+                expect(TK::BY);
+                auto* connect_by = this->template create_node<ConnectByClause>();
+                if (match(TK::NOCYCLE)) {
+                    connect_by->nocycle = true;
+                }
+                connect_by->condition = parse_expression();
+                stmt->connect_by = connect_by;
+            } else if (check(TK::IDENTIFIER) &&
+                       (current().text == "START" || current().text == "start") &&
+                       peek(1).type == TK::WITH) {
+                (void)advance();  // START
+                (void)advance();  // WITH
+                auto* start_with = this->template create_node<StartWithClause>();
+                start_with->condition = parse_expression();
+                stmt->start_with = start_with;
+            } else {
+                break;
+            }
+        }
+
+        // GROUP BY, including the SQL:1999 OLAP extensions
+        // (GROUPING SETS / ROLLUP / CUBE), possibly mixed with plain items
         if (match(TK::GROUP)) {
             expect(TK::BY);
             do {
-                stmt->group_by.push_back(parse_expression());
+                stmt->group_by.push_back(parse_group_by_item());
             } while (match(TK::COMMA));
         }
 
@@ -778,8 +814,13 @@ public:
             stmt->qualify = this->template create_node<QualifyClause>(condition);
         }
 
-        // ORDER BY
+        // ORDER BY / ORDER SIBLINGS BY (Oracle hierarchical ordering)
         if (match(TK::ORDER)) {
+            if (check(TK::IDENTIFIER) &&
+                (current().text == "SIBLINGS" || current().text == "siblings")) {
+                (void)advance();
+                stmt->order_siblings = true;
+            }
             expect(TK::BY);
             stmt->order_by = parse_order_by_list();
         }
@@ -883,6 +924,83 @@ public:
         }
 
         return expr;
+    }
+
+    /// Parse a single GROUP BY item: a plain expression, ROLLUP(...),
+    /// CUBE(...), or GROUPING SETS (...). ROLLUP/CUBE/GROUPING are not
+    /// reserved words (they lex as identifiers), so a GROUPING(col)
+    /// aggregate in the SELECT list still parses as an ordinary function
+    /// call - only the two-token "GROUPING SETS" form is special here.
+    SQLNode* parse_group_by_item() {
+        if (check_soft_keyword("ROLLUP", "rollup") && peek(1).type == TK::LPAREN) {
+            (void)advance();  // ROLLUP
+            auto* rollup = this->template create_node<RollupClause>();
+            parse_grouping_expr_list_into(rollup->expressions);
+            return rollup;
+        }
+
+        if (check_soft_keyword("CUBE", "cube") && peek(1).type == TK::LPAREN) {
+            (void)advance();  // CUBE
+            auto* cube = this->template create_node<CubeClause>();
+            parse_grouping_expr_list_into(cube->expressions);
+            return cube;
+        }
+
+        if (check_soft_keyword("GROUPING", "grouping") &&
+            peek(1).type == TK::IDENTIFIER &&
+            (peek(1).text == "SETS" || peek(1).text == "sets")) {
+            (void)advance();  // GROUPING
+            (void)advance();  // SETS
+            return parse_grouping_sets_body();
+        }
+
+        return parse_expression();
+    }
+
+    /// Check whether the current token is a given non-reserved keyword
+    /// (lexed as an identifier)
+    [[nodiscard]] bool check_soft_keyword(std::string_view upper, std::string_view lower) const noexcept {
+        return check(TK::IDENTIFIER) &&
+               (current().text == upper || current().text == lower);
+    }
+
+    /// Parse the parenthesized expression list of ROLLUP(...) / CUBE(...)
+    void parse_grouping_expr_list_into(std::vector<SQLNode*>& out) {
+        expect(TK::LPAREN);
+        if (!check(TK::RPAREN)) {
+            do {
+                out.push_back(parse_expression());
+            } while (match(TK::COMMA));
+        }
+        expect(TK::RPAREN);
+    }
+
+    /// Parse the body of GROUPING SETS (...) after the two keywords have
+    /// been consumed. Each element is either a parenthesized (possibly
+    /// empty) list of grouping items or a single bare item - which may
+    /// itself be ROLLUP(...), CUBE(...), or a nested GROUPING SETS.
+    SQLNode* parse_grouping_sets_body() {
+        auto* grouping_sets = this->template create_node<GroupingSets>();
+        expect(TK::LPAREN);
+        if (!check(TK::RPAREN)) {
+            do {
+                std::vector<SQLNode*> set;
+                if (check(TK::LPAREN)) {
+                    (void)advance();
+                    if (!check(TK::RPAREN)) {
+                        do {
+                            set.push_back(parse_group_by_item());
+                        } while (match(TK::COMMA));
+                    }
+                    expect(TK::RPAREN);
+                } else {
+                    set.push_back(parse_group_by_item());
+                }
+                grouping_sets->sets.push_back(std::move(set));
+            } while (match(TK::COMMA));
+        }
+        expect(TK::RPAREN);
+        return grouping_sets;
     }
 
     /// Parse table reference (simplified for Phase C1)
@@ -1423,7 +1541,14 @@ public:
         } else if (check(TK::IDENTIFIER)) {
             // Check if this identifier is actually an alias (not a keyword like TABLESAMPLE or JOIN)
             std::string_view next_word = current().text;
-            if (next_word != "TABLESAMPLE" && next_word != "tablesample" &&
+            // Oracle hierarchical clause: START WITH is not an alias (START
+            // lexes as an identifier). Only the two-token form is excluded,
+            // so a table alias literally named "start" still works.
+            const bool is_start_with =
+                (next_word == "START" || next_word == "start") &&
+                peek(1).type == TK::WITH;
+            if (!is_start_with &&
+                next_word != "TABLESAMPLE" && next_word != "tablesample" &&
                 next_word != "JOIN" && next_word != "INNER" && next_word != "LEFT" &&
                 next_word != "RIGHT" && next_word != "FULL" && next_word != "CROSS" &&
                 next_word != "WHERE" && next_word != "ORDER" && next_word != "GROUP" &&
@@ -1508,6 +1633,11 @@ public:
             expect(TK::RPAREN);
         }
 
+        // T-SQL OUTPUT clause: between the column list and VALUES/SELECT
+        if (check(TK::OUTPUT)) {
+            stmt->output = parse_output_clause();
+        }
+
         // VALUES or SELECT
         if (check(TK::SELECT) || check(TK::WITH)) {
             stmt->select_query = parse_select();
@@ -1523,6 +1653,11 @@ public:
                 expect(TK::RPAREN);
                 stmt->values.push_back(row);
             } while (match(TK::COMMA));
+        }
+
+        // PostgreSQL RETURNING clause (maps onto the same OutputClause AST)
+        if (check(TK::RETURNING)) {
+            stmt->output = parse_returning_clause();
         }
 
         return stmt;
@@ -1548,6 +1683,11 @@ public:
             stmt->assignments.push_back({column, value});
         } while (match(TK::COMMA));
 
+        // T-SQL OUTPUT clause: after SET, before FROM/WHERE
+        if (check(TK::OUTPUT)) {
+            stmt->output = parse_output_clause();
+        }
+
         // Optional FROM clause (PostgreSQL extension)
         if (match(TK::FROM)) {
             stmt->from = parse_from_clause();
@@ -1556,6 +1696,11 @@ public:
         // WHERE clause
         if (match(TK::WHERE)) {
             stmt->where = parse_expression();
+        }
+
+        // PostgreSQL RETURNING clause (maps onto the same OutputClause AST)
+        if (check(TK::RETURNING)) {
+            stmt->output = parse_returning_clause();
         }
 
         return stmt;
@@ -1570,6 +1715,11 @@ public:
         // Table name
         stmt->table = parse_table_ref();
 
+        // T-SQL OUTPUT clause: after the target, before USING/WHERE
+        if (check(TK::OUTPUT)) {
+            stmt->output = parse_output_clause();
+        }
+
         // Optional USING clause (PostgreSQL)
         if (match(TK::USING)) {
             stmt->using_clause = parse_from_clause();
@@ -1580,7 +1730,63 @@ public:
             stmt->where = parse_expression();
         }
 
+        // PostgreSQL RETURNING clause (maps onto the same OutputClause AST)
+        if (check(TK::RETURNING)) {
+            stmt->output = parse_returning_clause();
+        }
+
         return stmt;
+    }
+
+    /// Parse a T-SQL OUTPUT clause: OUTPUT item, item, ...
+    OutputClause* parse_output_clause() {
+        expect(TK::OUTPUT);
+        auto* clause = this->template create_node<OutputClause>();
+        do {
+            clause->items.push_back(parse_output_item());
+        } while (match(TK::COMMA));
+        return clause;
+    }
+
+    /// Parse one OUTPUT item: INSERTED.col / DELETED.col / INSERTED.* /
+    /// DELETED.* (optionally aliased), or a plain expression item.
+    /// INSERTED/DELETED qualifiers are stored canonically in uppercase.
+    SQLNode* parse_output_item() {
+        if (check(TK::INSERTED) || check(TK::DELETED)) {
+            std::string_view qualifier = check(TK::INSERTED) ? "INSERTED" : "DELETED";
+            (void)advance();
+            expect(TK::DOT);
+            if (match(TK::STAR)) {
+                return this->template create_node<Star>(qualifier);
+            }
+            if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
+                error("Expected column name after INSERTED./DELETED. in OUTPUT clause");
+            }
+            SQLNode* col = this->template create_node<Column>(qualifier, advance().text);
+            if (match(TK::AS)) {
+                if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
+                    check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
+                    error("Expected alias after AS");
+                }
+                return this->template create_node<Alias>(col, advance().text);
+            }
+            return col;
+        }
+
+        // Plain expression item (also covers RETURNING-style items)
+        return parse_select_item();
+    }
+
+    /// Parse a PostgreSQL RETURNING clause into the shared OutputClause AST
+    OutputClause* parse_returning_clause() {
+        expect(TK::RETURNING);
+        auto* clause = this->template create_node<OutputClause>();
+        clause->from_returning = true;
+        do {
+            clause->items.push_back(parse_select_item());
+        } while (match(TK::COMMA));
+        return clause;
     }
 
     /// Parse MERGE statement (simplified)

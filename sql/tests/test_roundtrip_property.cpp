@@ -166,11 +166,28 @@ const std::vector<std::string>& fixpoint_corpus() {
         "SELECT 1 INTERSECT SELECT 2",
         "SELECT 1 EXCEPT SELECT 2",
         "SELECT 1 UNION SELECT 2 UNION ALL SELECT 3 INTERSECT SELECT 4 EXCEPT SELECT 5",
+        // GROUP BY extensions (SQL:1999 T431)
+        "SELECT a, SUM(b) FROM t GROUP BY ROLLUP(a, b)",
+        "SELECT a, SUM(b) FROM t GROUP BY CUBE(a, b)",
+        "SELECT a, b FROM t GROUP BY GROUPING SETS ((a, b), (a), ())",
+        "SELECT a FROM t GROUP BY GROUPING SETS (ROLLUP(a, b), (c), ())",
+        "SELECT a, b, c FROM t GROUP BY a, ROLLUP(b, c)",
+        "SELECT GROUPING(a), SUM(b) FROM t GROUP BY ROLLUP(a)",
         // DML
         "INSERT INTO t (a, b) VALUES (1, 2)",
         "UPDATE t SET a = 1 WHERE b = 2",
         "DELETE FROM t WHERE a = 1",
         "MERGE INTO t USING u ON t.id = u.id WHEN MATCHED THEN UPDATE SET a = 1",
+        // OUTPUT / RETURNING (T-SQL emits OUTPUT, others RETURNING; both
+        // directions are fixed points for INSERTED-only / DELETE-DELETED
+        // combinations)
+        "INSERT INTO t (a, b) OUTPUT INSERTED.a, INSERTED.b VALUES (1, 2)",
+        "INSERT INTO t (a) VALUES (1) RETURNING id",
+        "INSERT INTO t (a) VALUES (1) RETURNING *",
+        "UPDATE t SET a = 1 OUTPUT INSERTED.a WHERE b = 2",
+        "UPDATE t SET a = 1 WHERE b = 2 RETURNING a",
+        "DELETE FROM t OUTPUT DELETED.* WHERE a = 1",
+        "DELETE FROM t WHERE a = 1 RETURNING a",
         // DDL
         "CREATE TABLE t (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL)",
         "CREATE TABLE IF NOT EXISTS t (id INT)",
@@ -272,6 +289,29 @@ TEST_CASE("Roundtrip property - SQL Server specific forms", "[roundtrip-property
     require_fixpoint("SET @i = @i + 1", SQLDialect::SQLServer);
     require_fixpoint("RAISERROR('boom', 16, 1)", SQLDialect::SQLServer);
     require_fixpoint("WHILE @i <= 10 BEGIN SELECT 1; END", SQLDialect::SQLServer);
+}
+
+TEST_CASE("Roundtrip property - Oracle hierarchical queries", "[roundtrip-property][connect-by]") {
+    // CONNECT BY only generates for Oracle/Snowflake (other dialects throw),
+    // so these run outside the shared corpus.
+    const std::string queries[] = {
+        "SELECT id FROM t START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id",
+        "SELECT id FROM t CONNECT BY NOCYCLE PRIOR id = parent_id",
+        "SELECT LEVEL, id FROM t CONNECT BY PRIOR id = parent_id ORDER SIBLINGS BY id",
+    };
+    for (auto d : {SQLDialect::Oracle, SQLDialect::Snowflake}) {
+        for (const auto& q : queries) {
+            require_fixpoint(q, d);
+        }
+    }
+}
+
+TEST_CASE("Roundtrip property - mixed INSERTED/DELETED OUTPUT (SQL Server only)", "[roundtrip-property][output]") {
+    // Mixing row images is only expressible in T-SQL; other dialects throw.
+    require_fixpoint("UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2",
+                     SQLDialect::SQLServer);
+    require_fixpoint("UPDATE t SET a = 1 OUTPUT INSERTED.a AS new_a, DELETED.a AS old_a",
+                     SQLDialect::SQLServer);
 }
 
 TEST_CASE("Roundtrip property - FETCH FIRST dialects (Oracle, DB2)", "[roundtrip-property][fetch-first]") {

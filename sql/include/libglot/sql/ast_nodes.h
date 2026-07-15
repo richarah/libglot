@@ -193,6 +193,7 @@ enum class SQLNodeKind : uint16_t {
     CUBE_CLAUSE,             // CUBE
     CONNECT_BY_CLAUSE,       // Oracle CONNECT BY (hierarchical queries)
     START_WITH_CLAUSE,       // Oracle START WITH
+    OUTPUT_CLAUSE,           // T-SQL OUTPUT / PostgreSQL RETURNING
 
     // ========================================================================
     // BigQuery ML
@@ -338,6 +339,12 @@ struct DropTriggerStmt;
 // Advanced Features
 struct PivotClause;
 struct UnpivotClause;
+struct GroupingSets;
+struct RollupClause;
+struct CubeClause;
+struct ConnectByClause;
+struct StartWithClause;
+struct OutputClause;
 
 // BigQuery ML
 struct CreateModelStmt;
@@ -685,6 +692,9 @@ struct SelectStmt : SQLNode {
     std::vector<std::string_view> for_update_of;   // FOR UPDATE OF col, ...
     ForUpdateWait for_update_wait = ForUpdateWait::NONE;  // NOWAIT / SKIP LOCKED
     TableRef* into_table = nullptr;                // SELECT ... INTO target (T-SQL / PL/SQL)
+    StartWithClause* start_with = nullptr;         // Oracle START WITH (hierarchical)
+    ConnectByClause* connect_by = nullptr;         // Oracle CONNECT BY (hierarchical)
+    bool order_siblings = false;                   // Oracle ORDER SIBLINGS BY
 
     SelectStmt()
         : SQLNode(SQLNodeKind::SELECT_STMT), with(nullptr), from(nullptr), where(nullptr),
@@ -777,9 +787,11 @@ struct InsertStmt : SQLNode {
     std::vector<std::string_view> columns;          // Optional column list
     std::vector<std::vector<SQLNode*>> values;      // VALUES rows
     SQLNode* select_query;                          // INSERT ... SELECT (may be a set operation)
+    OutputClause* output;                           // OUTPUT / RETURNING clause
 
     InsertStmt()
-        : SQLNode(SQLNodeKind::INSERT_STMT), table(nullptr), select_query(nullptr) {}
+        : SQLNode(SQLNodeKind::INSERT_STMT), table(nullptr), select_query(nullptr),
+          output(nullptr) {}
 };
 
 struct UpdateStmt : SQLNode {
@@ -787,18 +799,22 @@ struct UpdateStmt : SQLNode {
     std::vector<std::pair<std::string_view, SQLNode*>> assignments;  // SET column = value
     SQLNode* where;
     SQLNode* from;  // FROM clause (for joins)
+    OutputClause* output;  // OUTPUT / RETURNING clause
 
     UpdateStmt()
-        : SQLNode(SQLNodeKind::UPDATE_STMT), table(nullptr), where(nullptr), from(nullptr) {}
+        : SQLNode(SQLNodeKind::UPDATE_STMT), table(nullptr), where(nullptr), from(nullptr),
+          output(nullptr) {}
 };
 
 struct DeleteStmt : SQLNode {
     TableRef* table;
     SQLNode* where;
     SQLNode* using_clause;  // USING clause (for joins)
+    OutputClause* output;   // OUTPUT / RETURNING clause
 
     DeleteStmt()
-        : SQLNode(SQLNodeKind::DELETE_STMT), table(nullptr), where(nullptr), using_clause(nullptr) {}
+        : SQLNode(SQLNodeKind::DELETE_STMT), table(nullptr), where(nullptr), using_clause(nullptr),
+          output(nullptr) {}
 };
 
 struct MergeStmt : SQLNode {
@@ -1344,6 +1360,23 @@ struct StartWithClause : SQLNode {
 
     StartWithClause()
         : SQLNode(SQLNodeKind::START_WITH_CLAUSE), condition(nullptr) {}
+};
+
+/// ============================================================================
+/// DML Row-Returning Clauses (T-SQL OUTPUT / PostgreSQL RETURNING)
+/// ============================================================================
+
+/// Shared AST for T-SQL `OUTPUT INSERTED.col, DELETED.col` and PostgreSQL
+/// `RETURNING expr, ...`. Items are ordinary expression nodes. References
+/// qualified with INSERTED./DELETED. are stored as Column/Star nodes whose
+/// table qualifier is the canonical uppercase "INSERTED" / "DELETED"; the
+/// generator inspects that qualifier when transpiling between the two forms.
+struct OutputClause : SQLNode {
+    std::vector<SQLNode*> items;
+    bool from_returning;  // Parsed from a RETURNING clause (informational)
+
+    OutputClause()
+        : SQLNode(SQLNodeKind::OUTPUT_CLAUSE), from_returning(false) {}
 };
 
 /// ============================================================================

@@ -450,6 +450,32 @@ public:
                 visit_unpivot_clause(static_cast<UnpivotClause*>(node));
                 break;
 
+            case SQLNodeKind::GROUPING_SETS:
+                visit_grouping_sets(static_cast<GroupingSets*>(node));
+                break;
+
+            case SQLNodeKind::ROLLUP_CLAUSE:
+                visit_rollup_clause(static_cast<RollupClause*>(node));
+                break;
+
+            case SQLNodeKind::CUBE_CLAUSE:
+                visit_cube_clause(static_cast<CubeClause*>(node));
+                break;
+
+            case SQLNodeKind::CONNECT_BY_CLAUSE:
+                visit_connect_by_clause(static_cast<ConnectByClause*>(node));
+                break;
+
+            case SQLNodeKind::START_WITH_CLAUSE:
+                visit_start_with_clause(static_cast<StartWithClause*>(node));
+                break;
+
+            case SQLNodeKind::OUTPUT_CLAUSE:
+                // Standalone visit (normally emitted by the DML visitors,
+                // which know the statement context): assume INSERTED rows.
+                write_output_clause(static_cast<OutputClause*>(node), "INSERTED");
+                break;
+
             // ================================================================
             // BigQuery ML
             // ================================================================
@@ -841,6 +867,29 @@ private:
             visit(stmt->where);
         }
 
+        // Oracle hierarchical clauses. Canonical emission order is
+        // START WITH before CONNECT BY regardless of the parsed order.
+        // Only Oracle and Snowflake understand this syntax; emitting it
+        // as-is for other dialects would produce silently broken SQL, so
+        // fail loudly instead (rewrite as a recursive CTE by hand).
+        if (stmt->start_with || stmt->connect_by) {
+            if (select_dialect != SQLDialect::Oracle &&
+                select_dialect != SQLDialect::Snowflake) {
+                throw std::logic_error(
+                    "CONNECT BY requires the Oracle or Snowflake dialect; "
+                    "rewrite the hierarchical query as a recursive CTE for " +
+                    std::string(SQLDialectTraits::name(select_dialect)));
+            }
+            if (stmt->start_with) {
+                this->space();
+                visit_start_with_clause(stmt->start_with);
+            }
+            if (stmt->connect_by) {
+                this->space();
+                visit_connect_by_clause(stmt->connect_by);
+            }
+        }
+
         // GROUP BY clause
         if (!stmt->group_by.empty()) {
             this->space();
@@ -859,10 +908,10 @@ private:
             visit(stmt->having);
         }
 
-        // ORDER BY clause
+        // ORDER BY clause (ORDER SIBLINGS BY for Oracle hierarchical queries)
         if (!stmt->order_by.empty()) {
             this->space();
-            this->write("ORDER BY");
+            this->write(stmt->order_siblings ? "ORDER SIBLINGS BY" : "ORDER BY");
             this->space();
             this->write_list(stmt->order_by, [this](OrderByItem* item) {
                 visit(item);
@@ -982,6 +1031,12 @@ private:
             this->write("NOT");
             this->space();
             write_operand(op->operand, kNotPrecedence);
+        } else if (op->op == TK::PRIOR) {
+            // Oracle hierarchical PRIOR: keyword operator, needs a space
+            // before its operand (unlike arithmetic +/-)
+            this->write("PRIOR");
+            this->space();
+            write_operand(op->operand, kUnaryArithmeticPrecedence);
         } else {
             // Arithmetic unary +/- bind tightest: -2 stays -2, while a
             // negated binary expression is parenthesized: -(2 + 3).
@@ -1398,6 +1453,12 @@ private:
             this->write(')');
         }
 
+        // T-SQL: OUTPUT sits between the column list and VALUES/SELECT
+        if (stmt->output && is_tsql_dialect(this->dialect())) {
+            this->space();
+            write_output_clause(stmt->output, "INSERTED");
+        }
+
         this->space();
 
         // VALUES or SELECT
@@ -1413,6 +1474,12 @@ private:
                 });
                 this->write(')');
             });
+        }
+
+        // Other dialects: RETURNING at the end of the statement
+        if (stmt->output && !is_tsql_dialect(this->dialect())) {
+            this->space();
+            write_output_clause(stmt->output, "INSERTED");
         }
     }
 
@@ -1433,6 +1500,12 @@ private:
             visit(assign.second);  // value
         });
 
+        // T-SQL: OUTPUT sits after SET, before FROM/WHERE
+        if (stmt->output && is_tsql_dialect(this->dialect())) {
+            this->space();
+            write_output_clause(stmt->output, "INSERTED");
+        }
+
         // FROM clause (PostgreSQL)
         if (stmt->from) {
             this->space();
@@ -1448,12 +1521,24 @@ private:
             this->space();
             visit(stmt->where);
         }
+
+        // Other dialects: RETURNING at the end of the statement
+        if (stmt->output && !is_tsql_dialect(this->dialect())) {
+            this->space();
+            write_output_clause(stmt->output, "INSERTED");
+        }
     }
 
     void visit_delete_stmt(DeleteStmt* stmt) {
         this->write("DELETE FROM");
         this->space();
         visit(stmt->table);
+
+        // T-SQL: OUTPUT sits after the target, before USING/WHERE
+        if (stmt->output && is_tsql_dialect(this->dialect())) {
+            this->space();
+            write_output_clause(stmt->output, "DELETED");
+        }
 
         // USING clause (PostgreSQL)
         if (stmt->using_clause) {
@@ -1469,6 +1554,12 @@ private:
             this->write("WHERE");
             this->space();
             visit(stmt->where);
+        }
+
+        // Other dialects: RETURNING at the end of the statement
+        if (stmt->output && !is_tsql_dialect(this->dialect())) {
+            this->space();
+            write_output_clause(stmt->output, "DELETED");
         }
     }
 
@@ -1710,6 +1801,7 @@ private:
             case TK::NOT: return "NOT";
             case TK::MINUS: return "-";
             case TK::PLUS: return "+";
+            case TK::PRIOR: return "PRIOR";
             // IS NULL / IS NOT NULL are handled as binary operators in most SQL parsers
             default:
                 throw std::logic_error(
@@ -3117,6 +3209,207 @@ private:
         });
         this->write(')');
         this->write(')');
+    }
+
+    // ========================================================================
+    // Grouping Extensions (SQL:1999 T431)
+    // ========================================================================
+
+    void visit_rollup_clause(RollupClause* rollup) {
+        this->write("ROLLUP(");
+        this->write_list(rollup->expressions, [this](SQLNode* expr) {
+            visit(expr);
+        });
+        this->write(')');
+    }
+
+    void visit_cube_clause(CubeClause* cube) {
+        this->write("CUBE(");
+        this->write_list(cube->expressions, [this](SQLNode* expr) {
+            visit(expr);
+        });
+        this->write(')');
+    }
+
+    void visit_grouping_sets(GroupingSets* grouping_sets) {
+        this->write("GROUPING SETS (");
+        bool first = true;
+        for (const auto& set : grouping_sets->sets) {
+            if (!first) {
+                this->write(',');
+                this->space();
+            }
+            first = false;
+            // A set holding exactly one ROLLUP/CUBE/GROUPING SETS element is
+            // emitted bare (nested combination); everything else - including
+            // the empty grouping set () - is emitted parenthesized.
+            if (set.size() == 1 && set[0] &&
+                (set[0]->type == SQLNodeKind::ROLLUP_CLAUSE ||
+                 set[0]->type == SQLNodeKind::CUBE_CLAUSE ||
+                 set[0]->type == SQLNodeKind::GROUPING_SETS)) {
+                visit(set[0]);
+            } else {
+                this->write('(');
+                this->write_list(set, [this](SQLNode* expr) {
+                    visit(expr);
+                });
+                this->write(')');
+            }
+        }
+        this->write(')');
+    }
+
+    // ========================================================================
+    // Oracle Hierarchical Query Visitors
+    // ========================================================================
+
+    void visit_start_with_clause(StartWithClause* clause) {
+        this->write("START WITH");
+        this->space();
+        visit(clause->condition);
+    }
+
+    void visit_connect_by_clause(ConnectByClause* clause) {
+        this->write("CONNECT BY");
+        this->space();
+        if (clause->nocycle) {
+            this->write("NOCYCLE");
+            this->space();
+        }
+        visit(clause->condition);
+    }
+
+    // ========================================================================
+    // OUTPUT / RETURNING Clause
+    // ========================================================================
+
+    /// Is this a T-SQL dialect (native OUTPUT clause)?
+    static bool is_tsql_dialect(SQLDialect d) noexcept {
+        return d == SQLDialect::SQLServer || d == SQLDialect::AzureSynapse;
+    }
+
+    /// Emit an OUTPUT/RETURNING clause. `default_qualifier` is the row
+    /// image an unqualified item refers to: "INSERTED" for INSERT/UPDATE,
+    /// "DELETED" for DELETE.
+    ///
+    /// - T-SQL dialects emit the OUTPUT form, qualifying bare items with
+    ///   the default qualifier.
+    /// - Every other dialect emits RETURNING with the qualifier stripped.
+    ///   That is only sound when all items reference the statement's own
+    ///   result rows (INSERTED for INSERT/UPDATE, DELETED for DELETE);
+    ///   references to the other row image - e.g. DELETED.x in an UPDATE
+    ///   (the pre-update values) - have no RETURNING equivalent and throw
+    ///   std::logic_error.
+    void write_output_clause(OutputClause* clause, std::string_view default_qualifier) {
+        if (is_tsql_dialect(this->dialect())) {
+            this->write("OUTPUT");
+            this->space();
+            this->write_list(clause->items, [this, default_qualifier](SQLNode* item) {
+                write_tsql_output_item(item, default_qualifier);
+            });
+        } else {
+            this->write("RETURNING");
+            this->space();
+            this->write_list(clause->items, [this, default_qualifier](SQLNode* item) {
+                write_returning_item(item, default_qualifier);
+            });
+        }
+    }
+
+    /// Emit one T-SQL OUTPUT item, qualifying bare column/star references
+    /// with the statement's default row image (INSERTED/DELETED).
+    void write_tsql_output_item(SQLNode* item, std::string_view default_qualifier) {
+        switch (item->type) {
+            case SQLNodeKind::ALIAS: {
+                auto* alias = static_cast<Alias*>(item);
+                write_tsql_output_item(alias->expr, default_qualifier);
+                this->space();
+                this->write("AS");
+                this->space();
+                write_identifier(alias->alias);
+                return;
+            }
+            case SQLNodeKind::STAR: {
+                auto* star = static_cast<Star*>(item);
+                std::string_view qualifier =
+                    star->table.empty() ? default_qualifier : star->table;
+                if (qualifier == "INSERTED" || qualifier == "DELETED") {
+                    this->write(qualifier);
+                    this->write(".*");
+                    return;
+                }
+                break;
+            }
+            case SQLNodeKind::COLUMN: {
+                auto* col = static_cast<Column*>(item);
+                std::string_view qualifier =
+                    col->table.empty() ? default_qualifier : col->table;
+                if (qualifier == "INSERTED" || qualifier == "DELETED") {
+                    this->write(qualifier);
+                    this->write('.');
+                    write_identifier(col->column);
+                    return;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        visit(item);
+    }
+
+    /// Emit one RETURNING item, stripping the statement's own row-image
+    /// qualifier. A reference to the *other* row image cannot be expressed
+    /// with RETURNING and throws std::logic_error.
+    void write_returning_item(SQLNode* item, std::string_view allowed_qualifier) {
+        switch (item->type) {
+            case SQLNodeKind::ALIAS: {
+                auto* alias = static_cast<Alias*>(item);
+                write_returning_item(alias->expr, allowed_qualifier);
+                this->space();
+                this->write("AS");
+                this->space();
+                write_identifier(alias->alias);
+                return;
+            }
+            case SQLNodeKind::STAR: {
+                auto* star = static_cast<Star*>(item);
+                require_returning_qualifier(star->table, allowed_qualifier);
+                if (star->table == "INSERTED" || star->table == "DELETED") {
+                    this->write('*');
+                    return;
+                }
+                break;
+            }
+            case SQLNodeKind::COLUMN: {
+                auto* col = static_cast<Column*>(item);
+                require_returning_qualifier(col->table, allowed_qualifier);
+                if (col->table == "INSERTED" || col->table == "DELETED") {
+                    write_identifier(col->column);
+                    return;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        visit(item);
+    }
+
+    /// Throw when an OUTPUT row-image qualifier cannot be transpiled to
+    /// RETURNING (i.e. it names the other row image than the statement
+    /// itself returns - including OUTPUT clauses mixing INSERTED and
+    /// DELETED, which only T-SQL can express).
+    static void require_returning_qualifier(std::string_view qualifier,
+                                            std::string_view allowed_qualifier) {
+        if ((qualifier == "INSERTED" || qualifier == "DELETED") &&
+            qualifier != allowed_qualifier) {
+            throw std::logic_error(
+                "OUTPUT " + std::string(qualifier) +
+                ".* references require a T-SQL dialect (SQL Server); RETURNING "
+                "only exposes " + std::string(allowed_qualifier) +
+                " rows for this statement");
+        }
     }
 
     // ========================================================================
