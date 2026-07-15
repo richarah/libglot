@@ -1,18 +1,15 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <cstdint>
 
 namespace libglot::mime {
 
 /// Byte order for UTF-16 conversion (see CharsetConverter::utf16_to_utf8)
-enum class Endianness {
-    Big,
-    Little
-};
+enum class Endianness { Big, Little };
 
 /// ============================================================================
 /// MIME Charset Conversion
@@ -34,10 +31,10 @@ class CharsetConverter {
 public:
     enum class Charset {
         UTF8,
-        ISO88591,      // Latin-1
+        ISO88591, // Latin-1
         USASCII,
         WINDOWS1252,
-        UTF16,         // bare "UTF-16": BOM-detected, big-endian default (RFC 2781)
+        UTF16, // bare "UTF-16": BOM-detected, big-endian default (RFC 2781)
         UTF16BE,
         UTF16LE,
         Unknown
@@ -72,7 +69,7 @@ public:
     /// Convert from source charset to UTF-8
     static std::string to_utf8(std::string_view input, Charset from_charset) {
         if (from_charset == Charset::UTF8) {
-            return std::string(input);  // Already UTF-8
+            return std::string(input); // Already UTF-8
         }
 
         if (from_charset == Charset::USASCII) {
@@ -120,7 +117,8 @@ public:
     /// - Unpaired high/low surrogates, and a truncated trailing byte, are
     ///   replaced with U+FFFD. This function never throws and always
     ///   produces valid UTF-8 (verifiable with is_valid_utf8).
-    static std::string utf16_to_utf8(std::string_view bytes, Endianness default_endianness = Endianness::Big) {
+    static std::string utf16_to_utf8(std::string_view bytes,
+                                     Endianness default_endianness = Endianness::Big) {
         Endianness endianness = default_endianness;
         size_t pos = 0;
 
@@ -142,9 +140,8 @@ public:
         auto read_unit = [&](size_t p) -> uint16_t {
             unsigned char a = static_cast<unsigned char>(bytes[p]);
             unsigned char b = static_cast<unsigned char>(bytes[p + 1]);
-            return (endianness == Endianness::Big)
-                ? static_cast<uint16_t>((a << 8) | b)
-                : static_cast<uint16_t>((b << 8) | a);
+            return (endianness == Endianness::Big) ? static_cast<uint16_t>((a << 8) | b)
+                                                   : static_cast<uint16_t>((b << 8) | a);
         };
 
         while (pos < bytes.size()) {
@@ -163,16 +160,15 @@ public:
                     uint16_t low = read_unit(pos);
                     if (low >= 0xDC00 && low <= 0xDFFF) {
                         pos += 2;
-                        uint32_t cp = 0x10000 +
-                            ((static_cast<uint32_t>(unit) - 0xD800) << 10) +
-                            (static_cast<uint32_t>(low) - 0xDC00);
+                        uint32_t cp = 0x10000 + ((static_cast<uint32_t>(unit) - 0xD800) << 10) +
+                                      (static_cast<uint32_t>(low) - 0xDC00);
                         append_utf8_codepoint(result, cp);
                         continue;
                     }
                 }
-                append_utf8_codepoint(result, 0xFFFD);  // unpaired high surrogate
+                append_utf8_codepoint(result, 0xFFFD); // unpaired high surrogate
             } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
-                append_utf8_codepoint(result, 0xFFFD);  // unpaired low surrogate
+                append_utf8_codepoint(result, 0xFFFD); // unpaired low surrogate
             } else {
                 append_utf8_codepoint(result, unit);
             }
@@ -184,7 +180,7 @@ public:
     /// Convert ISO-8859-1 (Latin-1) to UTF-8
     static std::string iso88591_to_utf8(std::string_view input) {
         std::string result;
-        result.reserve(input.size() * 2);  // UTF-8 can be up to 2 bytes per char
+        result.reserve(input.size() * 2); // UTF-8 can be up to 2 bytes per char
 
         for (unsigned char c : input) {
             if (c < 0x80) {
@@ -204,14 +200,12 @@ public:
     static std::string windows1252_to_utf8(std::string_view input) {
         // Windows-1252 mapping for 0x80-0x9F range (differs from ISO-8859-1)
         static const uint16_t win1252_map[32] = {
-            0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
-            0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
-            0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
-            0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178
-        };
+            0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
+            0x2039, 0x0152, 0x008D, 0x017D, 0x008F, 0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
+            0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178};
 
         std::string result;
-        result.reserve(input.size() * 3);  // UTF-8 can be up to 3 bytes per char
+        result.reserve(input.size() * 3); // UTF-8 can be up to 3 bytes per char
 
         for (unsigned char c : input) {
             if (c < 0x80) {
@@ -257,21 +251,25 @@ public:
             unsigned char second_hi = 0xBF;
 
             if (c >= 0xC2 && c <= 0xDF) {
-                bytes = 2;                              // U+0080..U+07FF
+                bytes = 2; // U+0080..U+07FF
             } else if (c == 0xE0) {
-                bytes = 3; second_lo = 0xA0;            // no overlong: U+0800..
+                bytes = 3;
+                second_lo = 0xA0; // no overlong: U+0800..
             } else if (c >= 0xE1 && c <= 0xEC) {
                 bytes = 3;
             } else if (c == 0xED) {
-                bytes = 3; second_hi = 0x9F;            // exclude surrogates D800-DFFF
+                bytes = 3;
+                second_hi = 0x9F; // exclude surrogates D800-DFFF
             } else if (c >= 0xEE && c <= 0xEF) {
                 bytes = 3;
             } else if (c == 0xF0) {
-                bytes = 4; second_lo = 0x90;            // no overlong: U+10000..
+                bytes = 4;
+                second_lo = 0x90; // no overlong: U+10000..
             } else if (c >= 0xF1 && c <= 0xF3) {
                 bytes = 4;
             } else if (c == 0xF4) {
-                bytes = 4; second_hi = 0x8F;            // cap at U+10FFFF
+                bytes = 4;
+                second_hi = 0x8F; // cap at U+10FFFF
             } else {
                 // 80-BF: stray continuation byte
                 // C0-C1: overlong 2-byte encoding
@@ -280,14 +278,17 @@ public:
             }
 
             // Check we have enough bytes
-            if (i + bytes > n) return false;
+            if (i + bytes > n)
+                return false;
 
             const unsigned char second = static_cast<unsigned char>(input[i + 1]);
-            if (second < second_lo || second > second_hi) return false;
+            if (second < second_lo || second > second_hi)
+                return false;
 
             for (size_t j = 2; j < bytes; j++) {
                 const unsigned char cont = static_cast<unsigned char>(input[i + j]);
-                if (cont < 0x80 || cont > 0xBF) return false;
+                if (cont < 0x80 || cont > 0xBF)
+                    return false;
             }
 
             i += bytes;

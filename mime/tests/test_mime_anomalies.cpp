@@ -10,20 +10,19 @@
 /// - multipart nesting depth exceeded
 /// ============================================================================
 
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/mime.h"
 #include "../../core/include/libglot/util/arena.h"
+#include "../include/libglot/mime/mime.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
 TEST_CASE("Anomalies: Duplicate Content-Type header is reported", "[mime][anomalies]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: text/plain\n"
-        "Content-Type: text/html\n"
-        "Subject: duplicate headers\n"
-        "\n"
-        "Body\n";
+    std::string_view source = "Content-Type: text/plain\n"
+                              "Content-Type: text/html\n"
+                              "Subject: duplicate headers\n"
+                              "\n"
+                              "Body\n";
 
     auto result = parse_message(arena, source);
 
@@ -39,11 +38,10 @@ TEST_CASE("Anomalies: Duplicate Content-Type header is reported", "[mime][anomal
 
 TEST_CASE("Anomalies: Clean message reports no critical anomalies", "[mime][anomalies]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: text/plain; charset=utf-8\n"
-        "Subject: all good\n"
-        "\n"
-        "Body\n";
+    std::string_view source = "Content-Type: text/plain; charset=utf-8\n"
+                              "Subject: all good\n"
+                              "\n"
+                              "Body\n";
 
     auto result = parse_message(arena, source);
 
@@ -53,20 +51,20 @@ TEST_CASE("Anomalies: Clean message reports no critical anomalies", "[mime][anom
     REQUIRE(!result.has_anomaly(AnomalyKind::DuplicateContentType));
 }
 
-TEST_CASE("Anomalies: Missing final boundary is reported from the parse path", "[mime][anomalies]") {
+TEST_CASE("Anomalies: Missing final boundary is reported from the parse path",
+          "[mime][anomalies]") {
     libglot::Arena arena;
-    std::string_view source =
-        "MIME-Version: 1.0\n"
-        "Content-Type: multipart/mixed; boundary=frag\n"
-        "\n"
-        "--frag\n"
-        "Content-Type: text/plain\n"
-        "\n"
-        "part one\n"
-        "--frag\n"
-        "Content-Type: text/plain\n"
-        "\n"
-        "truncated message, no close delimiter\n";
+    std::string_view source = "MIME-Version: 1.0\n"
+                              "Content-Type: multipart/mixed; boundary=frag\n"
+                              "\n"
+                              "--frag\n"
+                              "Content-Type: text/plain\n"
+                              "\n"
+                              "part one\n"
+                              "--frag\n"
+                              "Content-Type: text/plain\n"
+                              "\n"
+                              "truncated message, no close delimiter\n";
 
     auto result = parse_message(arena, source);
 
@@ -77,14 +75,13 @@ TEST_CASE("Anomalies: Missing final boundary is reported from the parse path", "
 
 TEST_CASE("Anomalies: Properly terminated multipart has no boundary anomaly", "[mime][anomalies]") {
     libglot::Arena arena;
-    std::string_view source =
-        "MIME-Version: 1.0\n"
-        "Content-Type: multipart/mixed; boundary=ok\n"
-        "\n"
-        "--ok\n"
-        "\n"
-        "part\n"
-        "--ok--\n";
+    std::string_view source = "MIME-Version: 1.0\n"
+                              "Content-Type: multipart/mixed; boundary=ok\n"
+                              "\n"
+                              "--ok\n"
+                              "\n"
+                              "part\n"
+                              "--ok--\n";
 
     auto result = parse_message(arena, source);
 
@@ -95,10 +92,9 @@ TEST_CASE("Anomalies: Properly terminated multipart has no boundary anomaly", "[
 
 TEST_CASE("Anomalies: Missing boundary parameter is reported", "[mime][anomalies]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: multipart/mixed\n"
-        "\n"
-        "Body without any boundary\n";
+    std::string_view source = "Content-Type: multipart/mixed\n"
+                              "\n"
+                              "Body without any boundary\n";
 
     auto result = parse_message(arena, source);
 
@@ -106,13 +102,16 @@ TEST_CASE("Anomalies: Missing boundary parameter is reported", "[mime][anomalies
     REQUIRE(result.has_anomaly(AnomalyKind::MissingBoundaryParameter));
 }
 
-TEST_CASE("Anomalies: Nesting depth exceeded is reported from the parse path", "[mime][anomalies][limits]") {
+TEST_CASE("Anomalies: Nesting depth exceeded is reported from the parse path",
+          "[mime][anomalies][limits]") {
     // Build a multipart message nested 20 levels deep, then cap depth at 5
     std::string content = "Content-Type: text/plain\n\nleaf";
     for (int level = 20; level >= 1; --level) {
         std::string b = "n" + std::to_string(level);
-        content = "Content-Type: multipart/mixed; boundary=" + b + "\n\n"
-                  "--" + b + "\n" + content + "\n--" + b + "--\n";
+        content = "Content-Type: multipart/mixed; boundary=" + b +
+                  "\n\n"
+                  "--" +
+                  b + "\n" + content + "\n--" + b + "--\n";
     }
 
     libglot::Arena arena;
@@ -128,7 +127,8 @@ TEST_CASE("Anomalies: Nesting depth exceeded is reported from the parse path", "
     REQUIRE(result.report.has_critical_anomalies());
 }
 
-TEST_CASE("Anomalies: Invalid RFC 2231 percent-encoding is reported by the pipeline", "[mime][anomalies][rfc2231]") {
+TEST_CASE("Anomalies: Invalid RFC 2231 percent-encoding is reported by the pipeline",
+          "[mime][anomalies][rfc2231]") {
     libglot::Arena arena;
     std::string_view source =
         "Content-Type: application/pdf; filename*0*=\"utf-8''bad%ZZname.pdf\"\n"
@@ -145,7 +145,10 @@ TEST_CASE("Anomalies: Invalid RFC 2231 percent-encoding is reported by the pipel
 TEST_CASE("Anomalies: Severity lookup is exposed via AnomalyConfig", "[mime][anomalies]") {
     // Regression check for the previous compile error: get_severity is a
     // static member of AnomalyConfig and must be called qualified.
-    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::DuplicateContentType) == AnomalySeverity::Security);
-    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::ExcessiveNestingDepth) == AnomalySeverity::DoS);
-    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::MissingFinalBoundary) == AnomalySeverity::Structural);
+    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::DuplicateContentType) ==
+            AnomalySeverity::Security);
+    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::ExcessiveNestingDepth) ==
+            AnomalySeverity::DoS);
+    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::MissingFinalBoundary) ==
+            AnomalySeverity::Structural);
 }

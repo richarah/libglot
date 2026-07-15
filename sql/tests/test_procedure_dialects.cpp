@@ -11,8 +11,8 @@
 //     (which wants BEGIN..END); only the MySQL output is exact-asserted.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -40,19 +40,22 @@ SQLNode* parse(libglot::Arena& arena, const std::string& sql) {
 // CREATE PROCEDURE / FUNCTION
 // ============================================================================
 
-TEST_CASE("Procedure dialects - basic CREATE PROCEDURE is stable across dialects", "[procedure][create]") {
+TEST_CASE("Procedure dialects - basic CREATE PROCEDURE is stable across dialects",
+          "[procedure][create]") {
     const std::string sql = "CREATE PROCEDURE myproc() BEGIN SELECT 1; END";
 
-    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) == "CREATE PROCEDURE myproc() BEGIN SELECT 1; END");
+    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) ==
+            "CREATE PROCEDURE myproc() BEGIN SELECT 1; END");
     REQUIRE(transpile(sql, SQLDialect::MySQL) == "CREATE PROCEDURE myproc() BEGIN SELECT 1; END");
-    REQUIRE(transpile(sql, SQLDialect::SQLServer) == "CREATE PROCEDURE myproc() BEGIN SELECT 1; END");
+    REQUIRE(transpile(sql, SQLDialect::SQLServer) ==
+            "CREATE PROCEDURE myproc() BEGIN SELECT 1; END");
     REQUIRE(transpile(sql, SQLDialect::Oracle) == "CREATE PROCEDURE myproc() BEGIN SELECT 1; END");
 }
 
 TEST_CASE("Procedure dialects - CREATE PROCEDURE with typed parameters", "[procedure][create]") {
     libglot::Arena arena;
-    auto* ast = parse(arena,
-        "CREATE PROCEDURE add_user(name VARCHAR(50), age INT) BEGIN SELECT 1; END");
+    auto* ast =
+        parse(arena, "CREATE PROCEDURE add_user(name VARCHAR(50), age INT) BEGIN SELECT 1; END");
 
     REQUIRE(ast->type == SQLNodeKind::CREATE_PROCEDURE_STMT);
     auto* stmt = static_cast<CreateProcedureStmt*>(ast);
@@ -62,17 +65,17 @@ TEST_CASE("Procedure dialects - CREATE PROCEDURE with typed parameters", "[proce
     REQUIRE(stmt->body.size() == 1);
 
     SQLGenerator gen(SQLDialect::MySQL);
-    REQUIRE(gen.generate(ast)
-            == "CREATE PROCEDURE add_user(name VARCHAR(50), age INT) BEGIN SELECT 1; END");
+    REQUIRE(gen.generate(ast) ==
+            "CREATE PROCEDURE add_user(name VARCHAR(50), age INT) BEGIN SELECT 1; END");
 }
 
 TEST_CASE("Procedure dialects - CREATE FUNCTION with RETURNS", "[procedure][create]") {
     const std::string sql = "CREATE FUNCTION get_count() RETURNS INT BEGIN RETURN 42; END";
 
-    REQUIRE(transpile(sql, SQLDialect::PostgreSQL)
-            == "CREATE FUNCTION get_count() RETURNS INT BEGIN RETURN 42; END");
-    REQUIRE(transpile(sql, SQLDialect::SQLServer)
-            == "CREATE FUNCTION get_count() RETURNS INT BEGIN RETURN 42; END");
+    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) ==
+            "CREATE FUNCTION get_count() RETURNS INT BEGIN RETURN 42; END");
+    REQUIRE(transpile(sql, SQLDialect::SQLServer) ==
+            "CREATE FUNCTION get_count() RETURNS INT BEGIN RETURN 42; END");
 
     libglot::Arena arena;
     auto* ast = parse(arena, sql);
@@ -94,8 +97,8 @@ TEST_CASE("Procedure dialects - IF THEN END IF per dialect quoting", "[procedure
 }
 
 TEST_CASE("Procedure dialects - IF with ELSE branch", "[procedure][if]") {
-    REQUIRE(transpile("IF x > 1 THEN SELECT 1; ELSE SELECT 2; END IF", SQLDialect::MySQL)
-            == "IF `x` > 1 THEN SELECT 1; ELSE SELECT 2; END IF");
+    REQUIRE(transpile("IF x > 1 THEN SELECT 1; ELSE SELECT 2; END IF", SQLDialect::MySQL) ==
+            "IF `x` > 1 THEN SELECT 1; ELSE SELECT 2; END IF");
 
     libglot::Arena arena;
     auto* ast = parse(arena, "IF x > 1 THEN SELECT 1; ELSE SELECT 2; END IF");
@@ -121,8 +124,7 @@ TEST_CASE("Procedure dialects - WHILE loop AST and MySQL output", "[procedure][w
     REQUIRE(loop->body.size() == 1);
 
     // MySQL uses WHILE..DO..END WHILE (PostgreSQL/Oracle use LOOP, T-SQL BEGIN..END).
-    REQUIRE(transpile(sql, SQLDialect::MySQL)
-            == "WHILE `x` < 10 DO SET `x` = `x` + 1; END WHILE");
+    REQUIRE(transpile(sql, SQLDialect::MySQL) == "WHILE `x` < 10 DO SET `x` = `x` + 1; END WHILE");
 }
 
 // ============================================================================
@@ -138,13 +140,14 @@ TEST_CASE("Procedure dialects - FOR loop preserved for PostgreSQL and Oracle", "
 }
 
 TEST_CASE("Procedure dialects - FOR lowered to DECLARE/WHILE for SQL Server", "[procedure][for]") {
-    REQUIRE(transpile("FOR i IN 1..10 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer)
-            == "BEGIN DECLARE @i INT = 1; WHILE @i <= 10 BEGIN SELECT 1; SET @i = @i + 1; END; END");
+    REQUIRE(transpile("FOR i IN 1..10 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer) ==
+            "BEGIN DECLARE @i INT = 1; WHILE @i <= 10 BEGIN SELECT 1; SET @i = @i + 1; END; END");
 }
 
 TEST_CASE("Procedure dialects - FOR lowering keeps variable name and bounds", "[procedure][for]") {
-    REQUIRE(transpile("FOR counter IN 0..100 LOOP SELECT 5; END LOOP", SQLDialect::SQLServer)
-            == "BEGIN DECLARE @counter INT = 0; WHILE @counter <= 100 BEGIN SELECT 5; SET @counter = @counter + 1; END; END");
+    REQUIRE(transpile("FOR counter IN 0..100 LOOP SELECT 5; END LOOP", SQLDialect::SQLServer) ==
+            "BEGIN DECLARE @counter INT = 0; WHILE @counter <= 100 BEGIN SELECT 5; SET @counter = "
+            "@counter + 1; END; END");
 }
 
 // ============================================================================
@@ -181,10 +184,10 @@ TEST_CASE("Procedure dialects - DECLARE with DEFAULT", "[procedure][declare]") {
 TEST_CASE("Procedure dialects - DECLARE CURSOR FOR SELECT", "[procedure][cursor]") {
     const std::string sql = "DECLARE cur CURSOR FOR SELECT id FROM users";
 
-    REQUIRE(transpile(sql, SQLDialect::PostgreSQL)
-            == "DECLARE cur CURSOR FOR SELECT \"id\" FROM \"users\"");
-    REQUIRE(transpile(sql, SQLDialect::SQLServer)
-            == "DECLARE cur CURSOR FOR SELECT [id] FROM [users]");
+    REQUIRE(transpile(sql, SQLDialect::PostgreSQL) ==
+            "DECLARE cur CURSOR FOR SELECT \"id\" FROM \"users\"");
+    REQUIRE(transpile(sql, SQLDialect::SQLServer) ==
+            "DECLARE cur CURSOR FOR SELECT [id] FROM [users]");
 
     libglot::Arena arena;
     auto* ast = parse(arena, sql);
@@ -214,13 +217,13 @@ TEST_CASE("Procedure dialects - OPEN, FETCH INTO, CLOSE", "[procedure][cursor]")
 // ============================================================================
 
 TEST_CASE("Procedure dialects - RAISE becomes SIGNAL for MySQL", "[procedure][raise]") {
-    REQUIRE(transpile("RAISE EXCEPTION 'bad thing'", SQLDialect::MySQL)
-            == "SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'bad thing'");
+    REQUIRE(transpile("RAISE EXCEPTION 'bad thing'", SQLDialect::MySQL) ==
+            "SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'bad thing'");
 }
 
 TEST_CASE("Procedure dialects - RAISE stays RAISE for PostgreSQL", "[procedure][raise]") {
-    REQUIRE(transpile("RAISE EXCEPTION 'bad thing'", SQLDialect::PostgreSQL)
-            == "RAISE EXCEPTION 'bad thing'");
+    REQUIRE(transpile("RAISE EXCEPTION 'bad thing'", SQLDialect::PostgreSQL) ==
+            "RAISE EXCEPTION 'bad thing'");
 }
 
 TEST_CASE("Procedure dialects - SIGNAL parses and carries SQLSTATE", "[procedure][raise]") {

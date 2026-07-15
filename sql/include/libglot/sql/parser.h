@@ -1,13 +1,13 @@
 #pragma once
 
-#include <libglot/parse/parser.h>
-#include "lex/tokenizer.h"
-#include "grammar.h"
 #include "ast_nodes.h"
 #include "dialect_traits.h"
-#include <memory>
+#include "grammar.h"
+#include "lex/tokenizer.h"
 #include <algorithm>
 #include <iostream>
+#include <libglot/parse/parser.h>
+#include <memory>
 
 namespace libglot::sql {
 
@@ -41,9 +41,9 @@ public:
     // Construction
     // ========================================================================
 
-    explicit SQLParser(libglot::Arena& arena, std::string_view source, SQLDialect dialect = SQLDialect::PostgreSQL)
-        : SQLParser(arena, tokenize_and_copy(arena, source, dialect), dialect)
-    {}
+    explicit SQLParser(libglot::Arena& arena, std::string_view source,
+                       SQLDialect dialect = SQLDialect::PostgreSQL)
+        : SQLParser(arena, tokenize_and_copy(arena, source, dialect), dialect) {}
 
     // ========================================================================
     // Top-Level Parsing Entry Point (Required by Base)
@@ -165,7 +165,8 @@ public:
             return parse_optimize();
         } else if (check(TK::COMPUTE)) {
             return parse_compute_stats();
-        } else if (check(TK::IDENTIFIER) && (current().text == "CACHE" || current().text == "cache")) {
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "CACHE" || current().text == "cache")) {
             return parse_cache_table();
         }
 
@@ -224,16 +225,17 @@ public:
         }
 
         // Array literal: ARRAY[1, 2, 3]
-        // Note: The tokenizer may lex [elements] as a single quoted identifier token in SQL Server mode
+        // Note: The tokenizer may lex [elements] as a single quoted identifier token in SQL Server
+        // mode
         if (match(TK::ARRAY)) {
-            // Check if we have a bracket-quoted identifier (SQL Server style) vs separate bracket tokens.
-            // Token text is quote-stripped, so inspect the raw source at the token start.
+            // Check if we have a bracket-quoted identifier (SQL Server style) vs separate bracket
+            // tokens. Token text is quote-stripped, so inspect the raw source at the token start.
             if (check(TK::IDENTIFIER) && current().start < source_.size() &&
                 source_[current().start] == '[') {
                 // Tokenizer lexed [node_id] as a single identifier - need to parse the interior
                 // This is a limitation of the generic tokenizer
                 // For now, create a simple array with the unquoted identifier
-                std::string_view interior = current().text;  // Already stripped of brackets
+                std::string_view interior = current().text; // Already stripped of brackets
                 (void)advance();
                 // Parse the interior as a simple identifier
                 auto elem = this->template create_node<Column>(interior);
@@ -393,8 +395,8 @@ public:
         // parse_insert without going through expression parsing, so this
         // is unambiguous.
         if (check(TK::VALUES) && peek(1).type == TK::LPAREN) {
-            (void)advance();  // VALUES
-            (void)advance();  // (
+            (void)advance(); // VALUES
+            (void)advance(); // (
             return parse_function_call("VALUES");
         }
 
@@ -408,7 +410,7 @@ public:
         }
 
         if (check(TK::SAFE_CAST)) {
-            (void)advance();  // consume SAFE_CAST
+            (void)advance(); // consume SAFE_CAST
             expect(TK::LPAREN);
             auto expr = parse_expression();
             expect(TK::AS);
@@ -418,7 +420,7 @@ public:
         }
 
         if (check(TK::STRUCT_KW)) {
-            (void)advance();  // consume STRUCT
+            (void)advance(); // consume STRUCT
             expect(TK::LPAREN);
             std::vector<SQLNode*> fields;
             if (!check(TK::RPAREN)) {
@@ -462,12 +464,12 @@ public:
             // Token text points into arena-owned source, so the string_view
             // is safe to store directly (a local std::string would dangle).
             std::string_view field = current().text;
-            (void)advance();  // Acknowledge nodiscard warning
+            (void)advance(); // Acknowledge nodiscard warning
             expect(TK::FROM);
             auto expr = parse_expression();
             expect(TK::RPAREN);
-            return this->template create_node<FunctionCall>("EXTRACT",
-                std::vector<SQLNode*>{this->template create_node<Literal>(field), expr});
+            return this->template create_node<FunctionCall>(
+                "EXTRACT", std::vector<SQLNode*>{this->template create_node<Literal>(field), expr});
         }
 
         // Unary operators (NOT, -, +)
@@ -504,10 +506,11 @@ public:
         // is recognized below, in the column-reference '.' handling).
         // NEXTVAL/CURRVAL are not reserved keywords, so this must be
         // disambiguated from an ordinary function call by name + LPAREN.
-        if (check(TK::IDENTIFIER) && (ieq(current().text, "NEXTVAL") || ieq(current().text, "CURRVAL")) &&
+        if (check(TK::IDENTIFIER) &&
+            (ieq(current().text, "NEXTVAL") || ieq(current().text, "CURRVAL")) &&
             peek(1).type == TK::LPAREN) {
             bool is_next = ieq(current().text, "NEXTVAL");
-            (void)advance();  // NEXTVAL / CURRVAL
+            (void)advance(); // NEXTVAL / CURRVAL
             expect(TK::LPAREN);
             if (!check(TK::STRING) && !check(TK::IDENTIFIER)) {
                 error("Expected sequence name in NEXTVAL()/CURRVAL()");
@@ -525,7 +528,7 @@ public:
         // MySQL/MariaDB fulltext search: MATCH (col, ...) AGAINST ('expr' [modifier])
         // MATCH/AGAINST are not reserved keywords (soft keywords).
         if (check(TK::IDENTIFIER) && ieq(current().text, "MATCH") && peek(1).type == TK::LPAREN) {
-            (void)advance();  // MATCH
+            (void)advance(); // MATCH
             expect(TK::LPAREN);
             auto* match_node = this->template create_node<MatchAgainst>();
             do {
@@ -539,7 +542,7 @@ public:
             if (!(check(TK::IDENTIFIER) && ieq(current().text, "AGAINST"))) {
                 error("Expected AGAINST after MATCH(...)");
             }
-            (void)advance();  // AGAINST
+            (void)advance(); // AGAINST
             expect(TK::LPAREN);
             {
                 // Suppress the generic "expr IN (...)" postfix so a
@@ -556,16 +559,16 @@ public:
                     if (!(check(TK::IDENTIFIER) && ieq(current().text, "MODE"))) {
                         error("Expected MODE after IN NATURAL LANGUAGE");
                     }
-                    (void)advance();  // MODE
+                    (void)advance(); // MODE
                     if (match(TK::WITH)) {
                         if (!(check(TK::IDENTIFIER) && ieq(current().text, "QUERY"))) {
                             error("Expected QUERY EXPANSION after WITH");
                         }
-                        (void)advance();  // QUERY
+                        (void)advance(); // QUERY
                         if (!(check(TK::IDENTIFIER) && ieq(current().text, "EXPANSION"))) {
                             error("Expected EXPANSION after WITH QUERY");
                         }
-                        (void)advance();  // EXPANSION
+                        (void)advance(); // EXPANSION
                         match_node->mode = FulltextMode::NATURAL_LANGUAGE_EXPANSION;
                     } else {
                         match_node->mode = FulltextMode::NATURAL_LANGUAGE;
@@ -574,7 +577,7 @@ public:
                     if (!(check(TK::IDENTIFIER) && ieq(current().text, "MODE"))) {
                         error("Expected MODE after IN BOOLEAN");
                     }
-                    (void)advance();  // MODE
+                    (void)advance(); // MODE
                     match_node->mode = FulltextMode::BOOLEAN_MODE;
                 } else {
                     error("Expected NATURAL LANGUAGE MODE or BOOLEAN MODE after IN");
@@ -584,11 +587,11 @@ public:
                 if (!(check(TK::IDENTIFIER) && ieq(current().text, "QUERY"))) {
                     error("Expected QUERY EXPANSION after WITH");
                 }
-                (void)advance();  // QUERY
+                (void)advance(); // QUERY
                 if (!(check(TK::IDENTIFIER) && ieq(current().text, "EXPANSION"))) {
                     error("Expected EXPANSION after WITH QUERY");
                 }
-                (void)advance();  // EXPANSION
+                (void)advance(); // EXPANSION
                 match_node->mode = FulltextMode::QUERY_EXPANSION;
             }
 
@@ -597,14 +600,17 @@ public:
         }
 
         // Function call or column reference (including keywords used as identifiers)
-        if (check(TK::IDENTIFIER) || check(TK::RANK) || check(TK::ORDER) || check(TK::TEMP) || check(TK::LEVEL) ||
-            check(TK::COUNT) || check(TK::SUM) || check(TK::AVG) || check(TK::MIN) || check(TK::MAX) ||
-            check(TK::DENSE_RANK) || check(TK::ROW_NUMBER) || check(TK::NTILE) ||
-            check(TK::LEAD) || check(TK::LAG) || check(TK::FIRST_VALUE) || check(TK::LAST_VALUE) || check(TK::NTH_VALUE) ||
-            check(TK::SUBSTRING) || check(TK::SUBSTR) || check(TK::CONCAT_KW) || check(TK::CONCAT_WS) || check(TK::LENGTH) || check(TK::TRIM) ||
-            check(TK::UPPER) || check(TK::LOWER) || check(TK::REPLACE) || check(TK::REPLACE_KW) || check(TK::REPLACE_DDB) || check(TK::SPLIT) ||
-            check(TK::ROUND) || check(TK::FLOOR) || check(TK::CEIL) || check(TK::ABS) || check(TK::POWER) || check(TK::SQRT) ||
-            check(TK::TIMESTAMP) || check(TK::DATE) || check(TK::TIME) || check(TK::DATE_TRUNC) ||
+        if (check(TK::IDENTIFIER) || check(TK::RANK) || check(TK::ORDER) || check(TK::TEMP) ||
+            check(TK::LEVEL) || check(TK::COUNT) || check(TK::SUM) || check(TK::AVG) ||
+            check(TK::MIN) || check(TK::MAX) || check(TK::DENSE_RANK) || check(TK::ROW_NUMBER) ||
+            check(TK::NTILE) || check(TK::LEAD) || check(TK::LAG) || check(TK::FIRST_VALUE) ||
+            check(TK::LAST_VALUE) || check(TK::NTH_VALUE) || check(TK::SUBSTRING) ||
+            check(TK::SUBSTR) || check(TK::CONCAT_KW) || check(TK::CONCAT_WS) ||
+            check(TK::LENGTH) || check(TK::TRIM) || check(TK::UPPER) || check(TK::LOWER) ||
+            check(TK::REPLACE) || check(TK::REPLACE_KW) || check(TK::REPLACE_DDB) ||
+            check(TK::SPLIT) || check(TK::ROUND) || check(TK::FLOOR) || check(TK::CEIL) ||
+            check(TK::ABS) || check(TK::POWER) || check(TK::SQRT) || check(TK::TIMESTAMP) ||
+            check(TK::DATE) || check(TK::TIME) || check(TK::DATE_TRUNC) ||
             check(TK::GENERATE_SERIES) || check(TK::UNNEST)) {
             auto first = advance();
             std::string_view name = first.text;
@@ -616,9 +622,9 @@ public:
 
             // table.column or column.field (but not .. range operator)
             if (check(TK::DOT) && !check_double_dot()) {
-                (void)advance();  // consume DOT
+                (void)advance(); // consume DOT
                 if (check(TK::STAR)) {
-                    (void)advance();  // Acknowledge nodiscard warning
+                    (void)advance(); // Acknowledge nodiscard warning
                     return this->template create_node<Star>(name);
                 }
                 // Allow keywords as column names (SQL permits this)
@@ -633,7 +639,8 @@ public:
                 // unlikely) still parses as a plain column in every other dialect.
                 if (dialect_ == SQLDialect::Oracle &&
                     (ieq(second.text, "NEXTVAL") || ieq(second.text, "CURRVAL"))) {
-                    return this->template create_node<SequenceRefExpr>(name, ieq(second.text, "NEXTVAL"));
+                    return this->template create_node<SequenceRefExpr>(name,
+                                                                       ieq(second.text, "NEXTVAL"));
                 }
 
                 return this->template create_node<Column>(name, second.text);
@@ -656,11 +663,14 @@ public:
     /// (SEQUENCE, NEXTVAL, MODE, OF, TO, CONTAINED, ...) where a reserved
     /// token would cost every dialect a common word.
     [[nodiscard]] static bool ieq(std::string_view text, std::string_view upper) noexcept {
-        if (text.size() != upper.size()) return false;
+        if (text.size() != upper.size())
+            return false;
         for (size_t i = 0; i < text.size(); ++i) {
             char c = text[i];
-            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
-            if (c != upper[i]) return false;
+            if (c >= 'a' && c <= 'z')
+                c = static_cast<char>(c - 'a' + 'A');
+            if (c != upper[i])
+                return false;
         }
         return true;
     }
@@ -677,7 +687,8 @@ public:
         int paren_depth = 0;
         while (!is_eof()) {
             if (check(TK::RPAREN)) {
-                if (paren_depth == 0) break;  // CAST's closing paren
+                if (paren_depth == 0)
+                    break; // CAST's closing paren
                 paren_depth--;
             } else if (check(TK::LPAREN)) {
                 paren_depth++;
@@ -693,7 +704,7 @@ public:
         while (true) {
             // IN operator: expr IN (value1, value2, ...) or expr IN (SELECT ...)
             if (!no_in_postfix_ && check(TK::IN)) {
-                (void)advance();  // Consume IN
+                (void)advance(); // Consume IN
                 base = parse_in_rest(base, /*not_in=*/false);
                 continue;
             }
@@ -703,16 +714,15 @@ public:
             // both bounds are parsed above comparison precedence so the AND
             // separating them is not mistaken for boolean AND.
             if (check(TK::BETWEEN)) {
-                (void)advance();  // Consume BETWEEN
+                (void)advance(); // Consume BETWEEN
                 base = parse_between_rest(base, /*not_between=*/false);
                 continue;
             }
 
             // Negated infix forms: NOT IN / NOT BETWEEN / NOT LIKE / NOT ILIKE
-            if (check(TK::NOT) &&
-                (peek(1).type == TK::IN || peek(1).type == TK::BETWEEN ||
-                 peek(1).type == TK::LIKE || peek(1).type == TK::ILIKE)) {
-                (void)advance();  // Consume NOT
+            if (check(TK::NOT) && (peek(1).type == TK::IN || peek(1).type == TK::BETWEEN ||
+                                   peek(1).type == TK::LIKE || peek(1).type == TK::ILIKE)) {
+                (void)advance(); // Consume NOT
                 if (match(TK::IN)) {
                     base = parse_in_rest(base, /*not_in=*/true);
                 } else if (match(TK::BETWEEN)) {
@@ -740,9 +750,9 @@ public:
                 if ((check(TK::OFFSET) || check(TK::ORDINAL) || check(TK::SAFE_OFFSET)) &&
                     peek(1).type == TK::LPAREN) {
                     TK fn = advance().type;
-                    subscript = (fn == TK::OFFSET) ? ArraySubscript::OFFSET
-                              : (fn == TK::ORDINAL) ? ArraySubscript::ORDINAL
-                                                     : ArraySubscript::SAFE_OFFSET;
+                    subscript = (fn == TK::OFFSET)    ? ArraySubscript::OFFSET
+                                : (fn == TK::ORDINAL) ? ArraySubscript::ORDINAL
+                                                      : ArraySubscript::SAFE_OFFSET;
                     expect(TK::LPAREN);
                     auto index = parse_expression();
                     expect(TK::RPAREN);
@@ -767,7 +777,8 @@ public:
 
             if (match(TK::LONG_ARROW)) {
                 auto key = parse_expression();
-                base = this->template create_node<JsonExpr>(base, key, JsonExpr::OpType::LONG_ARROW);
+                base =
+                    this->template create_node<JsonExpr>(base, key, JsonExpr::OpType::LONG_ARROW);
                 continue;
             }
 
@@ -802,7 +813,8 @@ public:
             // IN (SELECT ...) - subquery form
             auto subquery = parse_select();
             expect(TK::RPAREN);
-            return this->template create_node<InExpr>(base, std::vector<SQLNode*>{subquery}, not_in);
+            return this->template create_node<InExpr>(base, std::vector<SQLNode*>{subquery},
+                                                      not_in);
         }
 
         // IN (value1, value2, ...) - value list form
@@ -876,16 +888,17 @@ public:
             stmt->limit = parse_prefix();
             // Optional: PERCENT ('%' operator token or PERCENT keyword/identifier)
             if (check(TK::PERCENT) || check(TK::PERCENT_KW) ||
-                (check(TK::IDENTIFIER) && (current().text == "PERCENT" || current().text == "percent"))) {
+                (check(TK::IDENTIFIER) &&
+                 (current().text == "PERCENT" || current().text == "percent"))) {
                 (void)advance();
                 stmt->limit_percent = true;
             }
             // Optional: WITH TIES
-            if (check(TK::WITH) &&
-                (peek(1).type == TK::WITH_TIES ||
-                 (peek(1).type == TK::IDENTIFIER && (peek(1).text == "TIES" || peek(1).text == "ties")))) {
-                (void)advance();  // WITH
-                (void)advance();  // TIES
+            if (check(TK::WITH) && (peek(1).type == TK::WITH_TIES ||
+                                    (peek(1).type == TK::IDENTIFIER &&
+                                     (peek(1).text == "TIES" || peek(1).text == "ties")))) {
+                (void)advance(); // WITH
+                (void)advance(); // TIES
                 stmt->limit_with_ties = true;
             }
         }
@@ -941,8 +954,8 @@ public:
             } else if (check(TK::IDENTIFIER) &&
                        (current().text == "START" || current().text == "start") &&
                        peek(1).type == TK::WITH) {
-                (void)advance();  // START
-                (void)advance();  // WITH
+                (void)advance(); // START
+                (void)advance(); // WITH
                 auto* start_with = this->template create_node<StartWithClause>();
                 start_with->condition = parse_expression();
                 stmt->start_with = start_with;
@@ -1045,8 +1058,8 @@ public:
 
         // FOR UPDATE [OF col, ...] [NOWAIT | SKIP LOCKED]  (row locking)
         if (check(TK::FOR) && peek(1).type == TK::UPDATE) {
-            (void)advance();  // FOR
-            (void)advance();  // UPDATE
+            (void)advance(); // FOR
+            (void)advance(); // UPDATE
             stmt->for_update = true;
 
             if (match(TK::OF)) {
@@ -1061,8 +1074,8 @@ public:
             if (match(TK::NOWAIT)) {
                 stmt->for_update_wait = ForUpdateWait::NOWAIT;
             } else if (check(TK::SKIP) && peek(1).type == TK::LOCKED) {
-                (void)advance();  // SKIP
-                (void)advance();  // LOCKED
+                (void)advance(); // SKIP
+                (void)advance(); // LOCKED
                 stmt->for_update_wait = ForUpdateWait::SKIP_LOCKED;
             }
         }
@@ -1104,8 +1117,9 @@ public:
 
         // Check for AS alias
         if (this->match(TK::AS)) {
-            // Accept almost any token as an alias (SQL allows keywords as identifiers when used as aliases)
-            // The only tokens we reject are structural ones like parentheses, commas, operators
+            // Accept almost any token as an alias (SQL allows keywords as identifiers when used as
+            // aliases) The only tokens we reject are structural ones like parentheses, commas,
+            // operators
             if (this->check(TK::LPAREN) || this->check(TK::RPAREN) || this->check(TK::COMMA) ||
                 this->check(TK::SEMICOLON) || this->check(TK::EOF_TOKEN)) {
                 this->error("Expected alias after AS");
@@ -1124,24 +1138,23 @@ public:
     /// call - only the two-token "GROUPING SETS" form is special here.
     SQLNode* parse_group_by_item() {
         if (check_soft_keyword("ROLLUP", "rollup") && peek(1).type == TK::LPAREN) {
-            (void)advance();  // ROLLUP
+            (void)advance(); // ROLLUP
             auto* rollup = this->template create_node<RollupClause>();
             parse_grouping_expr_list_into(rollup->expressions);
             return rollup;
         }
 
         if (check_soft_keyword("CUBE", "cube") && peek(1).type == TK::LPAREN) {
-            (void)advance();  // CUBE
+            (void)advance(); // CUBE
             auto* cube = this->template create_node<CubeClause>();
             parse_grouping_expr_list_into(cube->expressions);
             return cube;
         }
 
-        if (check_soft_keyword("GROUPING", "grouping") &&
-            peek(1).type == TK::IDENTIFIER &&
+        if (check_soft_keyword("GROUPING", "grouping") && peek(1).type == TK::IDENTIFIER &&
             (peek(1).text == "SETS" || peek(1).text == "sets")) {
-            (void)advance();  // GROUPING
-            (void)advance();  // SETS
+            (void)advance(); // GROUPING
+            (void)advance(); // SETS
             return parse_grouping_sets_body();
         }
 
@@ -1150,9 +1163,9 @@ public:
 
     /// Check whether the current token is a given non-reserved keyword
     /// (lexed as an identifier)
-    [[nodiscard]] bool check_soft_keyword(std::string_view upper, std::string_view lower) const noexcept {
-        return check(TK::IDENTIFIER) &&
-               (current().text == upper || current().text == lower);
+    [[nodiscard]] bool check_soft_keyword(std::string_view upper,
+                                          std::string_view lower) const noexcept {
+        return check(TK::IDENTIFIER) && (current().text == upper || current().text == lower);
     }
 
     /// Parse the parenthesized expression list of ROLLUP(...) / CUBE(...)
@@ -1208,8 +1221,9 @@ public:
             }
         }
 
-        // Accept identifiers or keywords as table names (SQL allows reserved words as identifiers when quoted)
-        // Also accept TEMP, TEMPORARY, SETTINGS, and other common keywords that might appear in table names
+        // Accept identifiers or keywords as table names (SQL allows reserved words as identifiers
+        // when quoted) Also accept TEMP, TEMPORARY, SETTINGS, and other common keywords that might
+        // appear in table names
         if (!this->check(TK::IDENTIFIER) && !this->check(TK::TABLE) && !this->check(TK::DUAL) &&
             !this->check(TK::TEMP) && !this->check(TK::TEMPORARY) && !this->check(TK::LEVEL) &&
             !this->check(TK::SETTINGS)) {
@@ -1245,7 +1259,8 @@ public:
         // Check for database.schema.table or database.table
         if (this->match(TK::DOT)) {
             // Allow keywords as identifiers in qualified names
-            if (!this->check(TK::IDENTIFIER) && !this->check(TK::TABLE) && !this->check(TK::SCHEMA)) {
+            if (!this->check(TK::IDENTIFIER) && !this->check(TK::TABLE) &&
+                !this->check(TK::SCHEMA)) {
                 this->error("Expected table name after '.'");
             }
             auto second = this->advance();
@@ -1258,7 +1273,8 @@ public:
                 }
                 auto third = this->advance();
                 // Combine all three parts with dots
-                std::string combined = std::string(first_name) + "." + std::string(second_name) + "." + std::string(third.text);
+                std::string combined = std::string(first_name) + "." + std::string(second_name) +
+                                       "." + std::string(third.text);
                 return this->template create_node<TableRef>(this->arena().copy_source(combined));
             }
 
@@ -1293,7 +1309,7 @@ public:
             ascending = false;
         } else {
             // ASC is optional (default)
-            (void)this->match(TK::ASC);  // Acknowledge nodiscard warning
+            (void)this->match(TK::ASC); // Acknowledge nodiscard warning
         }
 
         bool nulls_first = false;
@@ -1308,7 +1324,8 @@ public:
             nulls_specified = true;
         }
 
-        return this->template create_node<OrderByItem>(expr, ascending, nulls_first, nulls_specified);
+        return this->template create_node<OrderByItem>(expr, ascending, nulls_first,
+                                                       nulls_specified);
     }
 
     /// Parse CASE expression
@@ -1417,8 +1434,7 @@ public:
     /// Check whether the current token is the GROUPS frame keyword
     /// (GROUPS is not a reserved keyword, so it lexes as an identifier)
     [[nodiscard]] bool check_groups_keyword() const noexcept {
-        return check(TK::IDENTIFIER) &&
-               (current().text == "GROUPS" || current().text == "groups");
+        return check(TK::IDENTIFIER) && (current().text == "GROUPS" || current().text == "groups");
     }
 
     /// Parse window frame clause: ROWS/RANGE/GROUPS [BETWEEN] ...
@@ -1457,7 +1473,8 @@ public:
         }
     }
 
-    /// Parse frame boundary: UNBOUNDED PRECEDING | N PRECEDING | CURRENT ROW | N FOLLOWING | UNBOUNDED FOLLOWING
+    /// Parse frame boundary: UNBOUNDED PRECEDING | N PRECEDING | CURRENT ROW | N FOLLOWING |
+    /// UNBOUNDED FOLLOWING
     std::pair<FrameBound, SQLNode*> parse_frame_bound() {
         if (match(TK::UNBOUNDED)) {
             if (match(TK::PRECEDING)) {
@@ -1544,7 +1561,8 @@ public:
             // Comma-separated tables are implicit CROSS JOINs
             if (match(TK::COMMA)) {
                 auto right_table = parse_table_or_subquery();
-                table = this->template create_node<JoinClause>(JoinType::CROSS, table, right_table, nullptr);
+                table = this->template create_node<JoinClause>(JoinType::CROSS, table, right_table,
+                                                               nullptr);
                 continue;
             }
 
@@ -1566,7 +1584,7 @@ public:
                 expect(TK::JOIN);
             } else if (match(TK::LEFT)) {
                 join_type = JoinType::LEFT;
-                (void)match(TK::OUTER);  // OUTER is optional
+                (void)match(TK::OUTER); // OUTER is optional
                 expect(TK::JOIN);
             } else if (match(TK::RIGHT)) {
                 join_type = JoinType::RIGHT;
@@ -1587,7 +1605,7 @@ public:
             } else if (match(TK::OUTER)) {
                 // SQL Server: OUTER APPLY (or standalone OUTER JOIN which is non-standard)
                 if (match(TK::APPLY)) {
-                    join_type = JoinType::LEFT;  // OUTER APPLY is like LEFT JOIN LATERAL
+                    join_type = JoinType::LEFT; // OUTER APPLY is like LEFT JOIN LATERAL
                     saw_apply = true;
                 } else {
                     // Standalone OUTER JOIN (treat as LEFT OUTER JOIN)
@@ -1620,7 +1638,8 @@ public:
                 expect(TK::RPAREN);
             }
 
-            auto* join = this->template create_node<JoinClause>(join_type, table, right_table, condition);
+            auto* join =
+                this->template create_node<JoinClause>(join_type, table, right_table, condition);
             join->asof = asof;
             join->natural = natural;
             join->using_columns = std::move(using_columns);
@@ -1639,7 +1658,7 @@ public:
             // so it can't collide with an ordinary table-valued function
             // named "flatten".
             if (check(TK::FLATTEN)) {
-                (void)advance();  // FLATTEN
+                (void)advance(); // FLATTEN
                 expect(TK::LPAREN);
                 auto* flatten = this->template create_node<FlattenClause>();
                 do {
@@ -1716,9 +1735,12 @@ public:
                 // Skip the column list for now
                 int depth = 1;
                 while (depth > 0 && !check(TK::EOF_TOKEN)) {
-                    if (match(TK::LPAREN)) depth++;
-                    else if (match(TK::RPAREN)) depth--;
-                    else (void)advance();
+                    if (match(TK::LPAREN))
+                        depth++;
+                    else if (match(TK::RPAREN))
+                        depth--;
+                    else
+                        (void)advance();
                 }
             }
 
@@ -1797,14 +1819,16 @@ public:
         // Check if this is a table-valued function: function_name(...)
         // by looking ahead for IDENTIFIER( or function_keyword(
         // Many table-valued functions like generate_series, unnest are keywords
-        bool is_function_call = (pos_ + 1 < tokens_.size() && tokens_[pos_ + 1].type == TK::LPAREN) &&
-                                (check(TK::IDENTIFIER) || check(TK::GENERATE_SERIES) || check(TK::UNNEST));
+        bool is_function_call =
+            (pos_ + 1 < tokens_.size() && tokens_[pos_ + 1].type == TK::LPAREN) &&
+            (check(TK::IDENTIFIER) || check(TK::GENERATE_SERIES) || check(TK::UNNEST));
 
         if (is_function_call) {
             // This is a function call in FROM clause (table-valued function)
-            auto func_expr = parse_expression();  // This will parse the function call
+            auto func_expr = parse_expression(); // This will parse the function call
 
-            // Optional alias (but note: aliases with column lists like "t(x, y)" need special handling)
+            // Optional alias (but note: aliases with column lists like "t(x, y)" need special
+            // handling)
             std::string_view alias = "";
             if (match(TK::AS)) {
                 if (check(TK::IDENTIFIER)) {
@@ -1818,8 +1842,8 @@ public:
                     next_word != "HAVING" && next_word != "LIMIT" && next_word != "UNION" &&
                     next_word != "INTERSECT" && next_word != "EXCEPT" && next_word != "JOIN" &&
                     next_word != "INNER" && next_word != "LEFT" && next_word != "RIGHT" &&
-                    next_word != "FULL" && next_word != "CROSS" &&
-                    next_word != "WINDOW" && next_word != "window") {
+                    next_word != "FULL" && next_word != "CROSS" && next_word != "WINDOW" &&
+                    next_word != "window") {
                     alias = advance().text;
 
                     // Check for column list after alias: alias(col1, col2, ...)
@@ -1827,9 +1851,12 @@ public:
                         // Skip the column list for now
                         int depth = 1;
                         while (depth > 0 && !check(TK::EOF_TOKEN)) {
-                            if (match(TK::LPAREN)) depth++;
-                            else if (match(TK::RPAREN)) depth--;
-                            else (void)advance();
+                            if (match(TK::LPAREN))
+                                depth++;
+                            else if (match(TK::RPAREN))
+                                depth--;
+                            else
+                                (void)advance();
                         }
                     }
                 }
@@ -1849,14 +1876,14 @@ public:
         // directly after the table name, before any alias. SYSTEM_TIME/OF/TO
         // /CONTAINED are soft keywords (matched by identifier text).
         if (check(TK::FOR) && peek(1).type == TK::IDENTIFIER && ieq(peek(1).text, "SYSTEM_TIME")) {
-            (void)advance();  // FOR
-            (void)advance();  // SYSTEM_TIME
+            (void)advance(); // FOR
+            (void)advance(); // SYSTEM_TIME
             if (match(TK::AS)) {
                 // OF is a reserved token (shared with INSTEAD OF triggers), not a soft keyword.
                 if (!check(TK::OF)) {
                     error("Expected OF after FOR SYSTEM_TIME AS");
                 }
-                (void)advance();  // OF
+                (void)advance(); // OF
                 table->temporal_kind = TemporalKind::AS_OF;
                 table->temporal_arg1 = parse_expression();
             } else if (match(TK::FROM)) {
@@ -1865,7 +1892,7 @@ public:
                 if (!(check(TK::IDENTIFIER) && ieq(current().text, "TO"))) {
                     error("Expected TO in FOR SYSTEM_TIME FROM ... TO ...");
                 }
-                (void)advance();  // TO
+                (void)advance(); // TO
                 table->temporal_arg2 = parse_expression();
             } else if (match(TK::BETWEEN)) {
                 // Bounds parse above comparison precedence so the AND
@@ -1876,7 +1903,7 @@ public:
                 expect(TK::AND);
                 table->temporal_arg2 = parse_expression(kComparisonOperandPrecedence);
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "CONTAINED")) {
-                (void)advance();  // CONTAINED
+                (void)advance(); // CONTAINED
                 expect(TK::IN);
                 expect(TK::LPAREN);
                 table->temporal_kind = TemporalKind::CONTAINED_IN;
@@ -1900,16 +1927,15 @@ public:
             }
             table->alias = advance().text;
         } else if (check(TK::IDENTIFIER)) {
-            // Check if this identifier is actually an alias (not a keyword like TABLESAMPLE or JOIN)
+            // Check if this identifier is actually an alias (not a keyword like TABLESAMPLE or
+            // JOIN)
             std::string_view next_word = current().text;
             // Oracle hierarchical clause: START WITH is not an alias (START
             // lexes as an identifier). Only the two-token form is excluded,
             // so a table alias literally named "start" still works.
             const bool is_start_with =
-                (next_word == "START" || next_word == "start") &&
-                peek(1).type == TK::WITH;
-            if (!is_start_with &&
-                next_word != "TABLESAMPLE" && next_word != "tablesample" &&
+                (next_word == "START" || next_word == "start") && peek(1).type == TK::WITH;
+            if (!is_start_with && next_word != "TABLESAMPLE" && next_word != "tablesample" &&
                 next_word != "JOIN" && next_word != "INNER" && next_word != "LEFT" &&
                 next_word != "RIGHT" && next_word != "FULL" && next_word != "CROSS" &&
                 next_word != "WHERE" && next_word != "ORDER" && next_word != "GROUP" &&
@@ -2004,7 +2030,7 @@ public:
         if (match(TK::LPAREN)) {
             do {
                 if (check(TK::IDENTIFIER)) {
-                    stmt->columns.push_back(advance().text);  // Store string_view directly
+                    stmt->columns.push_back(advance().text); // Store string_view directly
                 }
             } while (match(TK::COMMA));
             expect(TK::RPAREN);
@@ -2036,8 +2062,8 @@ public:
         // / DO UPDATE SET col = expr, ... [WHERE cond]
         if (check(TK::ON) && peek(1).type == TK::IDENTIFIER &&
             (peek(1).text == "CONFLICT" || peek(1).text == "conflict")) {
-            (void)advance();  // ON
-            (void)advance();  // CONFLICT
+            (void)advance(); // ON
+            (void)advance(); // CONFLICT
             auto* on_conflict = this->template create_node<OnConflictClause>();
 
             if (match(TK::LPAREN)) {
@@ -2077,8 +2103,8 @@ public:
 
         // MySQL upsert: ON DUPLICATE KEY UPDATE col = expr, ...
         if (check(TK::ON) && peek(1).type == TK::DUPLICATE) {
-            (void)advance();  // ON
-            (void)advance();  // DUPLICATE
+            (void)advance(); // ON
+            (void)advance(); // DUPLICATE
             expect(TK::KEY);
             expect(TK::UPDATE);
             auto* on_dup = this->template create_node<OnDuplicateKeyClause>();
@@ -2116,7 +2142,7 @@ public:
             if (!check(TK::IDENTIFIER)) {
                 error("Expected column name in SET clause");
             }
-            std::string_view column = advance().text;  // Store string_view directly
+            std::string_view column = advance().text; // Store string_view directly
             expect(TK::EQ);
             SQLNode* value = parse_expression();
             stmt->assignments.push_back({column, value});
@@ -2239,7 +2265,7 @@ public:
 
         // Optional table alias (e.g., MERGE INTO target_table t)
         if (check(TK::IDENTIFIER) && !check(TK::USING)) {
-            (void)advance();  // Skip alias
+            (void)advance(); // Skip alias
         }
 
         expect(TK::USING);
@@ -2249,7 +2275,7 @@ public:
 
         // Optional table alias (e.g., USING source_table s)
         if (check(TK::IDENTIFIER) && !check(TK::ON)) {
-            (void)advance();  // Skip alias
+            (void)advance(); // Skip alias
         }
 
         expect(TK::ON);
@@ -2272,7 +2298,7 @@ public:
                 // default WHEN NOT MATCHED [BY TARGET] (fires for source
                 // rows with no matching target row).
                 if (check(TK::BY)) {
-                    (void)advance();  // BY
+                    (void)advance(); // BY
                     if (check(TK::IDENTIFIER) && ieq(current().text, "SOURCE")) {
                         (void)advance();
                         clause.match_kind = MergeMatchKind::NOT_MATCHED_BY_SOURCE;
@@ -2315,7 +2341,7 @@ public:
                             check(TK::SEMICOLON) || check(TK::EOF_TOKEN)) {
                             error("Expected column name after '.'");
                         }
-                        col = advance().text;  // Use the column name, discard table qualifier
+                        col = advance().text; // Use the column name, discard table qualifier
                     }
 
                     expect(TK::EQ);
@@ -2358,7 +2384,7 @@ public:
     TruncateStmt* parse_truncate() {
         auto stmt = this->template create_node<TruncateStmt>();
         expect(TK::TRUNCATE);
-        (void)match(TK::TABLE);  // TABLE keyword is optional
+        (void)match(TK::TABLE); // TABLE keyword is optional
 
         stmt->table = parse_table_ref();
 
@@ -2403,17 +2429,20 @@ public:
             return parse_create_procedure(or_replace);
         } else if (check(TK::TRIGGER)) {
             return parse_create_trigger();
-        } else if (check(TK::IDENTIFIER) && (current().text == "MODEL" || current().text == "model")) {
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "MODEL" || current().text == "model")) {
             return parse_create_model(or_replace);
         } else if (check(TK::PROJECTION)) {
             return parse_create_projection();
-        } else if (check(TK::IDENTIFIER) && (current().text == "REFLECTION" || current().text == "reflection")) {
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "REFLECTION" || current().text == "reflection")) {
             return parse_create_reflection();
         } else if (check(TK::IDENTIFIER) && ieq(current().text, "SEQUENCE")) {
             return parse_create_sequence();
         }
 
-        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, PROJECTION, REFLECTION, or SEQUENCE after CREATE");
+        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, "
+              "PROJECTION, REFLECTION, or SEQUENCE after CREATE");
         return nullptr;
     }
 
@@ -2422,7 +2451,7 @@ public:
     ///   [{CYCLE | NO CYCLE}] [CACHE n]
     CreateSequenceStmt* parse_create_sequence() {
         auto stmt = this->template create_node<CreateSequenceStmt>();
-        (void)advance();  // SEQUENCE (soft keyword)
+        (void)advance(); // SEQUENCE (soft keyword)
 
         if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::NOT);
@@ -2437,12 +2466,12 @@ public:
 
         while (true) {
             if (check(TK::IDENTIFIER) && ieq(current().text, "START")) {
-                (void)advance();  // START
-                (void)match(TK::WITH);  // optional WITH
+                (void)advance();       // START
+                (void)match(TK::WITH); // optional WITH
                 stmt->start_with = parse_expression();
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "INCREMENT")) {
-                (void)advance();  // INCREMENT
-                (void)match(TK::BY);  // optional BY
+                (void)advance();     // INCREMENT
+                (void)match(TK::BY); // optional BY
                 stmt->increment_by = parse_expression();
             } else if (match(TK::MINVALUE)) {
                 stmt->min_value = parse_expression();
@@ -2450,24 +2479,24 @@ public:
                 stmt->max_value = parse_expression();
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "NO") &&
                        peek(1).type == TK::MINVALUE) {
-                (void)advance();  // NO
-                (void)advance();  // MINVALUE
+                (void)advance(); // NO
+                (void)advance(); // MINVALUE
                 stmt->no_min_value = true;
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "NO") &&
                        peek(1).type == TK::MAXVALUE) {
-                (void)advance();  // NO
-                (void)advance();  // MAXVALUE
+                (void)advance(); // NO
+                (void)advance(); // MAXVALUE
                 stmt->no_max_value = true;
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "NO") &&
                        peek(1).type == TK::IDENTIFIER && ieq(peek(1).text, "CYCLE")) {
-                (void)advance();  // NO
-                (void)advance();  // CYCLE
+                (void)advance(); // NO
+                (void)advance(); // CYCLE
                 stmt->no_cycle = true;
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "CYCLE")) {
-                (void)advance();  // CYCLE
+                (void)advance(); // CYCLE
                 stmt->cycle = true;
             } else if (check(TK::IDENTIFIER) && ieq(current().text, "CACHE")) {
-                (void)advance();  // CACHE
+                (void)advance(); // CACHE
                 stmt->cache = parse_expression();
             } else {
                 break;
@@ -2495,7 +2524,8 @@ public:
         // Table name - must be present (including SQL Server #temp syntax)
         // Be permissive for SQL Server temp tables with # or ## prefix
         bool has_hash_prefix = check(TK::HASH);
-        if (!has_hash_prefix && !check(TK::IDENTIFIER) && !check(TK::TABLE) && !check(TK::DUAL) && !check(TK::TEMP)) {
+        if (!has_hash_prefix && !check(TK::IDENTIFIER) && !check(TK::TABLE) && !check(TK::DUAL) &&
+            !check(TK::TEMP)) {
             error("Expected table name after CREATE TABLE");
         }
         stmt->table = parse_table_ref();
@@ -2527,7 +2557,8 @@ public:
         // value) pairs and regenerated verbatim, rather than being consumed
         // and discarded.
         while (!check(TK::SEMICOLON) && !is_eof()) {
-            if (match(TK::COMMA)) continue;  // Some dialects comma-separate options
+            if (match(TK::COMMA))
+                continue; // Some dialects comma-separate options
             stmt->table_options.push_back(parse_table_option());
         }
 
@@ -2561,12 +2592,11 @@ public:
 
         size_t name_start = current().start;
         size_t name_end = current().end;
-        (void)advance();  // First name word
+        (void)advance(); // First name word
 
         // Recognized two-word name prefixes: DEFAULT CHARSET/CHARACTER,
         // CHARACTER SET, DISTRIBUTED BY, PARTITION BY.
-        if (check(TK::CHARSET) ||
-            (check(TK::IDENTIFIER) && ieq(current().text, "CHARACTER")) ||
+        if (check(TK::CHARSET) || (check(TK::IDENTIFIER) && ieq(current().text, "CHARACTER")) ||
             check(TK::BY)) {
             name_end = current().end;
             (void)advance();
@@ -2575,7 +2605,8 @@ public:
                 name_end = current().end;
                 (void)advance();
             }
-        } else if (check(TK::SET) && ieq(source_.substr(name_start, name_end - name_start), "CHARACTER")) {
+        } else if (check(TK::SET) &&
+                   ieq(source_.substr(name_start, name_end - name_start), "CHARACTER")) {
             name_end = current().end;
             (void)advance();
         }
@@ -2589,8 +2620,10 @@ public:
             if (check(TK::LPAREN)) {
                 int depth = 0;
                 do {
-                    if (check(TK::LPAREN)) depth++;
-                    else if (check(TK::RPAREN)) depth--;
+                    if (check(TK::LPAREN))
+                        depth++;
+                    else if (check(TK::RPAREN))
+                        depth--;
                     val_end = current().end;
                     (void)advance();
                 } while (depth > 0 && !is_eof());
@@ -2608,10 +2641,14 @@ public:
             int depth = 0;
             bool first = true;
             while (!is_eof() && !check(TK::SEMICOLON)) {
-                if (depth == 0 && check(TK::COMMA)) break;
-                if (depth == 0 && !first && at_table_option_start()) break;
-                if (check(TK::LPAREN)) depth++;
-                else if (check(TK::RPAREN)) depth--;
+                if (depth == 0 && check(TK::COMMA))
+                    break;
+                if (depth == 0 && !first && at_table_option_start())
+                    break;
+                if (check(TK::LPAREN))
+                    depth++;
+                else if (check(TK::RPAREN))
+                    depth--;
                 val_end = current().end;
                 (void)advance();
                 first = false;
@@ -2625,8 +2662,7 @@ public:
     /// Check whether the current token begins a table-level constraint
     [[nodiscard]] bool check_table_constraint_start() const noexcept {
         return check(TK::CONSTRAINT) || check(TK::PRIMARY) || check(TK::FOREIGN) ||
-               check(TK::CHECK) ||
-               (check(TK::UNIQUE) && peek(1).type == TK::LPAREN);
+               check(TK::CHECK) || (check(TK::UNIQUE) && peek(1).type == TK::LPAREN);
     }
 
     /// Parse a table-level constraint inside CREATE TABLE:
@@ -2675,7 +2711,8 @@ public:
     void parse_identifier_list_into(std::vector<std::string_view>& out) {
         expect(TK::LPAREN);
         do {
-            if (check(TK::RPAREN)) break;
+            if (check(TK::RPAREN))
+                break;
             out.push_back(advance().text);
         } while (match(TK::COMMA));
         expect(TK::RPAREN);
@@ -2683,11 +2720,10 @@ public:
 
     /// Parse optional ON DELETE / ON UPDATE referential actions
     void parse_foreign_key_actions(std::string_view& on_delete, std::string_view& on_update) {
-        while (check(TK::ON) &&
-               (peek(1).type == TK::DELETE || peek(1).type == TK::UPDATE)) {
-            (void)advance();  // ON
+        while (check(TK::ON) && (peek(1).type == TK::DELETE || peek(1).type == TK::UPDATE)) {
+            (void)advance(); // ON
             const bool is_delete = check(TK::DELETE);
-            (void)advance();  // DELETE / UPDATE
+            (void)advance(); // DELETE / UPDATE
 
             // Action: CASCADE | RESTRICT | SET NULL | SET DEFAULT | NO ACTION.
             // Capture the action text as a source span.
@@ -2695,15 +2731,17 @@ public:
             size_t action_end = action_start;
             if (match(TK::SET)) {
                 action_end = current().end;
-                if (!match(TK::NULL_KW)) (void)match(TK::DEFAULT);
+                if (!match(TK::NULL_KW))
+                    (void)match(TK::DEFAULT);
             } else if (check(TK::IDENTIFIER) &&
                        (current().text == "NO" || current().text == "no")) {
-                (void)advance();  // NO
+                (void)advance(); // NO
                 action_end = current().end;
-                if (check(TK::IDENTIFIER)) (void)advance();  // ACTION
+                if (check(TK::IDENTIFIER))
+                    (void)advance(); // ACTION
             } else if (check(TK::IDENTIFIER)) {
                 action_end = current().end;
-                (void)advance();  // CASCADE / RESTRICT
+                (void)advance(); // CASCADE / RESTRICT
             }
 
             std::string_view action = source_.substr(action_start, action_end - action_start);
@@ -2735,16 +2773,16 @@ public:
         int paren_depth = 0;
         while (!is_eof()) {
             if (paren_depth == 0 &&
-                (check(TK::COMMA) || check(TK::NOT) || check(TK::NULL_KW) ||
-                 check(TK::DEFAULT) || check(TK::PRIMARY) || check(TK::UNIQUE) ||
-                 check(TK::REFERENCES) || check(TK::CHECK) || check(TK::CONSTRAINT) ||
-                 check(TK::AUTO_INCREMENT))) {
+                (check(TK::COMMA) || check(TK::NOT) || check(TK::NULL_KW) || check(TK::DEFAULT) ||
+                 check(TK::PRIMARY) || check(TK::UNIQUE) || check(TK::REFERENCES) ||
+                 check(TK::CHECK) || check(TK::CONSTRAINT) || check(TK::AUTO_INCREMENT))) {
                 break;
             }
             if (check(TK::LPAREN)) {
                 paren_depth++;
             } else if (check(TK::RPAREN)) {
-                if (paren_depth == 0) break;  // Closing paren of the column list
+                if (paren_depth == 0)
+                    break; // Closing paren of the column list
                 paren_depth--;
             }
             type_end = current().end;
@@ -2792,9 +2830,12 @@ public:
         // column or the end of the column list.
         int skip_depth = 0;
         while (!is_eof()) {
-            if (skip_depth == 0 && (check(TK::COMMA) || check(TK::RPAREN))) break;
-            if (check(TK::LPAREN)) skip_depth++;
-            else if (check(TK::RPAREN)) skip_depth--;
+            if (skip_depth == 0 && (check(TK::COMMA) || check(TK::RPAREN)))
+                break;
+            if (check(TK::LPAREN))
+                skip_depth++;
+            else if (check(TK::RPAREN))
+                skip_depth--;
             (void)advance();
         }
 
@@ -2826,7 +2867,7 @@ public:
 
         // Index name
         if (check(TK::IDENTIFIER)) {
-            stmt->index_name = advance().text;  // Store string_view directly
+            stmt->index_name = advance().text; // Store string_view directly
         }
 
         expect(TK::ON);
@@ -2836,7 +2877,7 @@ public:
         expect(TK::LPAREN);
         do {
             if (check(TK::IDENTIFIER)) {
-                stmt->columns.push_back(advance().text);  // Store string_view directly
+                stmt->columns.push_back(advance().text); // Store string_view directly
             }
         } while (match(TK::COMMA));
         expect(TK::RPAREN);
@@ -2892,8 +2933,9 @@ public:
     /// Parse CREATE REFLECTION (Dremio)
     CreateViewStmt* parse_create_reflection() {
         auto stmt = this->template create_node<CreateViewStmt>();
-        if (check(TK::IDENTIFIER) && (current().text == "REFLECTION" || current().text == "reflection")) {
-            (void)advance();  // consume REFLECTION
+        if (check(TK::IDENTIFIER) &&
+            (current().text == "REFLECTION" || current().text == "reflection")) {
+            (void)advance(); // consume REFLECTION
         }
 
         // Reflection name
@@ -2928,20 +2970,22 @@ public:
             return parse_drop_procedure();
         } else if (check(TK::TRIGGER)) {
             return parse_drop_trigger();
-        } else if (check(TK::IDENTIFIER) && (current().text == "MODEL" || current().text == "model")) {
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "MODEL" || current().text == "model")) {
             return parse_drop_model();
         } else if (check(TK::IDENTIFIER) && ieq(current().text, "SEQUENCE")) {
             return parse_drop_sequence();
         }
 
-        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, or SEQUENCE after DROP");
+        error("Expected TABLE, VIEW, INDEX, SCHEMA, PROCEDURE, FUNCTION, TRIGGER, MODEL, or "
+              "SEQUENCE after DROP");
         return nullptr;
     }
 
     /// Parse DROP SEQUENCE [IF EXISTS] name
     DropSequenceStmt* parse_drop_sequence() {
         auto stmt = this->template create_node<DropSequenceStmt>();
-        (void)advance();  // SEQUENCE (soft keyword)
+        (void)advance(); // SEQUENCE (soft keyword)
 
         if (match(TK::IF_KW) || match(TK::IF)) {
             expect(TK::EXISTS);
@@ -3005,7 +3049,7 @@ public:
         }
 
         if (check(TK::IDENTIFIER)) {
-            stmt->index_name = advance().text;  // Store string_view directly
+            stmt->index_name = advance().text; // Store string_view directly
         }
 
         return stmt;
@@ -3053,7 +3097,8 @@ public:
             stmt->operation = AlterOperation::ADD_COLUMN;
 
             // COLUMN keyword (optional)
-            if (check(TK::IDENTIFIER) && (current().text == "COLUMN" || current().text == "column")) {
+            if (check(TK::IDENTIFIER) &&
+                (current().text == "COLUMN" || current().text == "column")) {
                 (void)advance();
             }
 
@@ -3077,7 +3122,8 @@ public:
             stmt->operation = AlterOperation::DROP_COLUMN;
 
             // COLUMN keyword (optional)
-            if (check(TK::IDENTIFIER) && (current().text == "COLUMN" || current().text == "column")) {
+            if (check(TK::IDENTIFIER) &&
+                (current().text == "COLUMN" || current().text == "column")) {
                 (void)advance();
             }
 
@@ -3089,12 +3135,14 @@ public:
         } else if (check(TK::IDENTIFIER)) {
             std::string_view keyword = current().text;
 
-            if (keyword == "MODIFY" || keyword == "modify" || keyword == "ALTER" || keyword == "alter") {
+            if (keyword == "MODIFY" || keyword == "modify" || keyword == "ALTER" ||
+                keyword == "alter") {
                 (void)advance();
                 stmt->operation = AlterOperation::MODIFY_COLUMN;
 
                 // COLUMN keyword (optional)
-                if (check(TK::IDENTIFIER) && (current().text == "COLUMN" || current().text == "column")) {
+                if (check(TK::IDENTIFIER) &&
+                    (current().text == "COLUMN" || current().text == "column")) {
                     (void)advance();
                 }
 
@@ -3129,7 +3177,8 @@ public:
                         }
 
                         // TO keyword
-                        if (check(TK::IDENTIFIER) && (current().text == "TO" || current().text == "to")) {
+                        if (check(TK::IDENTIFIER) &&
+                            (current().text == "TO" || current().text == "to")) {
                             (void)advance();
                         }
 
@@ -3157,7 +3206,7 @@ public:
     /// Parse ALTER SEQUENCE name RESTART [WITH n]
     AlterSequenceStmt* parse_alter_sequence() {
         auto stmt = this->template create_node<AlterSequenceStmt>();
-        (void)advance();  // SEQUENCE (soft keyword)
+        (void)advance(); // SEQUENCE (soft keyword)
 
         if (!check(TK::IDENTIFIER)) {
             error("Expected sequence name after ALTER SEQUENCE");
@@ -3165,7 +3214,7 @@ public:
         stmt->name = advance().text;
 
         if (check(TK::IDENTIFIER) && ieq(current().text, "RESTART")) {
-            (void)advance();  // RESTART
+            (void)advance(); // RESTART
             stmt->restart = true;
             if (match(TK::WITH)) {
                 stmt->restart_with = parse_expression();
@@ -3412,7 +3461,8 @@ public:
             do {
                 std::string_view option;
 
-                // Option names can be keywords (FULL, VERBOSE, ANALYZE) or identifiers (PARALLEL, FREEZE)
+                // Option names can be keywords (FULL, VERBOSE, ANALYZE) or identifiers (PARALLEL,
+                // FREEZE)
                 if (check(TK::FULL)) {
                     option = advance().text;
                     stmt->full = true;
@@ -3461,10 +3511,10 @@ public:
                         stmt->freeze = true;
                         (void)advance();
                     } else {
-                        break;  // Not a VACUUM option
+                        break; // Not a VACUUM option
                     }
                 } else {
-                    break;  // No more options
+                    break; // No more options
                 }
             }
         }
@@ -3501,8 +3551,8 @@ public:
     GrantStmt* parse_grant() {
         auto stmt = this->template create_node<GrantStmt>();
         expect(TK::GRANT);
-        // Parse privileges - can be keywords (SELECT, INSERT, UPDATE, DELETE, ALL, etc.) or identifiers
-        // Can also have column lists: UPDATE(col1, col2) or REFERENCES(col)
+        // Parse privileges - can be keywords (SELECT, INSERT, UPDATE, DELETE, ALL, etc.) or
+        // identifiers Can also have column lists: UPDATE(col1, col2) or REFERENCES(col)
         do {
             if (!is_eof() && !check(TK::ON)) {
                 auto priv = advance().text;
@@ -3511,23 +3561,25 @@ public:
                 if (check(TK::LPAREN)) {
                     // Capture the privilege with its column list as a single string
                     size_t start = priv.data() - source_.data();
-                    (void)advance();  // consume LPAREN
+                    (void)advance(); // consume LPAREN
 
                     // Skip to closing paren, counting nested parens
                     int paren_depth = 1;
-                    bool has_content = false;  // Track if there's anything between parens
+                    bool has_content = false; // Track if there's anything between parens
                     while (!is_eof() && paren_depth > 0) {
-                        if (check(TK::LPAREN)) paren_depth++;
-                        if (check(TK::RPAREN)) paren_depth--;
+                        if (check(TK::LPAREN))
+                            paren_depth++;
+                        if (check(TK::RPAREN))
+                            paren_depth--;
                         if (paren_depth > 0) {
-                            has_content = true;  // Found at least one token
+                            has_content = true; // Found at least one token
                             (void)advance();
                         }
                     }
 
                     if (check(TK::RPAREN)) {
                         size_t end = current().end;
-                        (void)advance();  // consume RPAREN
+                        (void)advance(); // consume RPAREN
 
                         // Validate that column list is not empty
                         if (!has_content) {
@@ -3536,7 +3588,8 @@ public:
 
                         // Store entire privilege with column list
                         std::string_view full_priv = source_.substr(start, end - start);
-                        stmt->privileges.push_back(this->arena().copy_source(std::string(full_priv)));
+                        stmt->privileges.push_back(
+                            this->arena().copy_source(std::string(full_priv)));
                     } else {
                         error("Expected closing parenthesis for column-level privilege");
                     }
@@ -3545,49 +3598,65 @@ public:
                     stmt->privileges.push_back(priv);
 
                     // Handle multi-word privileges by checking for known second words
-                    // This handles: ALL PRIVILEGES, SHOW VIEW, CREATE VIEW, LOCK TABLES, GRANT OPTION,
-                    // TAKE OWNERSHIP, VIEW DEFINITION, ALTER ANY, BIGQUERY READER/EDITOR/OWNER/VIEWER
+                    // This handles: ALL PRIVILEGES, SHOW VIEW, CREATE VIEW, LOCK TABLES, GRANT
+                    // OPTION, TAKE OWNERSHIP, VIEW DEFINITION, ALTER ANY, BIGQUERY
+                    // READER/EDITOR/OWNER/VIEWER
                     if (!is_eof() && !check(TK::ON) && !check(TK::COMMA)) {
                         std::string_view next = current().text;
                         bool is_multiword = false;
 
-                        if ((priv == "ALL" || priv == "all") && (next == "PRIVILEGES" || next == "privileges")) {
+                        if ((priv == "ALL" || priv == "all") &&
+                            (next == "PRIVILEGES" || next == "privileges")) {
                             is_multiword = true;
-                        } else if ((priv == "SHOW" || priv == "show") && (next == "VIEW" || next == "view")) {
+                        } else if ((priv == "SHOW" || priv == "show") &&
+                                   (next == "VIEW" || next == "view")) {
                             is_multiword = true;
-                        } else if ((priv == "CREATE" || priv == "create") && (next == "VIEW" || next == "view")) {
+                        } else if ((priv == "CREATE" || priv == "create") &&
+                                   (next == "VIEW" || next == "view")) {
                             is_multiword = true;
-                        } else if ((priv == "LOCK" || priv == "lock") && (next == "TABLES" || next == "tables")) {
+                        } else if ((priv == "LOCK" || priv == "lock") &&
+                                   (next == "TABLES" || next == "tables")) {
                             is_multiword = true;
-                        } else if ((priv == "GRANT" || priv == "grant") && (next == "OPTION" || next == "option")) {
+                        } else if ((priv == "GRANT" || priv == "grant") &&
+                                   (next == "OPTION" || next == "option")) {
                             is_multiword = true;
-                        } else if ((priv == "TAKE" || priv == "take") && (next == "OWNERSHIP" || next == "ownership")) {
+                        } else if ((priv == "TAKE" || priv == "take") &&
+                                   (next == "OWNERSHIP" || next == "ownership")) {
                             is_multiword = true;
-                        } else if ((priv == "VIEW" || priv == "view") && (next == "DEFINITION" || next == "definition")) {
+                        } else if ((priv == "VIEW" || priv == "view") &&
+                                   (next == "DEFINITION" || next == "definition")) {
                             is_multiword = true;
-                        } else if ((priv == "ALTER" || priv == "alter") && (next == "ANY" || next == "any")) {
-                            // ALTER ANY is a two-word prefix for three-word privileges (ALTER ANY USER, ALTER ANY ROLE)
+                        } else if ((priv == "ALTER" || priv == "alter") &&
+                                   (next == "ANY" || next == "any")) {
+                            // ALTER ANY is a two-word prefix for three-word privileges (ALTER ANY
+                            // USER, ALTER ANY ROLE)
                             is_multiword = true;
                         } else if ((priv == "BIGQUERY" || priv == "bigquery") &&
-                                   (next == "READER" || next == "reader" || next == "EDITOR" || next == "editor" ||
-                                    next == "OWNER" || next == "owner" || next == "VIEWER" || next == "viewer")) {
+                                   (next == "READER" || next == "reader" || next == "EDITOR" ||
+                                    next == "editor" || next == "OWNER" || next == "owner" ||
+                                    next == "VIEWER" || next == "viewer")) {
                             is_multiword = true;
                         }
 
                         if (is_multiword) {
-                            stmt->privileges.push_back(advance().text);  // Include second word
+                            stmt->privileges.push_back(advance().text); // Include second word
 
                             // Check for three-word privileges like "ALTER ANY USER"
                             if (!is_eof() && !check(TK::ON) && !check(TK::COMMA) &&
-                                ((priv == "ALTER" || priv == "alter") || (priv == "GRANT" || priv == "grant"))) {
+                                ((priv == "ALTER" || priv == "alter") ||
+                                 (priv == "GRANT" || priv == "grant"))) {
                                 std::string_view third = current().text;
-                                if (third == "USER" || third == "user" || third == "ROLE" || third == "role" ||
-                                    third == "TABLE" || third == "table" || third == "VIEW" || third == "view" ||
-                                    third == "INDEX" || third == "index" || third == "PROCEDURE" || third == "procedure" ||
-                                    third == "FUNCTION" || third == "function" || third == "SCHEMA" || third == "schema" ||
-                                    third == "DATABASE" || third == "database" || third == "SEQUENCE" || third == "sequence" ||
-                                    third == "FOR" || third == "for") {
-                                    stmt->privileges.push_back(advance().text);  // Include third word
+                                if (third == "USER" || third == "user" || third == "ROLE" ||
+                                    third == "role" || third == "TABLE" || third == "table" ||
+                                    third == "VIEW" || third == "view" || third == "INDEX" ||
+                                    third == "index" || third == "PROCEDURE" ||
+                                    third == "procedure" || third == "FUNCTION" ||
+                                    third == "function" || third == "SCHEMA" || third == "schema" ||
+                                    third == "DATABASE" || third == "database" ||
+                                    third == "SEQUENCE" || third == "sequence" || third == "FOR" ||
+                                    third == "for") {
+                                    stmt->privileges.push_back(
+                                        advance().text); // Include third word
                                 }
                             }
                         }
@@ -3600,7 +3669,7 @@ public:
         // Role grants: GRANT role_name TO user
         // Privilege grants: GRANT privilege ON object TO user
         if (check(TK::ON)) {
-            (void)advance();  // consume ON
+            (void)advance(); // consume ON
 
             // Parse optional object type (TABLE, SCHEMA, DATABASE, etc.) and object name(s)
             // Strategy: consume tokens until we hit TO keyword
@@ -3616,7 +3685,7 @@ public:
 
                 // Skip DOT for qualified names (schema.table)
                 if (check(TK::DOT)) {
-                    (void)advance();  // Skip the DOT token
+                    (void)advance(); // Skip the DOT token
                     if (!is_eof() && current().text != "TO" && current().text != "to") {
                         // Append the next part after the dot
                         object_parts.back() = this->arena().copy_source(
@@ -3631,7 +3700,7 @@ public:
                 if (!is_eof() && current().text == "::") {
                     std::string colon_name = "::";
                     object_end = current().end;
-                    (void)advance();  // Skip the :: token
+                    (void)advance(); // Skip the :: token
                     if (!is_eof() && current().text != "TO" && current().text != "to") {
                         // Create "::name" as a separate element
                         colon_name += std::string(current().text);
@@ -3648,27 +3717,33 @@ public:
                 }
             }
 
-            // Check if first part is an object type keyword (TABLE, SCHEMA, DATABASE, FUNCTION, etc.)
+            // Check if first part is an object type keyword (TABLE, SCHEMA, DATABASE, FUNCTION,
+            // etc.)
             if (object_parts.size() >= 2 &&
-                (object_parts[0] == "TABLE" || object_parts[0] == "SCHEMA" || object_parts[0] == "DATABASE" ||
-                 object_parts[0] == "FUNCTION" || object_parts[0] == "PROCEDURE" || object_parts[0] == "SEQUENCE" ||
-                 object_parts[0] == "WAREHOUSE" || object_parts[0] == "STAGE" || object_parts[0] == "DATASET" ||
-                 object_parts[0] == "LOGIN")) {
+                (object_parts[0] == "TABLE" || object_parts[0] == "SCHEMA" ||
+                 object_parts[0] == "DATABASE" || object_parts[0] == "FUNCTION" ||
+                 object_parts[0] == "PROCEDURE" || object_parts[0] == "SEQUENCE" ||
+                 object_parts[0] == "WAREHOUSE" || object_parts[0] == "STAGE" ||
+                 object_parts[0] == "DATASET" || object_parts[0] == "LOGIN")) {
                 stmt->object_type = object_parts[0];
-                // Concatenate remaining parts without spaces (DOT already merged, DOUBLE_COLON preserved)
+                // Concatenate remaining parts without spaces (DOT already merged, DOUBLE_COLON
+                // preserved)
                 std::string name;
                 for (size_t i = 1; i < object_parts.size(); ++i) {
                     name += object_parts[i];
                 }
                 // Trim leading/trailing whitespace
                 size_t start = 0;
-                while (start < name.size() && (name[start] == ' ' || name[start] == '\t')) ++start;
+                while (start < name.size() && (name[start] == ' ' || name[start] == '\t'))
+                    ++start;
                 size_t end = name.size();
-                while (end > start && (name[end-1] == ' ' || name[end-1] == '\t')) --end;
+                while (end > start && (name[end - 1] == ' ' || name[end - 1] == '\t'))
+                    --end;
                 stmt->object_name = this->arena().copy_source(name.substr(start, end - start));
             } else {
                 // No object type - use entire range as object name(s)
-                stmt->object_name = this->arena().copy_source(std::string(source_.substr(object_start, object_end - object_start)));
+                stmt->object_name = this->arena().copy_source(
+                    std::string(source_.substr(object_start, object_end - object_start)));
             }
         }
         // else: role grant - no ON clause, object_name remains empty
@@ -3695,20 +3770,25 @@ public:
         if (match(TK::WITH)) {
             // WITH GRANT OPTION, WITH ADMIN OPTION, or WITH HIERARCHY OPTION
             if (check(TK::GRANT)) {
-                (void)advance();  // consume GRANT
-                if (check(TK::IDENTIFIER) && (current().text == "OPTION" || current().text == "option")) {
+                (void)advance(); // consume GRANT
+                if (check(TK::IDENTIFIER) &&
+                    (current().text == "OPTION" || current().text == "option")) {
                     (void)advance();
                     stmt->with_grant_option = true;
                 }
-            } else if (check(TK::IDENTIFIER) && (current().text == "ADMIN" || current().text == "admin")) {
-                (void)advance();  // consume ADMIN
-                if (check(TK::IDENTIFIER) && (current().text == "OPTION" || current().text == "option")) {
+            } else if (check(TK::IDENTIFIER) &&
+                       (current().text == "ADMIN" || current().text == "admin")) {
+                (void)advance(); // consume ADMIN
+                if (check(TK::IDENTIFIER) &&
+                    (current().text == "OPTION" || current().text == "option")) {
                     (void)advance();
                     stmt->with_admin_option = true;
                 }
-            } else if (check(TK::IDENTIFIER) && (current().text == "HIERARCHY" || current().text == "hierarchy")) {
-                (void)advance();  // consume HIERARCHY
-                if (check(TK::IDENTIFIER) && (current().text == "OPTION" || current().text == "option")) {
+            } else if (check(TK::IDENTIFIER) &&
+                       (current().text == "HIERARCHY" || current().text == "hierarchy")) {
+                (void)advance(); // consume HIERARCHY
+                if (check(TK::IDENTIFIER) &&
+                    (current().text == "OPTION" || current().text == "option")) {
                     (void)advance();
                     stmt->with_hierarchy_option = true;
                 }
@@ -3723,27 +3803,32 @@ public:
 
         // Check for GRANT OPTION FOR or ADMIN OPTION FOR prefixes
         if (check(TK::GRANT)) {
-            (void)advance();  // consume GRANT
-            if (check(TK::IDENTIFIER) && (current().text == "OPTION" || current().text == "option")) {
-                (void)advance();  // consume OPTION
-                if (check(TK::FOR) || (check(TK::IDENTIFIER) && (current().text == "FOR" || current().text == "for"))) {
-                    (void)advance();  // consume FOR
+            (void)advance(); // consume GRANT
+            if (check(TK::IDENTIFIER) &&
+                (current().text == "OPTION" || current().text == "option")) {
+                (void)advance(); // consume OPTION
+                if (check(TK::FOR) || (check(TK::IDENTIFIER) &&
+                                       (current().text == "FOR" || current().text == "for"))) {
+                    (void)advance(); // consume FOR
                     stmt->grant_option_for = true;
                 }
             }
-        } else if (check(TK::IDENTIFIER) && (current().text == "ADMIN" || current().text == "admin")) {
-            (void)advance();  // consume ADMIN
-            if (check(TK::IDENTIFIER) && (current().text == "OPTION" || current().text == "option")) {
-                (void)advance();  // consume OPTION
-                if (check(TK::FOR) || (check(TK::IDENTIFIER) && (current().text == "FOR" || current().text == "for"))) {
-                    (void)advance();  // consume FOR
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "ADMIN" || current().text == "admin")) {
+            (void)advance(); // consume ADMIN
+            if (check(TK::IDENTIFIER) &&
+                (current().text == "OPTION" || current().text == "option")) {
+                (void)advance(); // consume OPTION
+                if (check(TK::FOR) || (check(TK::IDENTIFIER) &&
+                                       (current().text == "FOR" || current().text == "for"))) {
+                    (void)advance(); // consume FOR
                     stmt->admin_option_for = true;
                 }
             }
         }
 
-        // Parse privileges - can be keywords (SELECT, INSERT, UPDATE, DELETE, ALL, etc.) or identifiers
-        // Can also have column lists: UPDATE(col1, col2) or REFERENCES(col)
+        // Parse privileges - can be keywords (SELECT, INSERT, UPDATE, DELETE, ALL, etc.) or
+        // identifiers Can also have column lists: UPDATE(col1, col2) or REFERENCES(col)
         do {
             if (!is_eof() && !check(TK::ON)) {
                 auto priv = advance().text;
@@ -3752,23 +3837,25 @@ public:
                 if (check(TK::LPAREN)) {
                     // Capture the privilege with its column list as a single string
                     size_t start = priv.data() - source_.data();
-                    (void)advance();  // consume LPAREN
+                    (void)advance(); // consume LPAREN
 
                     // Skip to closing paren, counting nested parens
                     int paren_depth = 1;
-                    bool has_content = false;  // Track if there's anything between parens
+                    bool has_content = false; // Track if there's anything between parens
                     while (!is_eof() && paren_depth > 0) {
-                        if (check(TK::LPAREN)) paren_depth++;
-                        if (check(TK::RPAREN)) paren_depth--;
+                        if (check(TK::LPAREN))
+                            paren_depth++;
+                        if (check(TK::RPAREN))
+                            paren_depth--;
                         if (paren_depth > 0) {
-                            has_content = true;  // Found at least one token
+                            has_content = true; // Found at least one token
                             (void)advance();
                         }
                     }
 
                     if (check(TK::RPAREN)) {
                         size_t end = current().end;
-                        (void)advance();  // consume RPAREN
+                        (void)advance(); // consume RPAREN
 
                         // Validate that column list is not empty
                         if (!has_content) {
@@ -3777,7 +3864,8 @@ public:
 
                         // Store entire privilege with column list
                         std::string_view full_priv = source_.substr(start, end - start);
-                        stmt->privileges.push_back(this->arena().copy_source(std::string(full_priv)));
+                        stmt->privileges.push_back(
+                            this->arena().copy_source(std::string(full_priv)));
                     } else {
                         error("Expected closing parenthesis for column-level privilege");
                     }
@@ -3786,49 +3874,65 @@ public:
                     stmt->privileges.push_back(priv);
 
                     // Handle multi-word privileges by checking for known second words
-                    // This handles: ALL PRIVILEGES, SHOW VIEW, CREATE VIEW, LOCK TABLES, GRANT OPTION,
-                    // TAKE OWNERSHIP, VIEW DEFINITION, ALTER ANY, BIGQUERY READER/EDITOR/OWNER/VIEWER
+                    // This handles: ALL PRIVILEGES, SHOW VIEW, CREATE VIEW, LOCK TABLES, GRANT
+                    // OPTION, TAKE OWNERSHIP, VIEW DEFINITION, ALTER ANY, BIGQUERY
+                    // READER/EDITOR/OWNER/VIEWER
                     if (!is_eof() && !check(TK::ON) && !check(TK::COMMA)) {
                         std::string_view next = current().text;
                         bool is_multiword = false;
 
-                        if ((priv == "ALL" || priv == "all") && (next == "PRIVILEGES" || next == "privileges")) {
+                        if ((priv == "ALL" || priv == "all") &&
+                            (next == "PRIVILEGES" || next == "privileges")) {
                             is_multiword = true;
-                        } else if ((priv == "SHOW" || priv == "show") && (next == "VIEW" || next == "view")) {
+                        } else if ((priv == "SHOW" || priv == "show") &&
+                                   (next == "VIEW" || next == "view")) {
                             is_multiword = true;
-                        } else if ((priv == "CREATE" || priv == "create") && (next == "VIEW" || next == "view")) {
+                        } else if ((priv == "CREATE" || priv == "create") &&
+                                   (next == "VIEW" || next == "view")) {
                             is_multiword = true;
-                        } else if ((priv == "LOCK" || priv == "lock") && (next == "TABLES" || next == "tables")) {
+                        } else if ((priv == "LOCK" || priv == "lock") &&
+                                   (next == "TABLES" || next == "tables")) {
                             is_multiword = true;
-                        } else if ((priv == "GRANT" || priv == "grant") && (next == "OPTION" || next == "option")) {
+                        } else if ((priv == "GRANT" || priv == "grant") &&
+                                   (next == "OPTION" || next == "option")) {
                             is_multiword = true;
-                        } else if ((priv == "TAKE" || priv == "take") && (next == "OWNERSHIP" || next == "ownership")) {
+                        } else if ((priv == "TAKE" || priv == "take") &&
+                                   (next == "OWNERSHIP" || next == "ownership")) {
                             is_multiword = true;
-                        } else if ((priv == "VIEW" || priv == "view") && (next == "DEFINITION" || next == "definition")) {
+                        } else if ((priv == "VIEW" || priv == "view") &&
+                                   (next == "DEFINITION" || next == "definition")) {
                             is_multiword = true;
-                        } else if ((priv == "ALTER" || priv == "alter") && (next == "ANY" || next == "any")) {
-                            // ALTER ANY is a two-word prefix for three-word privileges (ALTER ANY USER, ALTER ANY ROLE)
+                        } else if ((priv == "ALTER" || priv == "alter") &&
+                                   (next == "ANY" || next == "any")) {
+                            // ALTER ANY is a two-word prefix for three-word privileges (ALTER ANY
+                            // USER, ALTER ANY ROLE)
                             is_multiword = true;
                         } else if ((priv == "BIGQUERY" || priv == "bigquery") &&
-                                   (next == "READER" || next == "reader" || next == "EDITOR" || next == "editor" ||
-                                    next == "OWNER" || next == "owner" || next == "VIEWER" || next == "viewer")) {
+                                   (next == "READER" || next == "reader" || next == "EDITOR" ||
+                                    next == "editor" || next == "OWNER" || next == "owner" ||
+                                    next == "VIEWER" || next == "viewer")) {
                             is_multiword = true;
                         }
 
                         if (is_multiword) {
-                            stmt->privileges.push_back(advance().text);  // Include second word
+                            stmt->privileges.push_back(advance().text); // Include second word
 
                             // Check for three-word privileges like "ALTER ANY USER"
                             if (!is_eof() && !check(TK::ON) && !check(TK::COMMA) &&
-                                ((priv == "ALTER" || priv == "alter") || (priv == "GRANT" || priv == "grant"))) {
+                                ((priv == "ALTER" || priv == "alter") ||
+                                 (priv == "GRANT" || priv == "grant"))) {
                                 std::string_view third = current().text;
-                                if (third == "USER" || third == "user" || third == "ROLE" || third == "role" ||
-                                    third == "TABLE" || third == "table" || third == "VIEW" || third == "view" ||
-                                    third == "INDEX" || third == "index" || third == "PROCEDURE" || third == "procedure" ||
-                                    third == "FUNCTION" || third == "function" || third == "SCHEMA" || third == "schema" ||
-                                    third == "DATABASE" || third == "database" || third == "SEQUENCE" || third == "sequence" ||
-                                    third == "FOR" || third == "for") {
-                                    stmt->privileges.push_back(advance().text);  // Include third word
+                                if (third == "USER" || third == "user" || third == "ROLE" ||
+                                    third == "role" || third == "TABLE" || third == "table" ||
+                                    third == "VIEW" || third == "view" || third == "INDEX" ||
+                                    third == "index" || third == "PROCEDURE" ||
+                                    third == "procedure" || third == "FUNCTION" ||
+                                    third == "function" || third == "SCHEMA" || third == "schema" ||
+                                    third == "DATABASE" || third == "database" ||
+                                    third == "SEQUENCE" || third == "sequence" || third == "FOR" ||
+                                    third == "for") {
+                                    stmt->privileges.push_back(
+                                        advance().text); // Include third word
                                 }
                             }
                         }
@@ -3845,8 +3949,9 @@ public:
             // Parse grantees
             do {
                 if (!is_eof() && !check(TK::SEMICOLON) &&
-                    !(check(TK::IDENTIFIER) && (current().text == "CASCADE" || current().text == "cascade" ||
-                                               current().text == "RESTRICT" || current().text == "restrict"))) {
+                    !(check(TK::IDENTIFIER) &&
+                      (current().text == "CASCADE" || current().text == "cascade" ||
+                       current().text == "RESTRICT" || current().text == "restrict"))) {
                     stmt->grantees.push_back(advance().text);
                 }
             } while (match(TK::COMMA));
@@ -3857,10 +3962,12 @@ public:
             }
 
             // Check for CASCADE or RESTRICT keyword
-            if (check(TK::IDENTIFIER) && (current().text == "CASCADE" || current().text == "cascade")) {
+            if (check(TK::IDENTIFIER) &&
+                (current().text == "CASCADE" || current().text == "cascade")) {
                 (void)advance();
                 stmt->cascade = true;
-            } else if (check(TK::IDENTIFIER) && (current().text == "RESTRICT" || current().text == "restrict")) {
+            } else if (check(TK::IDENTIFIER) &&
+                       (current().text == "RESTRICT" || current().text == "restrict")) {
                 (void)advance();
                 stmt->restrict = true;
             }
@@ -3881,7 +3988,7 @@ public:
 
             // Skip DOT for qualified names (schema.table)
             if (check(TK::DOT)) {
-                (void)advance();  // Skip the DOT token
+                (void)advance(); // Skip the DOT token
                 if (!is_eof() && current().text != "FROM" && current().text != "from") {
                     // Append the next part after the dot
                     object_parts.back() = this->arena().copy_source(
@@ -3896,7 +4003,7 @@ public:
             if (!is_eof() && current().text == "::") {
                 std::string colon_name = "::";
                 object_end = current().end;
-                (void)advance();  // Skip the :: token
+                (void)advance(); // Skip the :: token
                 if (!is_eof() && current().text != "FROM" && current().text != "from") {
                     // Create "::name" as a separate element
                     colon_name += std::string(current().text);
@@ -3915,32 +4022,38 @@ public:
 
         // Check if first part is an object type keyword (TABLE, SCHEMA, DATABASE, FUNCTION, etc.)
         if (object_parts.size() >= 2 &&
-            (object_parts[0] == "TABLE" || object_parts[0] == "SCHEMA" || object_parts[0] == "DATABASE" ||
-             object_parts[0] == "FUNCTION" || object_parts[0] == "PROCEDURE" || object_parts[0] == "SEQUENCE" ||
+            (object_parts[0] == "TABLE" || object_parts[0] == "SCHEMA" ||
+             object_parts[0] == "DATABASE" || object_parts[0] == "FUNCTION" ||
+             object_parts[0] == "PROCEDURE" || object_parts[0] == "SEQUENCE" ||
              object_parts[0] == "LOGIN")) {
             stmt->object_type = object_parts[0];
-            // Concatenate remaining parts without spaces (DOT already merged, DOUBLE_COLON preserved)
+            // Concatenate remaining parts without spaces (DOT already merged, DOUBLE_COLON
+            // preserved)
             std::string name;
             for (size_t i = 1; i < object_parts.size(); ++i) {
                 name += object_parts[i];
             }
             // Trim leading/trailing whitespace
             size_t start = 0;
-            while (start < name.size() && (name[start] == ' ' || name[start] == '\t')) ++start;
+            while (start < name.size() && (name[start] == ' ' || name[start] == '\t'))
+                ++start;
             size_t end = name.size();
-            while (end > start && (name[end-1] == ' ' || name[end-1] == '\t')) --end;
+            while (end > start && (name[end - 1] == ' ' || name[end - 1] == '\t'))
+                --end;
             stmt->object_name = this->arena().copy_source(name.substr(start, end - start));
         } else {
             // No object type - use entire range as object name(s)
-            stmt->object_name = this->arena().copy_source(std::string(source_.substr(object_start, object_end - object_start)));
+            stmt->object_name = this->arena().copy_source(
+                std::string(source_.substr(object_start, object_end - object_start)));
         }
 
         expect(TK::FROM);
         // Parse grantees
         do {
             if (!is_eof() && !check(TK::SEMICOLON) &&
-                !(check(TK::IDENTIFIER) && (current().text == "CASCADE" || current().text == "cascade" ||
-                                           current().text == "RESTRICT" || current().text == "restrict"))) {
+                !(check(TK::IDENTIFIER) &&
+                  (current().text == "CASCADE" || current().text == "cascade" ||
+                   current().text == "RESTRICT" || current().text == "restrict"))) {
                 stmt->grantees.push_back(advance().text);
             }
         } while (match(TK::COMMA));
@@ -3954,7 +4067,8 @@ public:
         if (check(TK::IDENTIFIER) && (current().text == "CASCADE" || current().text == "cascade")) {
             (void)advance();
             stmt->cascade = true;
-        } else if (check(TK::IDENTIFIER) && (current().text == "RESTRICT" || current().text == "restrict")) {
+        } else if (check(TK::IDENTIFIER) &&
+                   (current().text == "RESTRICT" || current().text == "restrict")) {
             (void)advance();
             stmt->restrict = true;
         }
@@ -4014,8 +4128,7 @@ public:
         if (!is_eof() && !check(TK::SEMICOLON)) {
             std::string_view token_text = current().text;
             // Check if current token is "LANGUAGE" (case-insensitive)
-            if ((token_text.size() == 8) &&
-                (token_text[0] == 'L' || token_text[0] == 'l') &&
+            if ((token_text.size() == 8) && (token_text[0] == 'L' || token_text[0] == 'l') &&
                 (token_text[1] == 'A' || token_text[1] == 'a') &&
                 (token_text[2] == 'N' || token_text[2] == 'n') &&
                 (token_text[3] == 'G' || token_text[3] == 'g') &&
@@ -4023,7 +4136,7 @@ public:
                 (token_text[5] == 'A' || token_text[5] == 'a') &&
                 (token_text[6] == 'G' || token_text[6] == 'g') &&
                 (token_text[7] == 'E' || token_text[7] == 'e')) {
-                (void)advance();  // consume LANGUAGE
+                (void)advance(); // consume LANGUAGE
                 // Next token is the language name
                 if (!is_eof() && !check(TK::SEMICOLON)) {
                     stmt->language = advance().text;
@@ -4129,7 +4242,7 @@ public:
         // CACHE TABLE table (Spark) - use TruncateStmt as generic container
         auto stmt = this->template create_node<TruncateStmt>();
         if (check(TK::IDENTIFIER) && (current().text == "CACHE" || current().text == "cache")) {
-            (void)advance();  // consume CACHE
+            (void)advance(); // consume CACHE
         }
         expect(TK::TABLE);
         stmt->table = parse_table_ref();
@@ -4154,8 +4267,8 @@ public:
         }
 
         // Procedure/function name (allow keywords as identifiers)
-        if (!check(TK::IDENTIFIER) && !check(TK::ADD) && !check(TK::COUNT) &&
-            !check(TK::SUM) && !check(TK::MAX) && !check(TK::MIN) && !check(TK::AVG)) {
+        if (!check(TK::IDENTIFIER) && !check(TK::ADD) && !check(TK::COUNT) && !check(TK::SUM) &&
+            !check(TK::MAX) && !check(TK::MIN) && !check(TK::AVG)) {
             error("Expected procedure/function name");
         }
         stmt->name = advance().text;
@@ -4203,14 +4316,16 @@ public:
                 size_t type_end = type_start;
                 int paren_depth = 0;
                 while (true) {
-                    if (is_eof()) break;
+                    if (is_eof())
+                        break;
                     if (check(TK::LPAREN)) {
                         paren_depth++;
                     } else if (check(TK::RPAREN)) {
-                        if (paren_depth == 0) break;  // Parameter list closing paren
+                        if (paren_depth == 0)
+                            break; // Parameter list closing paren
                         paren_depth--;
                     } else if (check(TK::COMMA) && paren_depth == 0) {
-                        break;  // Next parameter
+                        break; // Next parameter
                     }
                     type_end = current().end;
                     (void)advance();
@@ -4225,9 +4340,10 @@ public:
         expect(TK::RPAREN);
 
         // RETURNS type (for functions) - capture full return type including parentheses
-        if (stmt->is_function && (check(TK::RETURNS) ||
-            (check(TK::IDENTIFIER) && (current().text == "RETURNS" || current().text == "returns")))) {
-            (void)advance();  // consume RETURNS
+        if (stmt->is_function &&
+            (check(TK::RETURNS) || (check(TK::IDENTIFIER) && (current().text == "RETURNS" ||
+                                                              current().text == "returns")))) {
+            (void)advance(); // consume RETURNS
 
             if (!check(TK::AS) && !check(TK::BEGIN) && !is_eof()) {
                 // Capture complete return type with parentheses (e.g., VARCHAR(100))
@@ -4236,13 +4352,14 @@ public:
                 size_t type_end = type_start;
                 int paren_depth = 0;
 
-                while (!is_eof() && !check(TK::AS) && !check(TK::BEGIN) &&
-                       !check(TK::LANGUAGE) &&
-                       !(check(TK::IDENTIFIER) && (current().text == "LANGUAGE" || current().text == "language"))) {
+                while (!is_eof() && !check(TK::AS) && !check(TK::BEGIN) && !check(TK::LANGUAGE) &&
+                       !(check(TK::IDENTIFIER) &&
+                         (current().text == "LANGUAGE" || current().text == "language"))) {
                     if (check(TK::LPAREN)) {
                         paren_depth++;
                     } else if (check(TK::RPAREN)) {
-                        if (paren_depth == 0) break;  // Not part of type
+                        if (paren_depth == 0)
+                            break; // Not part of type
                         paren_depth--;
                     }
                     type_end = current().end;
@@ -4256,9 +4373,11 @@ public:
         }
 
         // LANGUAGE clause (optional, PostgreSQL)
-        if (check(TK::LANGUAGE) || (check(TK::IDENTIFIER) && (current().text == "LANGUAGE" || current().text == "language"))) {
-            (void)advance();  // consume LANGUAGE
-            // Accept any token type for the language name (could be keyword like plpgsql, not just IDENTIFIER)
+        if (check(TK::LANGUAGE) || (check(TK::IDENTIFIER) && (current().text == "LANGUAGE" ||
+                                                              current().text == "language"))) {
+            (void)advance(); // consume LANGUAGE
+            // Accept any token type for the language name (could be keyword like plpgsql, not just
+            // IDENTIFIER)
             if (!check(TK::AS) && !check(TK::BEGIN) && !is_eof()) {
                 stmt->language = advance().text;
             }
@@ -4371,8 +4490,8 @@ public:
 
                 // Parse type - concatenate tokens and copy to arena
                 std::string type_str;
-                while (!check(TK::SEMICOLON) && !check(TK::DEFAULT) &&
-                       !check(TK::EQ) && !check(TK::END) && !check(TK::COLON_EQUALS) && !is_eof()) {
+                while (!check(TK::SEMICOLON) && !check(TK::DEFAULT) && !check(TK::EQ) &&
+                       !check(TK::END) && !check(TK::COLON_EQUALS) && !is_eof()) {
                     if (!current().text.empty()) {
                         type_str += std::string(current().text);
                     }
@@ -4402,7 +4521,8 @@ public:
         expect(TK::THEN);
 
         // Parse THEN body (simplified - just parse until ELSE/END IF)
-        while (!check(TK::END) && !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) && !is_eof()) {
+        while (!check(TK::END) && !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) &&
+               !is_eof()) {
             // Skip semicolons
             if (match(TK::SEMICOLON)) {
                 continue;
@@ -4417,7 +4537,8 @@ public:
             expect(TK::THEN);
 
             std::vector<SQLNode*> elsif_stmts;
-            while (!check(TK::END) && !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) && !is_eof()) {
+            while (!check(TK::END) && !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) &&
+                   !is_eof()) {
                 // Skip semicolons
                 if (match(TK::SEMICOLON)) {
                     continue;
@@ -4445,7 +4566,8 @@ public:
         } else {
             expect(TK::END);
             // Optional IF after END (use IF_KW token type, not IF)
-            if (check(TK::IF_KW) || (check(TK::IDENTIFIER) && (current().text == "IF" || current().text == "if"))) {
+            if (check(TK::IF_KW) ||
+                (check(TK::IDENTIFIER) && (current().text == "IF" || current().text == "if"))) {
                 (void)advance();
             }
         }
@@ -4523,7 +4645,7 @@ public:
         // Accept both spellings regardless of dialect; the generator picks
         // the dialect-appropriate one when regenerating.
         if (check(TK::LPAREN) && (peek(1).type == TK::SELECT || peek(1).type == TK::WITH)) {
-            (void)advance();  // (
+            (void)advance(); // (
             stmt->query = parse_select();
             expect(TK::RPAREN);
         } else if (check(TK::SELECT) || check(TK::WITH)) {
@@ -4647,7 +4769,7 @@ public:
         stmt->tsql_raiserror = true;
         stmt->level = "EXCEPTION";
 
-        (void)advance();  // RAISERROR (lexes as an identifier)
+        (void)advance(); // RAISERROR (lexes as an identifier)
         expect(TK::LPAREN);
 
         if (check(TK::STRING)) {
@@ -4739,8 +4861,8 @@ public:
         // Optional return value
         SQLNode* return_value = nullptr;
         if (!check(TK::END) && !check(TK::SEMICOLON) && !check(TK::EXCEPTION) && !is_eof() &&
-            !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) &&
-            !check(TK::ENDLOOP) && !check(TK::ENDWHILE)) {
+            !check(TK::ELSE) && !check(TK::ELSEIF) && !check(TK::ENDIF) && !check(TK::ENDLOOP) &&
+            !check(TK::ENDWHILE)) {
             return_value = parse_expression();
         }
 
@@ -4837,7 +4959,8 @@ public:
             (void)advance();
             if (check(TK::IDENTIFIER) && (current().text == "EACH" || current().text == "each")) {
                 (void)advance();
-                if (check(TK::ROW) || (check(TK::IDENTIFIER) && (current().text == "ROW" || current().text == "row"))) {
+                if (check(TK::ROW) || (check(TK::IDENTIFIER) &&
+                                       (current().text == "ROW" || current().text == "row"))) {
                     (void)advance();
                     stmt->for_each_row = true;
                 }
@@ -4849,9 +4972,12 @@ public:
             (void)advance();
             int depth = 1;
             while (depth > 0 && !is_eof()) {
-                if (check(TK::BEGIN)) depth++;
-                else if (check(TK::END)) depth--;
-                if (depth > 0) (void)advance();
+                if (check(TK::BEGIN))
+                    depth++;
+                else if (check(TK::END))
+                    depth--;
+                if (depth > 0)
+                    (void)advance();
             }
             expect(TK::END);
         } else {
@@ -4919,9 +5045,12 @@ public:
             if (match(TK::LPAREN)) {
                 int paren_depth = 1;
                 while (paren_depth > 0 && !is_eof()) {
-                    if (check(TK::LPAREN)) paren_depth++;
-                    else if (check(TK::RPAREN)) paren_depth--;
-                    if (paren_depth > 0) (void)advance();
+                    if (check(TK::LPAREN))
+                        paren_depth++;
+                    else if (check(TK::RPAREN))
+                        paren_depth--;
+                    if (paren_depth > 0)
+                        (void)advance();
                 }
                 expect(TK::RPAREN);
             }
@@ -4968,22 +5097,23 @@ private:
     // ========================================================================
 
     /// Convert SQLDialect to TokenizerConfig
-    static libglot::sql::lex::TokenizerConfig dialect_to_tokenizer_config(SQLDialect dialect) noexcept {
+    static libglot::sql::lex::TokenizerConfig
+    dialect_to_tokenizer_config(SQLDialect dialect) noexcept {
         switch (dialect) {
-            case SQLDialect::SQLServer:
-                return libglot::sql::lex::TokenizerConfig::sqlserver();
-            case SQLDialect::MySQL:
-                return libglot::sql::lex::TokenizerConfig::mysql();
-            case SQLDialect::PostgreSQL:
-                return libglot::sql::lex::TokenizerConfig::postgresql();
-            case SQLDialect::Snowflake:
-                return libglot::sql::lex::TokenizerConfig::snowflake();
-            case SQLDialect::BigQuery:
-                return libglot::sql::lex::TokenizerConfig::bigquery();
-            default:
-                // Most dialects support # comments (MySQL-style)
-                // SQL Server is the exception
-                return libglot::sql::lex::TokenizerConfig::default_config();
+        case SQLDialect::SQLServer:
+            return libglot::sql::lex::TokenizerConfig::sqlserver();
+        case SQLDialect::MySQL:
+            return libglot::sql::lex::TokenizerConfig::mysql();
+        case SQLDialect::PostgreSQL:
+            return libglot::sql::lex::TokenizerConfig::postgresql();
+        case SQLDialect::Snowflake:
+            return libglot::sql::lex::TokenizerConfig::snowflake();
+        case SQLDialect::BigQuery:
+            return libglot::sql::lex::TokenizerConfig::bigquery();
+        default:
+            // Most dialects support # comments (MySQL-style)
+            // SQL Server is the exception
+            return libglot::sql::lex::TokenizerConfig::default_config();
         }
     }
 
@@ -4994,14 +5124,12 @@ private:
 
     /// Delegating constructor that receives pre-tokenized result
     SQLParser(libglot::Arena& arena, TokenizeResult&& result, SQLDialect dialect)
-        : source_(result.source)
-        , dialect_(dialect)
-        , Base(arena, std::move(result.tokens))
-    {}
+        : source_(result.source), dialect_(dialect), Base(arena, std::move(result.tokens)) {}
 
     /// Copy source into arena and tokenize the arena-owned copy
     /// This ensures all token string_views point to arena memory
-    static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source, SQLDialect dialect) {
+    static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source,
+                                            SQLDialect dialect) {
         auto arena_source = arena.copy_source(source);
         auto tokens = tokenize(arena, arena_source, dialect);
         return {std::move(tokens), arena_source};
@@ -5011,7 +5139,8 @@ private:
     // Tokenization (uses libsqlglot's existing tokenizer)
     // ========================================================================
 
-    static std::vector<TokenType> tokenize(libglot::Arena& arena, std::string_view source, SQLDialect dialect) {
+    static std::vector<TokenType> tokenize(libglot::Arena& arena, std::string_view source,
+                                           SQLDialect dialect) {
         libglot::sql::lex::LocalStringPool pool;
 
         // Convert SQLDialect to TokenizerConfig
@@ -5041,12 +5170,12 @@ private:
             }
 
             result.push_back(TokenType{
-                tok.type,     // type
-                tok.start,    // start
-                tok.end,      // end
-                tok.line,     // line
-                tok.col,      // col
-                token_text    // text (quote-stripped, arena-backed)
+                tok.type,  // type
+                tok.start, // start
+                tok.end,   // end
+                tok.line,  // line
+                tok.col,   // col
+                token_text // text (quote-stripped, arena-backed)
             });
         }
 

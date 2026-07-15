@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -54,8 +54,8 @@ TEST_CASE("Window frame regeneration", "[generator][window]") {
     }
 
     SECTION("RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING (exact roundtrip)") {
-        const char* sql =
-            "SELECT AVG(x) OVER (ORDER BY d RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM t";
+        const char* sql = "SELECT AVG(x) OVER (ORDER BY d RANGE BETWEEN UNBOUNDED PRECEDING AND "
+                          "UNBOUNDED FOLLOWING) FROM t";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto* stmt = parser.parse_top_level();
@@ -67,8 +67,7 @@ TEST_CASE("Window frame regeneration", "[generator][window]") {
     }
 
     SECTION("ROWS BETWEEN 2 PRECEDING AND 3 FOLLOWING (offset bounds)") {
-        const char* sql =
-            "SELECT SUM(x) OVER (ROWS BETWEEN 2 PRECEDING AND 3 FOLLOWING) FROM t";
+        const char* sql = "SELECT SUM(x) OVER (ROWS BETWEEN 2 PRECEDING AND 3 FOLLOWING) FROM t";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto* stmt = parser.parse_top_level();

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <libglot/gen/generator.h>
-#include "dialect_traits.h"
 #include "ast_nodes.h"
+#include "dialect_traits.h"
 #include "grammar.h"
+#include <libglot/gen/generator.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -34,517 +34,517 @@ struct SQLGeneratorSpec {
 class SQLGenerator : public libglot::GeneratorBase<SQLGeneratorSpec, SQLGenerator> {
 public:
     using Base = libglot::GeneratorBase<SQLGeneratorSpec, SQLGenerator>;
-    using TK = libglot::sql::lex::TokenType;  // Using libsqlglot for Phase A (shim)
+    using TK = libglot::sql::lex::TokenType; // Using libsqlglot for Phase A (shim)
 
     // Expose base class public methods
     using Base::generate;
     using Base::reset;
 
     // Explicit constructor (CRTP doesn't always play nice with using Base::Base)
-    explicit SQLGenerator(SQLDialect dialect, const typename Base::Options& opts = typename Base::Options{})
-        : Base(dialect, opts)
-    {}
+    explicit SQLGenerator(SQLDialect dialect,
+                          const typename Base::Options& opts = typename Base::Options{})
+        : Base(dialect, opts) {}
 
     // ========================================================================
     // Main Visitor Dispatch (Required by GeneratorBase)
     // ========================================================================
 
     void visit(SQLNode* node) {
-        if (!node) return;
+        if (!node)
+            return;
 
         switch (node->type) {
-            // ================================================================
-            // Expressions
-            // ================================================================
-            case SQLNodeKind::COLUMN:
-                visit_column(static_cast<Column*>(node));
-                break;
-
-            case SQLNodeKind::LITERAL:
-                visit_literal(static_cast<Literal*>(node));
-                break;
-
-            case SQLNodeKind::STAR:
-                visit_star(static_cast<Star*>(node));
-                break;
-
-            case SQLNodeKind::PARAMETER:
-                visit_parameter(static_cast<Parameter*>(node));
-                break;
-
-            case SQLNodeKind::BINARY_OP:
-                visit_binary_op(static_cast<BinaryOp*>(node));
-                break;
-
-            case SQLNodeKind::UNARY_OP:
-                visit_unary_op(static_cast<UnaryOp*>(node));
-                break;
-
-            case SQLNodeKind::FUNCTION_CALL:
-                visit_function_call(static_cast<FunctionCall*>(node));
-                break;
-
-            case SQLNodeKind::CASE_EXPR:
-                visit_case_expr(static_cast<CaseExpr*>(node));
-                break;
-
-            case SQLNodeKind::CAST_EXPR:
-                visit_cast_expr(static_cast<CastExpr*>(node));
-                break;
-
-            case SQLNodeKind::COALESCE_EXPR:
-                visit_coalesce_expr(static_cast<CoalesceExpr*>(node));
-                break;
-
-            case SQLNodeKind::NULLIF_EXPR:
-                visit_nullif_expr(static_cast<NullifExpr*>(node));
-                break;
-
-            case SQLNodeKind::BETWEEN_EXPR:
-                visit_between_expr(static_cast<BetweenExpr*>(node));
-                break;
-
-            case SQLNodeKind::IN_EXPR:
-                visit_in_expr(static_cast<InExpr*>(node));
-                break;
-
-            case SQLNodeKind::EXISTS_EXPR:
-                visit_exists_expr(static_cast<ExistsExpr*>(node));
-                break;
-
-            case SQLNodeKind::SUBQUERY_EXPR:
-                visit_subquery_expr(static_cast<SubqueryExpr*>(node));
-                break;
-
-            case SQLNodeKind::WINDOW_FUNCTION:
-                visit_window_function(static_cast<WindowFunction*>(node));
-                break;
-
-            case SQLNodeKind::WINDOW_SPEC:
-                visit_window_spec(static_cast<WindowSpec*>(node));
-                break;
-
-            case SQLNodeKind::ALIAS:
-                visit_alias(static_cast<Alias*>(node));
-                break;
-
-            case SQLNodeKind::ANY_EXPR:
-                visit_any_expr(static_cast<AnyExpr*>(node));
-                break;
-
-            case SQLNodeKind::ALL_EXPR:
-                visit_all_expr(static_cast<AllExpr*>(node));
-                break;
-
-            case SQLNodeKind::ARRAY_LITERAL:
-                visit_array_literal(static_cast<ArrayLiteral*>(node));
-                break;
-
-            case SQLNodeKind::ARRAY_INDEX:
-                visit_array_index(static_cast<ArrayIndex*>(node));
-                break;
-
-            case SQLNodeKind::JSON_EXPR:
-                visit_json_expr(static_cast<JsonExpr*>(node));
-                break;
-
-            case SQLNodeKind::REGEX_MATCH:
-                visit_regex_match(static_cast<RegexMatch*>(node));
-                break;
-
-            case SQLNodeKind::SEQUENCE_REF_EXPR:
-                visit_sequence_ref_expr(static_cast<SequenceRefExpr*>(node));
-                break;
-
-            case SQLNodeKind::MATCH_AGAINST:
-                visit_match_against(static_cast<MatchAgainst*>(node));
-                break;
-
-            case SQLNodeKind::FLATTEN_CLAUSE:
-                visit_flatten_clause(static_cast<FlattenClause*>(node));
-                break;
-
-            // ================================================================
-            // FROM Clause Elements
-            // ================================================================
-            case SQLNodeKind::TABLE_REF:
-                visit_table_ref(static_cast<TableRef*>(node));
-                break;
-
-            case SQLNodeKind::JOIN_CLAUSE:
-                visit_join_clause(static_cast<JoinClause*>(node));
-                break;
-
-            case SQLNodeKind::LATERAL_JOIN:
-                visit_lateral_join(static_cast<LateralJoin*>(node));
-                break;
-
-            case SQLNodeKind::VALUES_CLAUSE:
-                visit_values_clause(static_cast<ValuesClause*>(node));
-                break;
-
-            case SQLNodeKind::TABLESAMPLE:
-                visit_tablesample(static_cast<Tablesample*>(node));
-                break;
-
-            // ================================================================
-            // Query Structure
-            // ================================================================
-            case SQLNodeKind::SELECT_STMT:
-                visit_select_stmt(static_cast<SelectStmt*>(node));
-                break;
-
-            case SQLNodeKind::CTE:
-                visit_cte(static_cast<CTE*>(node));
-                break;
-
-            case SQLNodeKind::ORDER_BY_ITEM:
-                visit_order_by_item(static_cast<OrderByItem*>(node));
-                break;
-
-            // ================================================================
-            // Set Operations
-            // ================================================================
-            case SQLNodeKind::UNION_STMT:
-                visit_union_stmt(static_cast<UnionStmt*>(node));
-                break;
-
-            case SQLNodeKind::INTERSECT_STMT:
-                visit_intersect_stmt(static_cast<IntersectStmt*>(node));
-                break;
-
-            case SQLNodeKind::EXCEPT_STMT:
-                visit_except_stmt(static_cast<ExceptStmt*>(node));
-                break;
-
-            // ================================================================
-            // DML Statements
-            // ================================================================
-            case SQLNodeKind::INSERT_STMT:
-                visit_insert_stmt(static_cast<InsertStmt*>(node));
-                break;
-
-            case SQLNodeKind::UPDATE_STMT:
-                visit_update_stmt(static_cast<UpdateStmt*>(node));
-                break;
-
-            case SQLNodeKind::DELETE_STMT:
-                visit_delete_stmt(static_cast<DeleteStmt*>(node));
-                break;
-
-            case SQLNodeKind::MERGE_STMT:
-                visit_merge_stmt(static_cast<MergeStmt*>(node));
-                break;
-
-            case SQLNodeKind::TRUNCATE_STMT:
-                visit_truncate_stmt(static_cast<TruncateStmt*>(node));
-                break;
-
-            // ================================================================
-            // DDL Statements
-            // ================================================================
-            case SQLNodeKind::CREATE_TABLE_STMT:
-                visit_create_table_stmt(static_cast<CreateTableStmt*>(node));
-                break;
-
-            case SQLNodeKind::CREATE_VIEW_STMT:
-                visit_create_view_stmt(static_cast<CreateViewStmt*>(node));
-                break;
-
-            case SQLNodeKind::CREATE_INDEX_STMT:
-                visit_create_index_stmt(static_cast<CreateIndexStmt*>(node));
-                break;
-
-            case SQLNodeKind::CREATE_SCHEMA_STMT:
-                visit_create_schema_stmt(static_cast<CreateSchemaStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_TABLE_STMT:
-                visit_drop_table_stmt(static_cast<DropTableStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_VIEW_STMT:
-                visit_drop_view_stmt(static_cast<DropViewStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_INDEX_STMT:
-                visit_drop_index_stmt(static_cast<DropIndexStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_SCHEMA_STMT:
-                visit_drop_schema_stmt(static_cast<DropSchemaStmt*>(node));
-                break;
-
-            case SQLNodeKind::ALTER_TABLE_STMT:
-                visit_alter_table_stmt(static_cast<AlterTableStmt*>(node));
-                break;
-
-            case SQLNodeKind::CREATE_SEQUENCE_STMT:
-                visit_create_sequence_stmt(static_cast<CreateSequenceStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_SEQUENCE_STMT:
-                visit_drop_sequence_stmt(static_cast<DropSequenceStmt*>(node));
-                break;
-
-            case SQLNodeKind::ALTER_SEQUENCE_STMT:
-                visit_alter_sequence_stmt(static_cast<AlterSequenceStmt*>(node));
-                break;
-
-            case SQLNodeKind::COLUMN_DEF:
-                visit_column_def(static_cast<ColumnDef*>(node));
-                break;
-
-            case SQLNodeKind::TABLE_CONSTRAINT:
-                visit_table_constraint(static_cast<TableConstraint*>(node));
-                break;
-
-            case SQLNodeKind::CREATE_TABLESPACE_STMT:
-                visit_create_tablespace_stmt(static_cast<CreateTablespaceStmt*>(node));
-                break;
-
-            case SQLNodeKind::PARTITION_SPEC:
-                visit_partition_spec(static_cast<PartitionSpec*>(node));
-                break;
-
-            case SQLNodeKind::CREATE_INDEX_ADV:
-                visit_create_index_adv(static_cast<CreateIndexAdv*>(node));
-                break;
-
-            // ================================================================
-            // Transaction Statements
-            // ================================================================
-            case SQLNodeKind::BEGIN_STMT:
-                visit_begin_stmt(static_cast<BeginStmt*>(node));
-                break;
-
-            case SQLNodeKind::COMMIT_STMT:
-                visit_commit_stmt(static_cast<CommitStmt*>(node));
-                break;
-
-            case SQLNodeKind::ROLLBACK_STMT:
-                visit_rollback_stmt(static_cast<RollbackStmt*>(node));
-                break;
-
-            case SQLNodeKind::SAVEPOINT_STMT:
-                visit_savepoint_stmt(static_cast<SavepointStmt*>(node));
-                break;
-
-            // ================================================================
-            // Utility Statements
-            // ================================================================
-            case SQLNodeKind::SET_STMT:
-                visit_set_stmt(static_cast<SetStmt*>(node));
-                break;
-
-            case SQLNodeKind::SHOW_STMT:
-                visit_show_stmt(static_cast<ShowStmt*>(node));
-                break;
-
-            case SQLNodeKind::DESCRIBE_STMT:
-                visit_describe_stmt(static_cast<DescribeStmt*>(node));
-                break;
-
-            case SQLNodeKind::EXPLAIN_STMT:
-                visit_explain_stmt(static_cast<ExplainStmt*>(node));
-                break;
-
-            case SQLNodeKind::ANALYZE_STMT:
-                visit_analyze_stmt(static_cast<AnalyzeStmt*>(node));
-                break;
-
-            case SQLNodeKind::VACUUM_STMT:
-                visit_vacuum_stmt(static_cast<VacuumStmt*>(node));
-                break;
-
-            case SQLNodeKind::GRANT_STMT:
-                visit_grant_stmt(static_cast<GrantStmt*>(node));
-                break;
-
-            case SQLNodeKind::REVOKE_STMT:
-                visit_revoke_stmt(static_cast<RevokeStmt*>(node));
-                break;
-
-            // ================================================================
-            // Stored Procedures & Functions
-            // ================================================================
-            case SQLNodeKind::CREATE_PROCEDURE_STMT:
-                visit_create_procedure_stmt(static_cast<CreateProcedureStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_PROCEDURE_STMT:
-                visit_drop_procedure_stmt(static_cast<DropProcedureStmt*>(node));
-                break;
-
-            case SQLNodeKind::CALL_PROCEDURE_STMT:
-                visit_call_procedure_stmt(static_cast<CallProcedureStmt*>(node));
-                break;
-
-            case SQLNodeKind::DECLARE_VAR_STMT:
-                visit_declare_var_stmt(static_cast<DeclareVarStmt*>(node));
-                break;
-
-            case SQLNodeKind::DECLARE_CURSOR_STMT:
-                visit_declare_cursor_stmt(static_cast<DeclareCursorStmt*>(node));
-                break;
-
-            case SQLNodeKind::ASSIGNMENT_STMT:
-                visit_assignment_stmt(static_cast<AssignmentStmt*>(node));
-                break;
-
-            case SQLNodeKind::RETURN_STMT:
-                visit_return_stmt(static_cast<ReturnStmt*>(node));
-                break;
-
-            case SQLNodeKind::IF_STMT:
-                visit_if_stmt(static_cast<IfStmt*>(node));
-                break;
-
-            case SQLNodeKind::WHILE_LOOP:
-                visit_while_loop(static_cast<WhileLoop*>(node));
-                break;
-
-            case SQLNodeKind::FOR_LOOP:
-                visit_for_loop(static_cast<ForLoop*>(node));
-                break;
-
-            case SQLNodeKind::LOOP_STMT:
-                visit_loop_stmt(static_cast<LoopStmt*>(node));
-                break;
-
-            case SQLNodeKind::BREAK_STMT:
-                visit_break_stmt(static_cast<BreakStmt*>(node));
-                break;
-
-            case SQLNodeKind::CONTINUE_STMT:
-                visit_continue_stmt(static_cast<ContinueStmt*>(node));
-                break;
-
-            case SQLNodeKind::BEGIN_END_BLOCK:
-                visit_begin_end_block(static_cast<BeginEndBlock*>(node));
-                break;
-
-            case SQLNodeKind::DO_BLOCK:
-                visit_do_block(static_cast<DoBlock*>(node));
-                break;
-
-            case SQLNodeKind::EXCEPTION_BLOCK:
-                visit_exception_block(static_cast<ExceptionBlock*>(node));
-                break;
-
-            case SQLNodeKind::RAISE_STMT:
-                visit_raise_stmt(static_cast<RaiseStmt*>(node));
-                break;
-
-            case SQLNodeKind::OPEN_CURSOR_STMT:
-                visit_open_cursor_stmt(static_cast<OpenCursorStmt*>(node));
-                break;
-
-            case SQLNodeKind::FETCH_CURSOR_STMT:
-                visit_fetch_cursor_stmt(static_cast<FetchCursorStmt*>(node));
-                break;
-
-            case SQLNodeKind::CLOSE_CURSOR_STMT:
-                visit_close_cursor_stmt(static_cast<CloseCursorStmt*>(node));
-                break;
-
-            case SQLNodeKind::DELIMITER_STMT:
-                visit_delimiter_stmt(static_cast<DelimiterStmt*>(node));
-                break;
-
-            // ================================================================
-            // Triggers
-            // ================================================================
-            case SQLNodeKind::CREATE_TRIGGER_STMT:
-                visit_create_trigger_stmt(static_cast<CreateTriggerStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_TRIGGER_STMT:
-                visit_drop_trigger_stmt(static_cast<DropTriggerStmt*>(node));
-                break;
-
-            // ================================================================
-            // Advanced Features
-            // ================================================================
-            case SQLNodeKind::PIVOT_CLAUSE:
-                visit_pivot_clause(static_cast<PivotClause*>(node));
-                break;
-
-            case SQLNodeKind::UNPIVOT_CLAUSE:
-                visit_unpivot_clause(static_cast<UnpivotClause*>(node));
-                break;
-
-            case SQLNodeKind::GROUPING_SETS:
-                visit_grouping_sets(static_cast<GroupingSets*>(node));
-                break;
-
-            case SQLNodeKind::ROLLUP_CLAUSE:
-                visit_rollup_clause(static_cast<RollupClause*>(node));
-                break;
-
-            case SQLNodeKind::CUBE_CLAUSE:
-                visit_cube_clause(static_cast<CubeClause*>(node));
-                break;
-
-            case SQLNodeKind::CONNECT_BY_CLAUSE:
-                visit_connect_by_clause(static_cast<ConnectByClause*>(node));
-                break;
-
-            case SQLNodeKind::START_WITH_CLAUSE:
-                visit_start_with_clause(static_cast<StartWithClause*>(node));
-                break;
-
-            case SQLNodeKind::OUTPUT_CLAUSE:
-                // Standalone visit (normally emitted by the DML visitors,
-                // which know the statement context): assume INSERTED rows.
-                write_output_clause(static_cast<OutputClause*>(node), "INSERTED");
-                break;
-
-            case SQLNodeKind::ON_CONFLICT_CLAUSE:
-                visit_on_conflict_clause(static_cast<OnConflictClause*>(node));
-                break;
-
-            case SQLNodeKind::ON_DUPLICATE_KEY_CLAUSE:
-                visit_on_duplicate_key_clause(static_cast<OnDuplicateKeyClause*>(node));
-                break;
-
-            case SQLNodeKind::QUALIFY_CLAUSE:
-                visit_qualify_clause(static_cast<QualifyClause*>(node));
-                break;
-
-            case SQLNodeKind::INTERVAL_LITERAL:
-                visit_interval_literal(static_cast<IntervalLiteral*>(node));
-                break;
-
-            // ================================================================
-            // BigQuery ML
-            // ================================================================
-            case SQLNodeKind::CREATE_MODEL_STMT:
-                visit_create_model_stmt(static_cast<CreateModelStmt*>(node));
-                break;
-
-            case SQLNodeKind::DROP_MODEL_STMT:
-                visit_drop_model_stmt(static_cast<DropModelStmt*>(node));
-                break;
-
-            case SQLNodeKind::ML_PREDICT_EXPR:
-                visit_ml_predict_expr(static_cast<MLPredictExpr*>(node));
-                break;
-
-            case SQLNodeKind::ML_EVALUATE_EXPR:
-                visit_ml_evaluate_expr(static_cast<MLEvaluateExpr*>(node));
-                break;
-
-            case SQLNodeKind::ML_TRAINING_INFO_EXPR:
-                visit_ml_training_info_expr(static_cast<MLTrainingInfoExpr*>(node));
-                break;
-
-            default:
-                // A silently skipped node would drop user SQL on the floor;
-                // fail loudly instead so the gap is visible and fixable.
-                throw std::logic_error(
-                    "SQLGenerator: unhandled AST node kind " +
-                    std::to_string(static_cast<int>(node->type)));
+        // ================================================================
+        // Expressions
+        // ================================================================
+        case SQLNodeKind::COLUMN:
+            visit_column(static_cast<Column*>(node));
+            break;
+
+        case SQLNodeKind::LITERAL:
+            visit_literal(static_cast<Literal*>(node));
+            break;
+
+        case SQLNodeKind::STAR:
+            visit_star(static_cast<Star*>(node));
+            break;
+
+        case SQLNodeKind::PARAMETER:
+            visit_parameter(static_cast<Parameter*>(node));
+            break;
+
+        case SQLNodeKind::BINARY_OP:
+            visit_binary_op(static_cast<BinaryOp*>(node));
+            break;
+
+        case SQLNodeKind::UNARY_OP:
+            visit_unary_op(static_cast<UnaryOp*>(node));
+            break;
+
+        case SQLNodeKind::FUNCTION_CALL:
+            visit_function_call(static_cast<FunctionCall*>(node));
+            break;
+
+        case SQLNodeKind::CASE_EXPR:
+            visit_case_expr(static_cast<CaseExpr*>(node));
+            break;
+
+        case SQLNodeKind::CAST_EXPR:
+            visit_cast_expr(static_cast<CastExpr*>(node));
+            break;
+
+        case SQLNodeKind::COALESCE_EXPR:
+            visit_coalesce_expr(static_cast<CoalesceExpr*>(node));
+            break;
+
+        case SQLNodeKind::NULLIF_EXPR:
+            visit_nullif_expr(static_cast<NullifExpr*>(node));
+            break;
+
+        case SQLNodeKind::BETWEEN_EXPR:
+            visit_between_expr(static_cast<BetweenExpr*>(node));
+            break;
+
+        case SQLNodeKind::IN_EXPR:
+            visit_in_expr(static_cast<InExpr*>(node));
+            break;
+
+        case SQLNodeKind::EXISTS_EXPR:
+            visit_exists_expr(static_cast<ExistsExpr*>(node));
+            break;
+
+        case SQLNodeKind::SUBQUERY_EXPR:
+            visit_subquery_expr(static_cast<SubqueryExpr*>(node));
+            break;
+
+        case SQLNodeKind::WINDOW_FUNCTION:
+            visit_window_function(static_cast<WindowFunction*>(node));
+            break;
+
+        case SQLNodeKind::WINDOW_SPEC:
+            visit_window_spec(static_cast<WindowSpec*>(node));
+            break;
+
+        case SQLNodeKind::ALIAS:
+            visit_alias(static_cast<Alias*>(node));
+            break;
+
+        case SQLNodeKind::ANY_EXPR:
+            visit_any_expr(static_cast<AnyExpr*>(node));
+            break;
+
+        case SQLNodeKind::ALL_EXPR:
+            visit_all_expr(static_cast<AllExpr*>(node));
+            break;
+
+        case SQLNodeKind::ARRAY_LITERAL:
+            visit_array_literal(static_cast<ArrayLiteral*>(node));
+            break;
+
+        case SQLNodeKind::ARRAY_INDEX:
+            visit_array_index(static_cast<ArrayIndex*>(node));
+            break;
+
+        case SQLNodeKind::JSON_EXPR:
+            visit_json_expr(static_cast<JsonExpr*>(node));
+            break;
+
+        case SQLNodeKind::REGEX_MATCH:
+            visit_regex_match(static_cast<RegexMatch*>(node));
+            break;
+
+        case SQLNodeKind::SEQUENCE_REF_EXPR:
+            visit_sequence_ref_expr(static_cast<SequenceRefExpr*>(node));
+            break;
+
+        case SQLNodeKind::MATCH_AGAINST:
+            visit_match_against(static_cast<MatchAgainst*>(node));
+            break;
+
+        case SQLNodeKind::FLATTEN_CLAUSE:
+            visit_flatten_clause(static_cast<FlattenClause*>(node));
+            break;
+
+        // ================================================================
+        // FROM Clause Elements
+        // ================================================================
+        case SQLNodeKind::TABLE_REF:
+            visit_table_ref(static_cast<TableRef*>(node));
+            break;
+
+        case SQLNodeKind::JOIN_CLAUSE:
+            visit_join_clause(static_cast<JoinClause*>(node));
+            break;
+
+        case SQLNodeKind::LATERAL_JOIN:
+            visit_lateral_join(static_cast<LateralJoin*>(node));
+            break;
+
+        case SQLNodeKind::VALUES_CLAUSE:
+            visit_values_clause(static_cast<ValuesClause*>(node));
+            break;
+
+        case SQLNodeKind::TABLESAMPLE:
+            visit_tablesample(static_cast<Tablesample*>(node));
+            break;
+
+        // ================================================================
+        // Query Structure
+        // ================================================================
+        case SQLNodeKind::SELECT_STMT:
+            visit_select_stmt(static_cast<SelectStmt*>(node));
+            break;
+
+        case SQLNodeKind::CTE:
+            visit_cte(static_cast<CTE*>(node));
+            break;
+
+        case SQLNodeKind::ORDER_BY_ITEM:
+            visit_order_by_item(static_cast<OrderByItem*>(node));
+            break;
+
+        // ================================================================
+        // Set Operations
+        // ================================================================
+        case SQLNodeKind::UNION_STMT:
+            visit_union_stmt(static_cast<UnionStmt*>(node));
+            break;
+
+        case SQLNodeKind::INTERSECT_STMT:
+            visit_intersect_stmt(static_cast<IntersectStmt*>(node));
+            break;
+
+        case SQLNodeKind::EXCEPT_STMT:
+            visit_except_stmt(static_cast<ExceptStmt*>(node));
+            break;
+
+        // ================================================================
+        // DML Statements
+        // ================================================================
+        case SQLNodeKind::INSERT_STMT:
+            visit_insert_stmt(static_cast<InsertStmt*>(node));
+            break;
+
+        case SQLNodeKind::UPDATE_STMT:
+            visit_update_stmt(static_cast<UpdateStmt*>(node));
+            break;
+
+        case SQLNodeKind::DELETE_STMT:
+            visit_delete_stmt(static_cast<DeleteStmt*>(node));
+            break;
+
+        case SQLNodeKind::MERGE_STMT:
+            visit_merge_stmt(static_cast<MergeStmt*>(node));
+            break;
+
+        case SQLNodeKind::TRUNCATE_STMT:
+            visit_truncate_stmt(static_cast<TruncateStmt*>(node));
+            break;
+
+        // ================================================================
+        // DDL Statements
+        // ================================================================
+        case SQLNodeKind::CREATE_TABLE_STMT:
+            visit_create_table_stmt(static_cast<CreateTableStmt*>(node));
+            break;
+
+        case SQLNodeKind::CREATE_VIEW_STMT:
+            visit_create_view_stmt(static_cast<CreateViewStmt*>(node));
+            break;
+
+        case SQLNodeKind::CREATE_INDEX_STMT:
+            visit_create_index_stmt(static_cast<CreateIndexStmt*>(node));
+            break;
+
+        case SQLNodeKind::CREATE_SCHEMA_STMT:
+            visit_create_schema_stmt(static_cast<CreateSchemaStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_TABLE_STMT:
+            visit_drop_table_stmt(static_cast<DropTableStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_VIEW_STMT:
+            visit_drop_view_stmt(static_cast<DropViewStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_INDEX_STMT:
+            visit_drop_index_stmt(static_cast<DropIndexStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_SCHEMA_STMT:
+            visit_drop_schema_stmt(static_cast<DropSchemaStmt*>(node));
+            break;
+
+        case SQLNodeKind::ALTER_TABLE_STMT:
+            visit_alter_table_stmt(static_cast<AlterTableStmt*>(node));
+            break;
+
+        case SQLNodeKind::CREATE_SEQUENCE_STMT:
+            visit_create_sequence_stmt(static_cast<CreateSequenceStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_SEQUENCE_STMT:
+            visit_drop_sequence_stmt(static_cast<DropSequenceStmt*>(node));
+            break;
+
+        case SQLNodeKind::ALTER_SEQUENCE_STMT:
+            visit_alter_sequence_stmt(static_cast<AlterSequenceStmt*>(node));
+            break;
+
+        case SQLNodeKind::COLUMN_DEF:
+            visit_column_def(static_cast<ColumnDef*>(node));
+            break;
+
+        case SQLNodeKind::TABLE_CONSTRAINT:
+            visit_table_constraint(static_cast<TableConstraint*>(node));
+            break;
+
+        case SQLNodeKind::CREATE_TABLESPACE_STMT:
+            visit_create_tablespace_stmt(static_cast<CreateTablespaceStmt*>(node));
+            break;
+
+        case SQLNodeKind::PARTITION_SPEC:
+            visit_partition_spec(static_cast<PartitionSpec*>(node));
+            break;
+
+        case SQLNodeKind::CREATE_INDEX_ADV:
+            visit_create_index_adv(static_cast<CreateIndexAdv*>(node));
+            break;
+
+        // ================================================================
+        // Transaction Statements
+        // ================================================================
+        case SQLNodeKind::BEGIN_STMT:
+            visit_begin_stmt(static_cast<BeginStmt*>(node));
+            break;
+
+        case SQLNodeKind::COMMIT_STMT:
+            visit_commit_stmt(static_cast<CommitStmt*>(node));
+            break;
+
+        case SQLNodeKind::ROLLBACK_STMT:
+            visit_rollback_stmt(static_cast<RollbackStmt*>(node));
+            break;
+
+        case SQLNodeKind::SAVEPOINT_STMT:
+            visit_savepoint_stmt(static_cast<SavepointStmt*>(node));
+            break;
+
+        // ================================================================
+        // Utility Statements
+        // ================================================================
+        case SQLNodeKind::SET_STMT:
+            visit_set_stmt(static_cast<SetStmt*>(node));
+            break;
+
+        case SQLNodeKind::SHOW_STMT:
+            visit_show_stmt(static_cast<ShowStmt*>(node));
+            break;
+
+        case SQLNodeKind::DESCRIBE_STMT:
+            visit_describe_stmt(static_cast<DescribeStmt*>(node));
+            break;
+
+        case SQLNodeKind::EXPLAIN_STMT:
+            visit_explain_stmt(static_cast<ExplainStmt*>(node));
+            break;
+
+        case SQLNodeKind::ANALYZE_STMT:
+            visit_analyze_stmt(static_cast<AnalyzeStmt*>(node));
+            break;
+
+        case SQLNodeKind::VACUUM_STMT:
+            visit_vacuum_stmt(static_cast<VacuumStmt*>(node));
+            break;
+
+        case SQLNodeKind::GRANT_STMT:
+            visit_grant_stmt(static_cast<GrantStmt*>(node));
+            break;
+
+        case SQLNodeKind::REVOKE_STMT:
+            visit_revoke_stmt(static_cast<RevokeStmt*>(node));
+            break;
+
+        // ================================================================
+        // Stored Procedures & Functions
+        // ================================================================
+        case SQLNodeKind::CREATE_PROCEDURE_STMT:
+            visit_create_procedure_stmt(static_cast<CreateProcedureStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_PROCEDURE_STMT:
+            visit_drop_procedure_stmt(static_cast<DropProcedureStmt*>(node));
+            break;
+
+        case SQLNodeKind::CALL_PROCEDURE_STMT:
+            visit_call_procedure_stmt(static_cast<CallProcedureStmt*>(node));
+            break;
+
+        case SQLNodeKind::DECLARE_VAR_STMT:
+            visit_declare_var_stmt(static_cast<DeclareVarStmt*>(node));
+            break;
+
+        case SQLNodeKind::DECLARE_CURSOR_STMT:
+            visit_declare_cursor_stmt(static_cast<DeclareCursorStmt*>(node));
+            break;
+
+        case SQLNodeKind::ASSIGNMENT_STMT:
+            visit_assignment_stmt(static_cast<AssignmentStmt*>(node));
+            break;
+
+        case SQLNodeKind::RETURN_STMT:
+            visit_return_stmt(static_cast<ReturnStmt*>(node));
+            break;
+
+        case SQLNodeKind::IF_STMT:
+            visit_if_stmt(static_cast<IfStmt*>(node));
+            break;
+
+        case SQLNodeKind::WHILE_LOOP:
+            visit_while_loop(static_cast<WhileLoop*>(node));
+            break;
+
+        case SQLNodeKind::FOR_LOOP:
+            visit_for_loop(static_cast<ForLoop*>(node));
+            break;
+
+        case SQLNodeKind::LOOP_STMT:
+            visit_loop_stmt(static_cast<LoopStmt*>(node));
+            break;
+
+        case SQLNodeKind::BREAK_STMT:
+            visit_break_stmt(static_cast<BreakStmt*>(node));
+            break;
+
+        case SQLNodeKind::CONTINUE_STMT:
+            visit_continue_stmt(static_cast<ContinueStmt*>(node));
+            break;
+
+        case SQLNodeKind::BEGIN_END_BLOCK:
+            visit_begin_end_block(static_cast<BeginEndBlock*>(node));
+            break;
+
+        case SQLNodeKind::DO_BLOCK:
+            visit_do_block(static_cast<DoBlock*>(node));
+            break;
+
+        case SQLNodeKind::EXCEPTION_BLOCK:
+            visit_exception_block(static_cast<ExceptionBlock*>(node));
+            break;
+
+        case SQLNodeKind::RAISE_STMT:
+            visit_raise_stmt(static_cast<RaiseStmt*>(node));
+            break;
+
+        case SQLNodeKind::OPEN_CURSOR_STMT:
+            visit_open_cursor_stmt(static_cast<OpenCursorStmt*>(node));
+            break;
+
+        case SQLNodeKind::FETCH_CURSOR_STMT:
+            visit_fetch_cursor_stmt(static_cast<FetchCursorStmt*>(node));
+            break;
+
+        case SQLNodeKind::CLOSE_CURSOR_STMT:
+            visit_close_cursor_stmt(static_cast<CloseCursorStmt*>(node));
+            break;
+
+        case SQLNodeKind::DELIMITER_STMT:
+            visit_delimiter_stmt(static_cast<DelimiterStmt*>(node));
+            break;
+
+        // ================================================================
+        // Triggers
+        // ================================================================
+        case SQLNodeKind::CREATE_TRIGGER_STMT:
+            visit_create_trigger_stmt(static_cast<CreateTriggerStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_TRIGGER_STMT:
+            visit_drop_trigger_stmt(static_cast<DropTriggerStmt*>(node));
+            break;
+
+        // ================================================================
+        // Advanced Features
+        // ================================================================
+        case SQLNodeKind::PIVOT_CLAUSE:
+            visit_pivot_clause(static_cast<PivotClause*>(node));
+            break;
+
+        case SQLNodeKind::UNPIVOT_CLAUSE:
+            visit_unpivot_clause(static_cast<UnpivotClause*>(node));
+            break;
+
+        case SQLNodeKind::GROUPING_SETS:
+            visit_grouping_sets(static_cast<GroupingSets*>(node));
+            break;
+
+        case SQLNodeKind::ROLLUP_CLAUSE:
+            visit_rollup_clause(static_cast<RollupClause*>(node));
+            break;
+
+        case SQLNodeKind::CUBE_CLAUSE:
+            visit_cube_clause(static_cast<CubeClause*>(node));
+            break;
+
+        case SQLNodeKind::CONNECT_BY_CLAUSE:
+            visit_connect_by_clause(static_cast<ConnectByClause*>(node));
+            break;
+
+        case SQLNodeKind::START_WITH_CLAUSE:
+            visit_start_with_clause(static_cast<StartWithClause*>(node));
+            break;
+
+        case SQLNodeKind::OUTPUT_CLAUSE:
+            // Standalone visit (normally emitted by the DML visitors,
+            // which know the statement context): assume INSERTED rows.
+            write_output_clause(static_cast<OutputClause*>(node), "INSERTED");
+            break;
+
+        case SQLNodeKind::ON_CONFLICT_CLAUSE:
+            visit_on_conflict_clause(static_cast<OnConflictClause*>(node));
+            break;
+
+        case SQLNodeKind::ON_DUPLICATE_KEY_CLAUSE:
+            visit_on_duplicate_key_clause(static_cast<OnDuplicateKeyClause*>(node));
+            break;
+
+        case SQLNodeKind::QUALIFY_CLAUSE:
+            visit_qualify_clause(static_cast<QualifyClause*>(node));
+            break;
+
+        case SQLNodeKind::INTERVAL_LITERAL:
+            visit_interval_literal(static_cast<IntervalLiteral*>(node));
+            break;
+
+        // ================================================================
+        // BigQuery ML
+        // ================================================================
+        case SQLNodeKind::CREATE_MODEL_STMT:
+            visit_create_model_stmt(static_cast<CreateModelStmt*>(node));
+            break;
+
+        case SQLNodeKind::DROP_MODEL_STMT:
+            visit_drop_model_stmt(static_cast<DropModelStmt*>(node));
+            break;
+
+        case SQLNodeKind::ML_PREDICT_EXPR:
+            visit_ml_predict_expr(static_cast<MLPredictExpr*>(node));
+            break;
+
+        case SQLNodeKind::ML_EVALUATE_EXPR:
+            visit_ml_evaluate_expr(static_cast<MLEvaluateExpr*>(node));
+            break;
+
+        case SQLNodeKind::ML_TRAINING_INFO_EXPR:
+            visit_ml_training_info_expr(static_cast<MLTrainingInfoExpr*>(node));
+            break;
+
+        default:
+            // A silently skipped node would drop user SQL on the floor;
+            // fail loudly instead so the gap is visible and fixable.
+            throw std::logic_error("SQLGenerator: unhandled AST node kind " +
+                                   std::to_string(static_cast<int>(node->type)));
         }
     }
 
@@ -644,7 +644,7 @@ private:
             for (size_t i = 1; i + 1 < val.size(); ++i) {
                 content.push_back(val[i]);
                 if (val[i] == '\'' && i + 2 < val.size() && val[i + 1] == '\'') {
-                    ++i;  // Collapse source-level doubled quote
+                    ++i; // Collapse source-level doubled quote
                 }
             }
             this->write_string_literal(content);
@@ -661,7 +661,7 @@ private:
         }
 
         if (is_number) {
-            this->write(val);  // Emit as-is
+            this->write(val); // Emit as-is
         } else {
             // Quote as string literal (doubles embedded single quotes)
             this->write_string_literal(val);
@@ -670,13 +670,13 @@ private:
 
     /// Is `val` a hex (0x...) or binary (0b...) numeric literal?
     static bool is_hex_or_binary_literal(std::string_view val) noexcept {
-        if (val.size() < 3 || val[0] != '0') return false;
+        if (val.size() < 3 || val[0] != '0')
+            return false;
         const char marker = val[1];
         if (marker == 'x' || marker == 'X') {
             for (size_t i = 2; i < val.size(); ++i) {
                 const char c = val[i];
-                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                      (c >= 'A' && c <= 'F'))) {
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
                     return false;
                 }
             }
@@ -684,7 +684,8 @@ private:
         }
         if (marker == 'b' || marker == 'B') {
             for (size_t i = 2; i < val.size(); ++i) {
-                if (val[i] != '0' && val[i] != '1') return false;
+                if (val[i] != '0' && val[i] != '1')
+                    return false;
             }
             return true;
         }
@@ -716,16 +717,16 @@ private:
     /// Precedence of the top-level operator of an expression node
     static int expr_precedence(const SQLNode* node) noexcept {
         switch (node->type) {
-            case SQLNodeKind::BINARY_OP:
-                return binary_precedence(static_cast<const BinaryOp*>(node)->op);
-            case SQLNodeKind::UNARY_OP:
-                return static_cast<const UnaryOp*>(node)->op == TK::NOT
-                    ? kNotPrecedence : kUnaryArithmeticPrecedence;
-            case SQLNodeKind::BETWEEN_EXPR:
-            case SQLNodeKind::IN_EXPR:
-                return kComparisonPrecedence;
-            default:
-                return kAtomPrecedence;
+        case SQLNodeKind::BINARY_OP:
+            return binary_precedence(static_cast<const BinaryOp*>(node)->op);
+        case SQLNodeKind::UNARY_OP:
+            return static_cast<const UnaryOp*>(node)->op == TK::NOT ? kNotPrecedence
+                                                                    : kUnaryArithmeticPrecedence;
+        case SQLNodeKind::BETWEEN_EXPR:
+        case SQLNodeKind::IN_EXPR:
+            return kComparisonPrecedence;
+        default:
+            return kAtomPrecedence;
         }
     }
 
@@ -818,7 +819,8 @@ private:
     /// support it; every other dialect throws.
     void write_temporal_clause(TableRef* tbl) {
         const auto d = this->dialect();
-        if (d != SQLDialect::SQLServer && d != SQLDialect::AzureSynapse && d != SQLDialect::MariaDB) {
+        if (d != SQLDialect::SQLServer && d != SQLDialect::AzureSynapse &&
+            d != SQLDialect::MariaDB) {
             throw std::logic_error(
                 "FOR SYSTEM_TIME (system-versioned temporal tables) has no equivalent in " +
                 std::string(SQLDialectTraits::name(d)));
@@ -826,49 +828,49 @@ private:
         this->space();
         this->write("FOR SYSTEM_TIME");
         switch (tbl->temporal_kind) {
-            case TemporalKind::AS_OF:
-                this->space();
-                this->write("AS OF");
-                this->space();
-                visit(tbl->temporal_arg1);
-                break;
-            case TemporalKind::FROM_TO:
-                this->space();
-                this->write("FROM");
-                this->space();
-                visit(tbl->temporal_arg1);
-                this->space();
-                this->write("TO");
-                this->space();
-                visit(tbl->temporal_arg2);
-                break;
-            case TemporalKind::BETWEEN_AND:
-                this->space();
-                this->write("BETWEEN");
-                this->space();
-                visit(tbl->temporal_arg1);
-                this->space();
-                this->write("AND");
-                this->space();
-                visit(tbl->temporal_arg2);
-                break;
-            case TemporalKind::CONTAINED_IN:
-                this->space();
-                this->write("CONTAINED IN");
-                this->space();
-                this->write('(');
-                visit(tbl->temporal_arg1);
-                this->write(',');
-                this->space();
-                visit(tbl->temporal_arg2);
-                this->write(')');
-                break;
-            case TemporalKind::ALL:
-                this->space();
-                this->write("ALL");
-                break;
-            case TemporalKind::NONE:
-                break;
+        case TemporalKind::AS_OF:
+            this->space();
+            this->write("AS OF");
+            this->space();
+            visit(tbl->temporal_arg1);
+            break;
+        case TemporalKind::FROM_TO:
+            this->space();
+            this->write("FROM");
+            this->space();
+            visit(tbl->temporal_arg1);
+            this->space();
+            this->write("TO");
+            this->space();
+            visit(tbl->temporal_arg2);
+            break;
+        case TemporalKind::BETWEEN_AND:
+            this->space();
+            this->write("BETWEEN");
+            this->space();
+            visit(tbl->temporal_arg1);
+            this->space();
+            this->write("AND");
+            this->space();
+            visit(tbl->temporal_arg2);
+            break;
+        case TemporalKind::CONTAINED_IN:
+            this->space();
+            this->write("CONTAINED IN");
+            this->space();
+            this->write('(');
+            visit(tbl->temporal_arg1);
+            this->write(',');
+            this->space();
+            visit(tbl->temporal_arg2);
+            this->write(')');
+            break;
+        case TemporalKind::ALL:
+            this->space();
+            this->write("ALL");
+            break;
+        case TemporalKind::NONE:
+            break;
         }
     }
 
@@ -878,8 +880,8 @@ private:
     /// error here - the caller must rewrite it by hand (e.g. an
     /// `ORDER BY (col IS NULL), col` / `ISNULL()` prefix expression).
     static bool lacks_nulls_ordering(SQLDialect d) noexcept {
-        return d == SQLDialect::MySQL || d == SQLDialect::MariaDB ||
-               d == SQLDialect::SQLServer || d == SQLDialect::AzureSynapse;
+        return d == SQLDialect::MySQL || d == SQLDialect::MariaDB || d == SQLDialect::SQLServer ||
+               d == SQLDialect::AzureSynapse;
     }
 
     void visit_order_by_item(OrderByItem* item) {
@@ -910,9 +912,7 @@ private:
                 this->write("RECURSIVE");
             }
             this->space();
-            this->write_list(stmt->with->ctes, [this](CTE* cte) {
-                visit(cte);
-            });
+            this->write_list(stmt->with->ctes, [this](CTE* cte) { visit(cte); });
             this->space();
         }
 
@@ -930,26 +930,23 @@ private:
         //    [OFFSET m ROWS] FETCH FIRST/NEXT n ROWS ONLY.
         //  - Everything else: LIMIT n [OFFSET m].
         const auto select_dialect = this->dialect();
-        const bool tsql_limit = (select_dialect == SQLDialect::SQLServer ||
-                                 select_dialect == SQLDialect::AzureSynapse);
-        const bool first_skip_limit = (select_dialect == SQLDialect::Firebird ||
-                                       select_dialect == SQLDialect::Informix);
+        const bool tsql_limit =
+            (select_dialect == SQLDialect::SQLServer || select_dialect == SQLDialect::AzureSynapse);
+        const bool first_skip_limit =
+            (select_dialect == SQLDialect::Firebird || select_dialect == SQLDialect::Informix);
         const bool tsql_offset_fetch = tsql_limit && stmt->offset && !stmt->order_by.empty();
 
         // DISTINCT / DISTINCT ON (expr, ...) - PostgreSQL only
         if (!stmt->distinct_on.empty()) {
             if (select_dialect != SQLDialect::PostgreSQL) {
-                throw std::logic_error(
-                    "DISTINCT ON is PostgreSQL-specific; not supported for " +
-                    std::string(SQLDialectTraits::name(select_dialect)));
+                throw std::logic_error("DISTINCT ON is PostgreSQL-specific; not supported for " +
+                                       std::string(SQLDialectTraits::name(select_dialect)));
             }
             this->space();
             this->write("DISTINCT ON");
             this->space();
             this->write('(');
-            this->write_list(stmt->distinct_on, [this](SQLNode* expr) {
-                visit(expr);
-            });
+            this->write_list(stmt->distinct_on, [this](SQLNode* expr) { visit(expr); });
             this->write(')');
         } else if (stmt->distinct) {
             this->space();
@@ -989,9 +986,7 @@ private:
         this->space();
 
         // Columns
-        this->write_list(stmt->columns, [this](SQLNode* col) {
-            visit(col);
-        });
+        this->write_list(stmt->columns, [this](SQLNode* col) { visit(col); });
 
         // SELECT ... INTO target
         if (stmt->into_table) {
@@ -1023,12 +1018,10 @@ private:
         // as-is for other dialects would produce silently broken SQL, so
         // fail loudly instead (rewrite as a recursive CTE by hand).
         if (stmt->start_with || stmt->connect_by) {
-            if (select_dialect != SQLDialect::Oracle &&
-                select_dialect != SQLDialect::Snowflake) {
-                throw std::logic_error(
-                    "CONNECT BY requires the Oracle or Snowflake dialect; "
-                    "rewrite the hierarchical query as a recursive CTE for " +
-                    std::string(SQLDialectTraits::name(select_dialect)));
+            if (select_dialect != SQLDialect::Oracle && select_dialect != SQLDialect::Snowflake) {
+                throw std::logic_error("CONNECT BY requires the Oracle or Snowflake dialect; "
+                                       "rewrite the hierarchical query as a recursive CTE for " +
+                                       std::string(SQLDialectTraits::name(select_dialect)));
             }
             if (stmt->start_with) {
                 this->space();
@@ -1045,9 +1038,7 @@ private:
             this->space();
             this->write("GROUP BY");
             this->space();
-            this->write_list(stmt->group_by, [this](SQLNode* expr) {
-                visit(expr);
-            });
+            this->write_list(stmt->group_by, [this](SQLNode* expr) { visit(expr); });
         }
 
         // HAVING clause
@@ -1062,8 +1053,7 @@ private:
         // function filter with no ANSI equivalent; other dialects would
         // need it rewritten as a wrapping subquery, so fail loudly).
         if (stmt->qualify) {
-            if (select_dialect != SQLDialect::Snowflake &&
-                select_dialect != SQLDialect::BigQuery &&
+            if (select_dialect != SQLDialect::Snowflake && select_dialect != SQLDialect::BigQuery &&
                 select_dialect != SQLDialect::DuckDB) {
                 throw std::logic_error(
                     "QUALIFY requires Snowflake, BigQuery, or DuckDB; rewrite as "
@@ -1080,13 +1070,13 @@ private:
             this->write("WINDOW");
             this->space();
             this->write_list(stmt->named_windows,
-                [this](const std::pair<std::string_view, WindowSpec*>& nw) {
-                    write_identifier(nw.first);
-                    this->space();
-                    this->write("AS");
-                    this->space();
-                    visit(nw.second);
-                });
+                             [this](const std::pair<std::string_view, WindowSpec*>& nw) {
+                                 write_identifier(nw.first);
+                                 this->space();
+                                 this->write("AS");
+                                 this->space();
+                                 visit(nw.second);
+                             });
         }
 
         // ORDER BY clause (ORDER SIBLINGS BY for Oracle hierarchical queries)
@@ -1094,9 +1084,7 @@ private:
             this->space();
             this->write(stmt->order_siblings ? "ORDER SIBLINGS BY" : "ORDER BY");
             this->space();
-            this->write_list(stmt->order_by, [this](OrderByItem* item) {
-                visit(item);
-            });
+            this->write_list(stmt->order_by, [this](OrderByItem* item) { visit(item); });
         }
 
         // Row-limiting clauses after ORDER BY (see the strategy comment at
@@ -1170,21 +1158,20 @@ private:
                 this->space();
                 this->write("OF");
                 this->space();
-                this->write_list(stmt->for_update_of, [this](std::string_view col) {
-                    write_identifier(col);
-                });
+                this->write_list(stmt->for_update_of,
+                                 [this](std::string_view col) { write_identifier(col); });
             }
             switch (stmt->for_update_wait) {
-                case ForUpdateWait::NOWAIT:
-                    this->space();
-                    this->write("NOWAIT");
-                    break;
-                case ForUpdateWait::SKIP_LOCKED:
-                    this->space();
-                    this->write("SKIP LOCKED");
-                    break;
-                case ForUpdateWait::NONE:
-                    break;
+            case ForUpdateWait::NOWAIT:
+                this->space();
+                this->write("NOWAIT");
+                break;
+            case ForUpdateWait::SKIP_LOCKED:
+                this->space();
+                this->write("SKIP LOCKED");
+                break;
+            case ForUpdateWait::NONE:
+                break;
             }
         }
     }
@@ -1205,9 +1192,7 @@ private:
         this->write('*');
     }
 
-    void visit_parameter(Parameter* param) {
-        this->write(param->name);
-    }
+    void visit_parameter(Parameter* param) { this->write(param->name); }
 
     void visit_unary_op(UnaryOp* op) {
         if (op->op == TK::NOT) {
@@ -1234,8 +1219,8 @@ private:
         // EXTRACT(field FROM expr): the field is a bare keyword and the
         // operand a regular expression - EXTRACT('YEAR', 'CURRENT_DATE')
         // is not valid SQL in any dialect.
-        if (func->name == "EXTRACT" && func->args.size() == 2 &&
-            func->args[0] && func->args[0]->type == SQLNodeKind::LITERAL) {
+        if (func->name == "EXTRACT" && func->args.size() == 2 && func->args[0] &&
+            func->args[0]->type == SQLNodeKind::LITERAL) {
             this->write("EXTRACT");
             this->write('(');
             this->write(static_cast<Literal*>(func->args[0])->value);
@@ -1250,9 +1235,8 @@ private:
         // STRUCT(...) is a BigQuery type constructor; every other dialect
         // either has no equivalent or a different literal syntax entirely.
         if (func->name == "STRUCT" && this->dialect() != SQLDialect::BigQuery) {
-            throw std::logic_error(
-                "STRUCT(...) literal has no equivalent outside BigQuery in " +
-                std::string(SQLDialectTraits::name(this->dialect())));
+            throw std::logic_error("STRUCT(...) literal has no equivalent outside BigQuery in " +
+                                   std::string(SQLDialectTraits::name(this->dialect())));
         }
 
         this->write(func->name);
@@ -1263,9 +1247,7 @@ private:
             this->space();
         }
 
-        this->write_list(func->args, [this](SQLNode* arg) {
-            visit(arg);
-        });
+        this->write_list(func->args, [this](SQLNode* arg) { visit(arg); });
 
         this->write(')');
     }
@@ -1283,11 +1265,11 @@ private:
             this->space();
             this->write("WHEN");
             this->space();
-            visit(when.first);  // condition
+            visit(when.first); // condition
             this->space();
             this->write("THEN");
             this->space();
-            visit(when.second);  // result
+            visit(when.second); // result
         }
 
         if (case_expr->else_expr) {
@@ -1315,9 +1297,7 @@ private:
     void visit_coalesce_expr(CoalesceExpr* coalesce) {
         this->write("COALESCE");
         this->write('(');
-        this->write_list(coalesce->args, [this](SQLNode* arg) {
-            visit(arg);
-        });
+        this->write_list(coalesce->args, [this](SQLNode* arg) { visit(arg); });
         this->write(')');
     }
 
@@ -1362,9 +1342,7 @@ private:
         this->write('(');
 
         // values vector may contain a subquery or literal values
-        this->write_list(in_expr->values, [this](SQLNode* val) {
-            visit(val);
-        });
+        this->write_list(in_expr->values, [this](SQLNode* val) { visit(val); });
 
         this->write(')');
     }
@@ -1395,9 +1373,7 @@ private:
         this->write(wf->function_name);
         this->write('(');
 
-        this->write_list(wf->args, [this](SQLNode* arg) {
-            visit(arg);
-        });
+        this->write_list(wf->args, [this](SQLNode* arg) { visit(arg); });
 
         this->write(')');
         this->space();
@@ -1422,37 +1398,37 @@ private:
         if (!spec->partition_by.empty()) {
             this->write("PARTITION BY");
             this->space();
-            this->write_list(spec->partition_by, [this](SQLNode* expr) {
-                visit(expr);
-            });
+            this->write_list(spec->partition_by, [this](SQLNode* expr) { visit(expr); });
             need_space = true;
         }
 
         // ORDER BY
         if (!spec->order_by.empty()) {
-            if (need_space) this->space();
+            if (need_space)
+                this->space();
             this->write("ORDER BY");
             this->space();
             this->write_list(spec->order_by, [this](SQLNode* expr) {
-                visit(expr);  // Will dispatch to visit_order_by_item if it's an OrderByItem
+                visit(expr); // Will dispatch to visit_order_by_item if it's an OrderByItem
             });
             need_space = true;
         }
 
         // Frame clause (ROWS/RANGE/GROUPS)
         if (spec->frame) {
-            if (need_space) this->space();
+            if (need_space)
+                this->space();
 
             switch (spec->frame->frame_type) {
-                case FrameType::ROWS:
-                    this->write("ROWS");
-                    break;
-                case FrameType::RANGE:
-                    this->write("RANGE");
-                    break;
-                case FrameType::GROUPS:
-                    this->write("GROUPS");
-                    break;
+            case FrameType::ROWS:
+                this->write("ROWS");
+                break;
+            case FrameType::RANGE:
+                this->write("RANGE");
+                break;
+            case FrameType::GROUPS:
+                this->write("GROUPS");
+                break;
             }
 
             // Regenerate the actual parsed frame bounds
@@ -1477,29 +1453,29 @@ private:
     /// CURRENT ROW, or <offset> PRECEDING/FOLLOWING
     void write_frame_bound(FrameBound bound, SQLNode* offset) {
         switch (bound) {
-            case FrameBound::UNBOUNDED_PRECEDING:
-                this->write("UNBOUNDED PRECEDING");
-                break;
-            case FrameBound::UNBOUNDED_FOLLOWING:
-                this->write("UNBOUNDED FOLLOWING");
-                break;
-            case FrameBound::CURRENT_ROW:
-                this->write("CURRENT ROW");
-                break;
-            case FrameBound::PRECEDING:
-                if (offset) {
-                    visit(offset);
-                    this->space();
-                }
-                this->write("PRECEDING");
-                break;
-            case FrameBound::FOLLOWING:
-                if (offset) {
-                    visit(offset);
-                    this->space();
-                }
-                this->write("FOLLOWING");
-                break;
+        case FrameBound::UNBOUNDED_PRECEDING:
+            this->write("UNBOUNDED PRECEDING");
+            break;
+        case FrameBound::UNBOUNDED_FOLLOWING:
+            this->write("UNBOUNDED FOLLOWING");
+            break;
+        case FrameBound::CURRENT_ROW:
+            this->write("CURRENT ROW");
+            break;
+        case FrameBound::PRECEDING:
+            if (offset) {
+                visit(offset);
+                this->space();
+            }
+            this->write("PRECEDING");
+            break;
+        case FrameBound::FOLLOWING:
+            if (offset) {
+                visit(offset);
+                this->space();
+            }
+            this->write("FOLLOWING");
+            break;
         }
     }
 
@@ -1510,9 +1486,7 @@ private:
         if (!cte->columns.empty()) {
             this->space();
             this->write('(');
-            this->write_list(cte->columns, [this](std::string_view col) {
-                write_identifier(col);
-            });
+            this->write_list(cte->columns, [this](std::string_view col) { write_identifier(col); });
             this->write(')');
         }
 
@@ -1533,7 +1507,8 @@ private:
         this->space();
 
         // Check if right table is LATERAL - use APPLY syntax for SQL Server
-        bool is_lateral = (join->right_table && join->right_table->type == SQLNodeKind::LATERAL_JOIN);
+        bool is_lateral =
+            (join->right_table && join->right_table->type == SQLNodeKind::LATERAL_JOIN);
         const auto dialect = this->dialect();
 
         if (is_lateral && dialect == SQLDialect::SQLServer) {
@@ -1543,7 +1518,7 @@ private:
             } else if (join->join_type == JoinType::LEFT) {
                 this->write("OUTER APPLY");
             } else {
-                this->write("CROSS APPLY");  // Fallback
+                this->write("CROSS APPLY"); // Fallback
             }
             this->space();
             // For APPLY, don't output LATERAL keyword, just the subquery
@@ -1560,24 +1535,24 @@ private:
                 this->write("ASOF ");
             }
             switch (join->join_type) {
-                case JoinType::INNER:
-                    this->write(join->asof ? "JOIN" : "INNER JOIN");
-                    break;
-                case JoinType::LEFT:
-                    this->write("LEFT JOIN");
-                    break;
-                case JoinType::RIGHT:
-                    this->write("RIGHT JOIN");
-                    break;
-                case JoinType::FULL:
-                    this->write("FULL JOIN");
-                    break;
-                case JoinType::CROSS:
-                    this->write("CROSS JOIN");
-                    break;
-                default:
-                    this->write("JOIN");
-                    break;
+            case JoinType::INNER:
+                this->write(join->asof ? "JOIN" : "INNER JOIN");
+                break;
+            case JoinType::LEFT:
+                this->write("LEFT JOIN");
+                break;
+            case JoinType::RIGHT:
+                this->write("RIGHT JOIN");
+                break;
+            case JoinType::FULL:
+                this->write("FULL JOIN");
+                break;
+            case JoinType::CROSS:
+                this->write("CROSS JOIN");
+                break;
+            default:
+                this->write("JOIN");
+                break;
             }
 
             this->space();
@@ -1594,9 +1569,8 @@ private:
                 this->write("USING");
                 this->space();
                 this->write('(');
-                this->write_list(join->using_columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
+                this->write_list(join->using_columns,
+                                 [this](std::string_view col) { write_identifier(col); });
                 this->write(')');
             }
         }
@@ -1655,9 +1629,8 @@ private:
         if (!stmt->columns.empty()) {
             this->space();
             this->write('(');
-            this->write_list(stmt->columns, [this](std::string_view col) {
-                write_identifier(col);
-            });
+            this->write_list(stmt->columns,
+                             [this](std::string_view col) { write_identifier(col); });
             this->write(')');
         }
 
@@ -1677,9 +1650,7 @@ private:
             this->space();
             this->write_list(stmt->values, [this](const std::vector<SQLNode*>& row) {
                 this->write('(');
-                this->write_list(row, [this](SQLNode* val) {
-                    visit(val);
-                });
+                this->write_list(row, [this](SQLNode* val) { visit(val); });
                 this->write(')');
             });
         }
@@ -1709,19 +1680,17 @@ private:
     /// map over cleanly - so any dialect other than PostgreSQL throws.
     void visit_on_conflict_clause(OnConflictClause* clause) {
         if (this->dialect() != SQLDialect::PostgreSQL) {
-            throw std::logic_error(
-                "ON CONFLICT is PostgreSQL-specific (MySQL uses ON DUPLICATE "
-                "KEY UPDATE); transpiling it to " +
-                std::string(SQLDialectTraits::name(this->dialect())) +
-                " is not supported");
+            throw std::logic_error("ON CONFLICT is PostgreSQL-specific (MySQL uses ON DUPLICATE "
+                                   "KEY UPDATE); transpiling it to " +
+                                   std::string(SQLDialectTraits::name(this->dialect())) +
+                                   " is not supported");
         }
         this->write("ON CONFLICT");
         if (!clause->conflict_columns.empty()) {
             this->space();
             this->write('(');
-            this->write_list(clause->conflict_columns, [this](std::string_view col) {
-                write_identifier(col);
-            });
+            this->write_list(clause->conflict_columns,
+                             [this](std::string_view col) { write_identifier(col); });
             this->write(')');
         }
         this->space();
@@ -1755,11 +1724,10 @@ private:
     /// throws.
     void visit_on_duplicate_key_clause(OnDuplicateKeyClause* clause) {
         if (this->dialect() != SQLDialect::MySQL && this->dialect() != SQLDialect::MariaDB) {
-            throw std::logic_error(
-                "ON DUPLICATE KEY UPDATE is MySQL-specific (PostgreSQL uses ON "
-                "CONFLICT); transpiling it to " +
-                std::string(SQLDialectTraits::name(this->dialect())) +
-                " is not supported");
+            throw std::logic_error("ON DUPLICATE KEY UPDATE is MySQL-specific (PostgreSQL uses ON "
+                                   "CONFLICT); transpiling it to " +
+                                   std::string(SQLDialectTraits::name(this->dialect())) +
+                                   " is not supported");
         }
         this->write("ON DUPLICATE KEY UPDATE");
         this->space();
@@ -1782,11 +1750,11 @@ private:
 
         // SET assignments (std::pair<string_view, SQLNode*>)
         this->write_list(stmt->assignments, [this](const auto& assign) {
-            write_identifier(assign.first);  // column name
+            write_identifier(assign.first); // column name
             this->space();
             this->write('=');
             this->space();
-            visit(assign.second);  // value
+            visit(assign.second); // value
         });
 
         // T-SQL: OUTPUT sits after SET, before FROM/WHERE
@@ -1878,15 +1846,15 @@ private:
             this->write("WHEN");
             this->space();
             switch (clause.match_kind) {
-                case MergeMatchKind::MATCHED:
-                    this->write("MATCHED");
-                    break;
-                case MergeMatchKind::NOT_MATCHED:
-                    this->write("NOT MATCHED");
-                    break;
-                case MergeMatchKind::NOT_MATCHED_BY_SOURCE:
-                    this->write("NOT MATCHED BY SOURCE");
-                    break;
+            case MergeMatchKind::MATCHED:
+                this->write("MATCHED");
+                break;
+            case MergeMatchKind::NOT_MATCHED:
+                this->write("NOT MATCHED");
+                break;
+            case MergeMatchKind::NOT_MATCHED_BY_SOURCE:
+                this->write("NOT MATCHED BY SOURCE");
+                break;
             }
 
             if (clause.extra_condition) {
@@ -1901,42 +1869,39 @@ private:
             this->space();
 
             switch (clause.action) {
-                case MergeActionKind::UPDATE:
-                    this->write("UPDATE SET");
+            case MergeActionKind::UPDATE:
+                this->write("UPDATE SET");
+                this->space();
+                this->write_list(clause.update_assignments, [this](const auto& assign) {
+                    write_identifier(assign.first); // column name
                     this->space();
-                    this->write_list(clause.update_assignments, [this](const auto& assign) {
-                        write_identifier(assign.first);  // column name
-                        this->space();
-                        this->write('=');
-                        this->space();
-                        visit(assign.second);  // value
-                    });
-                    break;
-                case MergeActionKind::DELETE_ACTION:
-                    this->write("DELETE");
-                    break;
-                case MergeActionKind::INSERT:
-                    this->write("INSERT");
-                    if (!clause.insert_columns.empty()) {
-                        this->space();
-                        this->write('(');
-                        this->write_list(clause.insert_columns, [this](std::string_view col) {
-                            write_identifier(col);
-                        });
-                        this->write(')');
-                    }
+                    this->write('=');
                     this->space();
-                    this->write("VALUES");
+                    visit(assign.second); // value
+                });
+                break;
+            case MergeActionKind::DELETE_ACTION:
+                this->write("DELETE");
+                break;
+            case MergeActionKind::INSERT:
+                this->write("INSERT");
+                if (!clause.insert_columns.empty()) {
                     this->space();
                     this->write('(');
-                    this->write_list(clause.insert_values, [this](SQLNode* val) {
-                        visit(val);
-                    });
+                    this->write_list(clause.insert_columns,
+                                     [this](std::string_view col) { write_identifier(col); });
                     this->write(')');
-                    break;
-                case MergeActionKind::DO_NOTHING:
-                    this->write("DO NOTHING");
-                    break;
+                }
+                this->space();
+                this->write("VALUES");
+                this->space();
+                this->write('(');
+                this->write_list(clause.insert_values, [this](SQLNode* val) { visit(val); });
+                this->write(')');
+                break;
+            case MergeActionKind::DO_NOTHING:
+                this->write("DO NOTHING");
+                break;
             }
         }
     }
@@ -2069,9 +2034,7 @@ private:
         visit(stmt->table);
         this->space();
         this->write('(');
-        this->write_list(stmt->columns, [this](std::string_view col) {
-            write_identifier(col);
-        });
+        this->write_list(stmt->columns, [this](std::string_view col) { write_identifier(col); });
         this->write(')');
     }
 
@@ -2143,15 +2106,19 @@ private:
 
     static const char* unary_operator_string(TK op) {
         switch (op) {
-            case TK::NOT: return "NOT";
-            case TK::MINUS: return "-";
-            case TK::PLUS: return "+";
-            case TK::PRIOR: return "PRIOR";
-            // IS NULL / IS NOT NULL are handled as binary operators in most SQL parsers
-            default:
-                throw std::logic_error(
-                    std::string("SQLGenerator: no unary operator string for token '") +
-                    std::string(libglot::sql::lex::token_type_name(op)) + "'");
+        case TK::NOT:
+            return "NOT";
+        case TK::MINUS:
+            return "-";
+        case TK::PLUS:
+            return "+";
+        case TK::PRIOR:
+            return "PRIOR";
+        // IS NULL / IS NOT NULL are handled as binary operators in most SQL parsers
+        default:
+            throw std::logic_error(
+                std::string("SQLGenerator: no unary operator string for token '") +
+                std::string(libglot::sql::lex::token_type_name(op)) + "'");
         }
     }
 
@@ -2161,47 +2128,76 @@ private:
 
     static const char* operator_string(TK op) {
         switch (op) {
-            case TK::EQ: return "=";
-            case TK::NULL_SAFE_EQ: return "<=>";
-            case TK::NEQ: return "<>";
-            case TK::LT: return "<";
-            case TK::LTE: return "<=";
-            case TK::GT: return ">";
-            case TK::GTE: return ">=";
-            case TK::PLUS: return "+";
-            case TK::MINUS: return "-";
-            case TK::STAR: return "*";
-            case TK::SLASH: return "/";
-            case TK::PERCENT: return "%";
-            case TK::CARET: return "^";
-            case TK::AND: return "AND";
-            case TK::OR: return "OR";
-            case TK::NOT: return "NOT";
-            case TK::LIKE: return "LIKE";
-            case TK::ILIKE: return "ILIKE";
-            case TK::IN: return "IN";
-            case TK::BETWEEN: return "BETWEEN";
-            case TK::CONCAT: return "||";
-            case TK::IS: return "IS";
+        case TK::EQ:
+            return "=";
+        case TK::NULL_SAFE_EQ:
+            return "<=>";
+        case TK::NEQ:
+            return "<>";
+        case TK::LT:
+            return "<";
+        case TK::LTE:
+            return "<=";
+        case TK::GT:
+            return ">";
+        case TK::GTE:
+            return ">=";
+        case TK::PLUS:
+            return "+";
+        case TK::MINUS:
+            return "-";
+        case TK::STAR:
+            return "*";
+        case TK::SLASH:
+            return "/";
+        case TK::PERCENT:
+            return "%";
+        case TK::CARET:
+            return "^";
+        case TK::AND:
+            return "AND";
+        case TK::OR:
+            return "OR";
+        case TK::NOT:
+            return "NOT";
+        case TK::LIKE:
+            return "LIKE";
+        case TK::ILIKE:
+            return "ILIKE";
+        case TK::IN:
+            return "IN";
+        case TK::BETWEEN:
+            return "BETWEEN";
+        case TK::CONCAT:
+            return "||";
+        case TK::IS:
+            return "IS";
 
-            // JSON operators (PostgreSQL)
-            case TK::ARROW: return "->";
-            case TK::LONG_ARROW: return "->>";
-            case TK::HASH_ARROW: return "#>";
-            case TK::HASH_LONG_ARROW: return "#>>";
-            case TK::AT_GT: return "@>";
-            case TK::LT_AT: return "<@";
-            case TK::QUESTION: return "?";
+        // JSON operators (PostgreSQL)
+        case TK::ARROW:
+            return "->";
+        case TK::LONG_ARROW:
+            return "->>";
+        case TK::HASH_ARROW:
+            return "#>";
+        case TK::HASH_LONG_ARROW:
+            return "#>>";
+        case TK::AT_GT:
+            return "@>";
+        case TK::LT_AT:
+            return "<@";
+        case TK::QUESTION:
+            return "?";
 
-            // Snowflake JSON access operator
-            case TK::COLON: return ":";
+        // Snowflake JSON access operator
+        case TK::COLON:
+            return ":";
 
-            default:
-                // Returning a placeholder here would silently corrupt the
-                // generated SQL; fail loudly instead.
-                throw std::logic_error(
-                    std::string("SQLGenerator: no operator string for token '") +
-                    std::string(libglot::sql::lex::token_type_name(op)) + "'");
+        default:
+            // Returning a placeholder here would silently corrupt the
+            // generated SQL; fail loudly instead.
+            throw std::logic_error(std::string("SQLGenerator: no operator string for token '") +
+                                   std::string(libglot::sql::lex::token_type_name(op)) + "'");
         }
     }
 
@@ -2235,9 +2231,7 @@ private:
 
     void visit_array_literal(ArrayLiteral* arr) {
         this->write('[');
-        this->write_list(arr->elements, [this](SQLNode* elem) {
-            visit(elem);
-        });
+        this->write_list(arr->elements, [this](SQLNode* elem) { visit(elem); });
         this->write(']');
     }
 
@@ -2252,10 +2246,17 @@ private:
                     std::string(SQLDialectTraits::name(this->dialect())));
             }
             switch (idx->subscript) {
-                case ArraySubscript::OFFSET: this->write("OFFSET"); break;
-                case ArraySubscript::ORDINAL: this->write("ORDINAL"); break;
-                case ArraySubscript::SAFE_OFFSET: this->write("SAFE_OFFSET"); break;
-                case ArraySubscript::NONE: break;
+            case ArraySubscript::OFFSET:
+                this->write("OFFSET");
+                break;
+            case ArraySubscript::ORDINAL:
+                this->write("ORDINAL");
+                break;
+            case ArraySubscript::SAFE_OFFSET:
+                this->write("SAFE_OFFSET");
+                break;
+            case ArraySubscript::NONE:
+                break;
             }
             this->write('(');
             visit(idx->index);
@@ -2269,18 +2270,18 @@ private:
     void visit_json_expr(JsonExpr* json) {
         visit(json->json_expr);
         switch (json->op_type) {
-            case JsonExpr::OpType::ARROW:
-                this->write("->");
-                break;
-            case JsonExpr::OpType::LONG_ARROW:
-                this->write("->>");
-                break;
-            case JsonExpr::OpType::HASH_ARROW:
-                this->write("#>");
-                break;
-            case JsonExpr::OpType::HASH_LONG_ARROW:
-                this->write("#>>");
-                break;
+        case JsonExpr::OpType::ARROW:
+            this->write("->");
+            break;
+        case JsonExpr::OpType::LONG_ARROW:
+            this->write("->>");
+            break;
+        case JsonExpr::OpType::HASH_ARROW:
+            this->write("#>");
+            break;
+        case JsonExpr::OpType::HASH_LONG_ARROW:
+            this->write("#>>");
+            break;
         }
         visit(json->key);
     }
@@ -2336,9 +2337,7 @@ private:
         this->write("MATCH");
         this->space();
         this->write('(');
-        this->write_list(m->columns, [this](std::string_view col) {
-            write_identifier(col);
-        });
+        this->write_list(m->columns, [this](std::string_view col) { write_identifier(col); });
         this->write(')');
         this->space();
         this->write("AGAINST");
@@ -2348,18 +2347,18 @@ private:
         if (m->mode_specified) {
             this->space();
             switch (m->mode) {
-                case FulltextMode::NATURAL_LANGUAGE:
-                    this->write("IN NATURAL LANGUAGE MODE");
-                    break;
-                case FulltextMode::NATURAL_LANGUAGE_EXPANSION:
-                    this->write("IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION");
-                    break;
-                case FulltextMode::BOOLEAN_MODE:
-                    this->write("IN BOOLEAN MODE");
-                    break;
-                case FulltextMode::QUERY_EXPANSION:
-                    this->write("WITH QUERY EXPANSION");
-                    break;
+            case FulltextMode::NATURAL_LANGUAGE:
+                this->write("IN NATURAL LANGUAGE MODE");
+                break;
+            case FulltextMode::NATURAL_LANGUAGE_EXPANSION:
+                this->write("IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION");
+                break;
+            case FulltextMode::BOOLEAN_MODE:
+                this->write("IN BOOLEAN MODE");
+                break;
+            case FulltextMode::QUERY_EXPANSION:
+                this->write("WITH QUERY EXPANSION");
+                break;
             }
         }
         this->write(')');
@@ -2368,9 +2367,8 @@ private:
     void visit_flatten_clause(FlattenClause* f) {
         const auto d = this->dialect();
         if (d != SQLDialect::Snowflake) {
-            throw std::logic_error(
-                "LATERAL FLATTEN has no equivalent outside Snowflake in " +
-                std::string(SQLDialectTraits::name(d)));
+            throw std::logic_error("LATERAL FLATTEN has no equivalent outside Snowflake in " +
+                                   std::string(SQLDialectTraits::name(d)));
         }
         this->write("FLATTEN");
         this->write('(');
@@ -2425,9 +2423,7 @@ private:
         this->space();
         this->write_list(values->rows, [this](const std::vector<SQLNode*>& row) {
             this->write('(');
-            this->write_list(row, [this](SQLNode* val) {
-                visit(val);
-            });
+            this->write_list(row, [this](SQLNode* val) { visit(val); });
             this->write(')');
         });
         if (as_table_source) {
@@ -2438,9 +2434,8 @@ private:
             write_identifier(values->alias);
             if (!values->columns.empty()) {
                 this->write('(');
-                this->write_list(values->columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
+                this->write_list(values->columns,
+                                 [this](std::string_view col) { write_identifier(col); });
                 this->write(')');
             }
         }
@@ -2448,21 +2443,20 @@ private:
 
     void visit_tablesample(Tablesample* sample) {
         if (this->dialect() == SQLDialect::MySQL || this->dialect() == SQLDialect::MariaDB) {
-            throw std::logic_error(
-                "TABLESAMPLE has no equivalent in " +
-                std::string(SQLDialectTraits::name(this->dialect())));
+            throw std::logic_error("TABLESAMPLE has no equivalent in " +
+                                   std::string(SQLDialectTraits::name(this->dialect())));
         }
         visit(sample->table_expr);
         this->space();
         this->write("TABLESAMPLE");
         this->space();
         switch (sample->method) {
-            case SampleMethod::BERNOULLI:
-                this->write("BERNOULLI");
-                break;
-            case SampleMethod::SYSTEM:
-                this->write("SYSTEM");
-                break;
+        case SampleMethod::BERNOULLI:
+            this->write("BERNOULLI");
+            break;
+        case SampleMethod::SYSTEM:
+            this->write("SYSTEM");
+            break;
         }
         this->write('(');
         visit(sample->percent);
@@ -2487,43 +2481,44 @@ private:
         this->space();
 
         switch (stmt->operation) {
-            case AlterOperation::ADD_COLUMN:
-                this->write("ADD COLUMN");
-                this->space();
-                if (stmt->column_def) visit_column_def(stmt->column_def);
-                break;
-            case AlterOperation::DROP_COLUMN:
-                this->write("DROP COLUMN");
-                this->space();
-                write_identifier(stmt->old_name);
-                break;
-            case AlterOperation::MODIFY_COLUMN:
-                this->write("MODIFY COLUMN");
-                this->space();
-                if (stmt->column_def) visit_column_def(stmt->column_def);
-                break;
-            case AlterOperation::RENAME_COLUMN:
-                this->write("RENAME COLUMN");
-                this->space();
-                write_identifier(stmt->old_name);
-                this->space();
-                this->write("TO");
-                this->space();
-                write_identifier(stmt->new_name);
-                break;
-            case AlterOperation::RENAME_TABLE:
-                this->write("RENAME TO");
-                this->space();
-                write_identifier(stmt->new_name);
-                break;
+        case AlterOperation::ADD_COLUMN:
+            this->write("ADD COLUMN");
+            this->space();
+            if (stmt->column_def)
+                visit_column_def(stmt->column_def);
+            break;
+        case AlterOperation::DROP_COLUMN:
+            this->write("DROP COLUMN");
+            this->space();
+            write_identifier(stmt->old_name);
+            break;
+        case AlterOperation::MODIFY_COLUMN:
+            this->write("MODIFY COLUMN");
+            this->space();
+            if (stmt->column_def)
+                visit_column_def(stmt->column_def);
+            break;
+        case AlterOperation::RENAME_COLUMN:
+            this->write("RENAME COLUMN");
+            this->space();
+            write_identifier(stmt->old_name);
+            this->space();
+            this->write("TO");
+            this->space();
+            write_identifier(stmt->new_name);
+            break;
+        case AlterOperation::RENAME_TABLE:
+            this->write("RENAME TO");
+            this->space();
+            write_identifier(stmt->new_name);
+            break;
         }
     }
 
     void visit_create_sequence_stmt(CreateSequenceStmt* stmt) {
         if (lacks_sequences(this->dialect())) {
-            throw std::logic_error(
-                "CREATE SEQUENCE has no equivalent in " +
-                std::string(SQLDialectTraits::name(this->dialect())));
+            throw std::logic_error("CREATE SEQUENCE has no equivalent in " +
+                                   std::string(SQLDialectTraits::name(this->dialect())));
         }
         this->write("CREATE SEQUENCE");
         if (stmt->if_not_exists) {
@@ -2579,9 +2574,8 @@ private:
 
     void visit_drop_sequence_stmt(DropSequenceStmt* stmt) {
         if (lacks_sequences(this->dialect())) {
-            throw std::logic_error(
-                "DROP SEQUENCE has no equivalent in " +
-                std::string(SQLDialectTraits::name(this->dialect())));
+            throw std::logic_error("DROP SEQUENCE has no equivalent in " +
+                                   std::string(SQLDialectTraits::name(this->dialect())));
         }
         this->write("DROP SEQUENCE");
         if (stmt->if_exists) {
@@ -2594,9 +2588,8 @@ private:
 
     void visit_alter_sequence_stmt(AlterSequenceStmt* stmt) {
         if (lacks_sequences(this->dialect())) {
-            throw std::logic_error(
-                "ALTER SEQUENCE has no equivalent in " +
-                std::string(SQLDialectTraits::name(this->dialect())));
+            throw std::logic_error("ALTER SEQUENCE has no equivalent in " +
+                                   std::string(SQLDialectTraits::name(this->dialect())));
         }
         this->write("ALTER SEQUENCE");
         this->space();
@@ -2647,9 +2640,8 @@ private:
             if (!col->references_columns.empty()) {
                 this->space();
                 this->write('(');
-                this->write_list(col->references_columns, [this](std::string_view ref_col) {
-                    write_identifier(ref_col);
-                });
+                this->write_list(col->references_columns,
+                                 [this](std::string_view ref_col) { write_identifier(ref_col); });
                 this->write(')');
             }
         }
@@ -2671,64 +2663,62 @@ private:
             this->space();
         }
         switch (constraint->constraint_type) {
-            case TableConstraint::Type::PRIMARY_KEY:
-                this->write("PRIMARY KEY");
+        case TableConstraint::Type::PRIMARY_KEY:
+            this->write("PRIMARY KEY");
+            this->space();
+            this->write('(');
+            this->write_list(constraint->columns,
+                             [this](std::string_view col) { write_identifier(col); });
+            this->write(')');
+            break;
+        case TableConstraint::Type::FOREIGN_KEY:
+            this->write("FOREIGN KEY");
+            this->space();
+            this->write('(');
+            this->write_list(constraint->columns,
+                             [this](std::string_view col) { write_identifier(col); });
+            this->write(')');
+            this->space();
+            this->write("REFERENCES");
+            this->space();
+            if (constraint->ref_table)
+                visit(constraint->ref_table);
+            if (!constraint->ref_columns.empty()) {
                 this->space();
                 this->write('(');
-                this->write_list(constraint->columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
+                this->write_list(constraint->ref_columns,
+                                 [this](std::string_view col) { write_identifier(col); });
                 this->write(')');
-                break;
-            case TableConstraint::Type::FOREIGN_KEY:
-                this->write("FOREIGN KEY");
+            }
+            if (!constraint->on_delete_action.empty()) {
                 this->space();
-                this->write('(');
-                this->write_list(constraint->columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
-                this->write(')');
+                this->write("ON DELETE");
                 this->space();
-                this->write("REFERENCES");
+                this->write(constraint->on_delete_action);
+            }
+            if (!constraint->on_update_action.empty()) {
                 this->space();
-                if (constraint->ref_table) visit(constraint->ref_table);
-                if (!constraint->ref_columns.empty()) {
-                    this->space();
-                    this->write('(');
-                    this->write_list(constraint->ref_columns, [this](std::string_view col) {
-                        write_identifier(col);
-                    });
-                    this->write(')');
-                }
-                if (!constraint->on_delete_action.empty()) {
-                    this->space();
-                    this->write("ON DELETE");
-                    this->space();
-                    this->write(constraint->on_delete_action);
-                }
-                if (!constraint->on_update_action.empty()) {
-                    this->space();
-                    this->write("ON UPDATE");
-                    this->space();
-                    this->write(constraint->on_update_action);
-                }
-                break;
-            case TableConstraint::Type::UNIQUE:
-                this->write("UNIQUE");
+                this->write("ON UPDATE");
                 this->space();
-                this->write('(');
-                this->write_list(constraint->columns, [this](std::string_view col) {
-                    write_identifier(col);
-                });
-                this->write(')');
-                break;
-            case TableConstraint::Type::CHECK:
-                this->write("CHECK");
-                this->space();
-                this->write('(');
-                if (constraint->check_expr) visit(constraint->check_expr);
-                this->write(')');
-                break;
+                this->write(constraint->on_update_action);
+            }
+            break;
+        case TableConstraint::Type::UNIQUE:
+            this->write("UNIQUE");
+            this->space();
+            this->write('(');
+            this->write_list(constraint->columns,
+                             [this](std::string_view col) { write_identifier(col); });
+            this->write(')');
+            break;
+        case TableConstraint::Type::CHECK:
+            this->write("CHECK");
+            this->space();
+            this->write('(');
+            if (constraint->check_expr)
+                visit(constraint->check_expr);
+            this->write(')');
+            break;
         }
     }
 
@@ -2748,21 +2738,19 @@ private:
         this->write("PARTITION BY");
         this->space();
         switch (spec->type) {
-            case PartitionType::RANGE:
-                this->write("RANGE");
-                break;
-            case PartitionType::LIST:
-                this->write("LIST");
-                break;
-            case PartitionType::HASH:
-                this->write("HASH");
-                break;
+        case PartitionType::RANGE:
+            this->write("RANGE");
+            break;
+        case PartitionType::LIST:
+            this->write("LIST");
+            break;
+        case PartitionType::HASH:
+            this->write("HASH");
+            break;
         }
         this->space();
         this->write('(');
-        this->write_list(spec->columns, [this](std::string_view col) {
-            write_identifier(col);
-        });
+        this->write_list(spec->columns, [this](std::string_view col) { write_identifier(col); });
         this->write(')');
     }
 
@@ -2783,12 +2771,11 @@ private:
         this->space();
         this->write("ON");
         this->space();
-        if (stmt->table) visit(stmt->table);
+        if (stmt->table)
+            visit(stmt->table);
         this->space();
         this->write('(');
-        this->write_list(stmt->columns, [this](SQLNode* col) {
-            visit(col);
-        });
+        this->write_list(stmt->columns, [this](SQLNode* col) { visit(col); });
         this->write(')');
         if (stmt->where_clause) {
             this->space();
@@ -2809,7 +2796,8 @@ private:
             // Normalize to uppercase for consistency
             if (stmt->transaction_type == "work" || stmt->transaction_type == "WORK") {
                 this->write("WORK");
-            } else if (stmt->transaction_type == "transaction" || stmt->transaction_type == "TRANSACTION") {
+            } else if (stmt->transaction_type == "transaction" ||
+                       stmt->transaction_type == "TRANSACTION") {
                 this->write("TRANSACTION");
             } else {
                 this->write(stmt->transaction_type);
@@ -2817,9 +2805,7 @@ private:
         }
     }
 
-    void visit_commit_stmt(CommitStmt*) {
-        this->write("COMMIT");
-    }
+    void visit_commit_stmt(CommitStmt*) { this->write("COMMIT"); }
 
     void visit_rollback_stmt(RollbackStmt* stmt) {
         this->write("ROLLBACK");
@@ -2883,7 +2869,8 @@ private:
             this->write("ANALYZE");
         }
         this->space();
-        if (stmt->statement) visit(stmt->statement);
+        if (stmt->statement)
+            visit(stmt->statement);
     }
 
     void visit_analyze_stmt(AnalyzeStmt* stmt) {
@@ -2961,10 +2948,10 @@ private:
                     this->space();
                 }
                 first = false;
-                this->write(opt.first);  // option name
+                this->write(opt.first); // option name
                 if (!opt.second.empty()) {
                     this->space();
-                    this->write(opt.second);  // option value
+                    this->write(opt.second); // option value
                 }
             }
             this->write(')');
@@ -3029,39 +3016,32 @@ private:
         this->space();
 
         // Output privileges, combining multi-word privileges (separated by spaces, not commas)
-        // Multi-word privileges are stored as consecutive elements: ["SHOW", "VIEW"], ["ALTER", "ANY", "USER"]
-        // We need to output them with spaces between words within a privilege, and commas between privileges
+        // Multi-word privileges are stored as consecutive elements: ["SHOW", "VIEW"], ["ALTER",
+        // "ANY", "USER"] We need to output them with spaces between words within a privilege, and
+        // commas between privileges
         for (size_t i = 0; i < stmt->privileges.size(); ++i) {
             if (i > 0) {
                 // Determine if previous was part of same privilege or separate privilege
                 // Heuristic: known second/third words don't start a new privilege
                 std::string_view curr = stmt->privileges[i];
-                bool is_continuation = (curr == "PRIVILEGES" || curr == "privileges" ||
-                                        curr == "VIEW" || curr == "view" ||
-                                        curr == "TABLES" || curr == "tables" ||
-                                        curr == "OPTION" || curr == "option" ||
-                                        curr == "OWNERSHIP" || curr == "ownership" ||
-                                        curr == "DEFINITION" || curr == "definition" ||
-                                        curr == "ANY" || curr == "any" ||
-                                        curr == "READER" || curr == "reader" ||
-                                        curr == "EDITOR" || curr == "editor" ||
-                                        curr == "OWNER" || curr == "owner" ||
-                                        curr == "VIEWER" || curr == "viewer" ||
-                                        curr == "USER" || curr == "user" ||
-                                        curr == "ROLE" || curr == "role" ||
-                                        curr == "TABLE" || curr == "table" ||
-                                        curr == "INDEX" || curr == "index" ||
-                                        curr == "PROCEDURE" || curr == "procedure" ||
-                                        curr == "FUNCTION" || curr == "function" ||
-                                        curr == "SCHEMA" || curr == "schema" ||
-                                        curr == "DATABASE" || curr == "database" ||
-                                        curr == "SEQUENCE" || curr == "sequence" ||
-                                        curr == "FOR" || curr == "for");
+                bool is_continuation =
+                    (curr == "PRIVILEGES" || curr == "privileges" || curr == "VIEW" ||
+                     curr == "view" || curr == "TABLES" || curr == "tables" || curr == "OPTION" ||
+                     curr == "option" || curr == "OWNERSHIP" || curr == "ownership" ||
+                     curr == "DEFINITION" || curr == "definition" || curr == "ANY" ||
+                     curr == "any" || curr == "READER" || curr == "reader" || curr == "EDITOR" ||
+                     curr == "editor" || curr == "OWNER" || curr == "owner" || curr == "VIEWER" ||
+                     curr == "viewer" || curr == "USER" || curr == "user" || curr == "ROLE" ||
+                     curr == "role" || curr == "TABLE" || curr == "table" || curr == "INDEX" ||
+                     curr == "index" || curr == "PROCEDURE" || curr == "procedure" ||
+                     curr == "FUNCTION" || curr == "function" || curr == "SCHEMA" ||
+                     curr == "schema" || curr == "DATABASE" || curr == "database" ||
+                     curr == "SEQUENCE" || curr == "sequence" || curr == "FOR" || curr == "for");
 
                 if (is_continuation) {
-                    this->space();  // Space within multi-word privilege
+                    this->space(); // Space within multi-word privilege
                 } else {
-                    this->write(',');  // Comma between separate privileges
+                    this->write(','); // Comma between separate privileges
                     this->space();
                 }
             }
@@ -3073,7 +3053,7 @@ private:
             this->write("ON");
             if (!stmt->object_type.empty()) {
                 this->space();
-                this->write(stmt->object_type);  // Object type is keyword, don't quote
+                this->write(stmt->object_type); // Object type is keyword, don't quote
             }
             // Trim and write object name (handles LOGIN ::sa → LOGIN::sa)
             std::string_view obj_name = stmt->object_name;
@@ -3085,14 +3065,14 @@ private:
                 if (obj_name[0] != ':' && obj_name[0] != '.' && obj_name[0] != ',') {
                     this->space();
                 }
-                this->write(obj_name);  // Object name is identifier but tests expect it unquoted
+                this->write(obj_name); // Object name is identifier but tests expect it unquoted
             }
         }
         this->space();
         this->write("TO");
         this->space();
         this->write_list(stmt->grantees, [this](std::string_view grantee) {
-            this->write(grantee);  // Grantees can be PUBLIC keyword, don't quote
+            this->write(grantee); // Grantees can be PUBLIC keyword, don't quote
         });
         if (stmt->with_grant_option) {
             this->space();
@@ -3120,39 +3100,32 @@ private:
         }
 
         // Output privileges, combining multi-word privileges (separated by spaces, not commas)
-        // Multi-word privileges are stored as consecutive elements: ["SHOW", "VIEW"], ["ALTER", "ANY", "USER"]
-        // We need to output them with spaces between words within a privilege, and commas between privileges
+        // Multi-word privileges are stored as consecutive elements: ["SHOW", "VIEW"], ["ALTER",
+        // "ANY", "USER"] We need to output them with spaces between words within a privilege, and
+        // commas between privileges
         for (size_t i = 0; i < stmt->privileges.size(); ++i) {
             if (i > 0) {
                 // Determine if previous was part of same privilege or separate privilege
                 // Heuristic: known second/third words don't start a new privilege
                 std::string_view curr = stmt->privileges[i];
-                bool is_continuation = (curr == "PRIVILEGES" || curr == "privileges" ||
-                                        curr == "VIEW" || curr == "view" ||
-                                        curr == "TABLES" || curr == "tables" ||
-                                        curr == "OPTION" || curr == "option" ||
-                                        curr == "OWNERSHIP" || curr == "ownership" ||
-                                        curr == "DEFINITION" || curr == "definition" ||
-                                        curr == "ANY" || curr == "any" ||
-                                        curr == "READER" || curr == "reader" ||
-                                        curr == "EDITOR" || curr == "editor" ||
-                                        curr == "OWNER" || curr == "owner" ||
-                                        curr == "VIEWER" || curr == "viewer" ||
-                                        curr == "USER" || curr == "user" ||
-                                        curr == "ROLE" || curr == "role" ||
-                                        curr == "TABLE" || curr == "table" ||
-                                        curr == "INDEX" || curr == "index" ||
-                                        curr == "PROCEDURE" || curr == "procedure" ||
-                                        curr == "FUNCTION" || curr == "function" ||
-                                        curr == "SCHEMA" || curr == "schema" ||
-                                        curr == "DATABASE" || curr == "database" ||
-                                        curr == "SEQUENCE" || curr == "sequence" ||
-                                        curr == "FOR" || curr == "for");
+                bool is_continuation =
+                    (curr == "PRIVILEGES" || curr == "privileges" || curr == "VIEW" ||
+                     curr == "view" || curr == "TABLES" || curr == "tables" || curr == "OPTION" ||
+                     curr == "option" || curr == "OWNERSHIP" || curr == "ownership" ||
+                     curr == "DEFINITION" || curr == "definition" || curr == "ANY" ||
+                     curr == "any" || curr == "READER" || curr == "reader" || curr == "EDITOR" ||
+                     curr == "editor" || curr == "OWNER" || curr == "owner" || curr == "VIEWER" ||
+                     curr == "viewer" || curr == "USER" || curr == "user" || curr == "ROLE" ||
+                     curr == "role" || curr == "TABLE" || curr == "table" || curr == "INDEX" ||
+                     curr == "index" || curr == "PROCEDURE" || curr == "procedure" ||
+                     curr == "FUNCTION" || curr == "function" || curr == "SCHEMA" ||
+                     curr == "schema" || curr == "DATABASE" || curr == "database" ||
+                     curr == "SEQUENCE" || curr == "sequence" || curr == "FOR" || curr == "for");
 
                 if (is_continuation) {
-                    this->space();  // Space within multi-word privilege
+                    this->space(); // Space within multi-word privilege
                 } else {
-                    this->write(',');  // Comma between separate privileges
+                    this->write(','); // Comma between separate privileges
                     this->space();
                 }
             }
@@ -3164,7 +3137,7 @@ private:
             this->write("ON");
             if (!stmt->object_type.empty()) {
                 this->space();
-                this->write(stmt->object_type);  // Object type is keyword, don't quote
+                this->write(stmt->object_type); // Object type is keyword, don't quote
             }
             // Trim and write object name (handles LOGIN ::sa → LOGIN::sa)
             std::string_view obj_name = stmt->object_name;
@@ -3176,14 +3149,14 @@ private:
                 if (obj_name[0] != ':' && obj_name[0] != '.' && obj_name[0] != ',') {
                     this->space();
                 }
-                this->write(obj_name);  // Object name is identifier but tests expect it unquoted
+                this->write(obj_name); // Object name is identifier but tests expect it unquoted
             }
         }
         this->space();
         this->write("FROM");
         this->space();
         this->write_list(stmt->grantees, [this](std::string_view grantee) {
-            this->write(grantee);  // Grantees can be PUBLIC keyword, don't quote
+            this->write(grantee); // Grantees can be PUBLIC keyword, don't quote
         });
         if (stmt->cascade) {
             this->space();
@@ -3257,11 +3230,10 @@ private:
         this->space();
 
         // Output body:
-        // If body contains a single ExceptionBlock or BeginEndBlock, visit it directly (it handles BEGIN...END)
-        // Otherwise wrap in BEGIN...END
-        if (stmt->body.size() == 1 &&
-            (stmt->body[0]->type == SQLNodeKind::EXCEPTION_BLOCK ||
-             stmt->body[0]->type == SQLNodeKind::BEGIN_END_BLOCK)) {
+        // If body contains a single ExceptionBlock or BeginEndBlock, visit it directly (it handles
+        // BEGIN...END) Otherwise wrap in BEGIN...END
+        if (stmt->body.size() == 1 && (stmt->body[0]->type == SQLNodeKind::EXCEPTION_BLOCK ||
+                                       stmt->body[0]->type == SQLNodeKind::BEGIN_END_BLOCK)) {
             this->space();
             visit(stmt->body[0]);
         } else {
@@ -3296,9 +3268,7 @@ private:
         // Procedure names in CALL are not quoted
         this->write(stmt->name);
         this->write('(');
-        this->write_list(stmt->arguments, [this](SQLNode* arg) {
-            visit(arg);
-        });
+        this->write_list(stmt->arguments, [this](SQLNode* arg) { visit(arg); });
         this->write(')');
     }
 
@@ -3335,7 +3305,8 @@ private:
         }
         this->write("CURSOR FOR");
         this->space();
-        if (stmt->query) visit(stmt->query);
+        if (stmt->query)
+            visit(stmt->query);
     }
 
     void visit_assignment_stmt(AssignmentStmt* stmt) {
@@ -3349,14 +3320,16 @@ private:
             this->space();
             this->write('=');
             this->space();
-            if (stmt->value) visit(stmt->value);
+            if (stmt->value)
+                visit(stmt->value);
         } else {
             // PostgreSQL, Oracle, BigQuery use x := 10
             this->write(stmt->variable_name);
             this->space();
             this->write(":=");
             this->space();
-            if (stmt->value) visit(stmt->value);
+            if (stmt->value)
+                visit(stmt->value);
         }
     }
 
@@ -3371,7 +3344,8 @@ private:
     void visit_if_stmt(IfStmt* stmt) {
         this->write("IF");
         this->space();
-        if (stmt->condition) visit(stmt->condition);
+        if (stmt->condition)
+            visit(stmt->condition);
         this->space();
         this->write("THEN");
         write_statement_body(stmt->then_stmts);
@@ -3381,7 +3355,8 @@ private:
             this->space();
             this->write("ELSEIF");
             this->space();
-            if (elsif_branch.first) visit(elsif_branch.first);  // condition
+            if (elsif_branch.first)
+                visit(elsif_branch.first); // condition
             this->space();
             this->write("THEN");
             write_statement_body(elsif_branch.second);
@@ -3403,7 +3378,8 @@ private:
 
         this->write("WHILE");
         this->space();
-        if (loop->condition) visit(loop->condition);
+        if (loop->condition)
+            visit(loop->condition);
         this->space();
 
         if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
@@ -3437,9 +3413,8 @@ private:
         // mis-lowering it.
         if (loop->query) {
             if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
-                throw std::logic_error(
-                    "FOR record IN SELECT loops have no direct T-SQL equivalent "
-                    "(rewrite using a DECLARE CURSOR / FETCH loop)");
+                throw std::logic_error("FOR record IN SELECT loops have no direct T-SQL equivalent "
+                                       "(rewrite using a DECLARE CURSOR / FETCH loop)");
             }
             this->write("FOR");
             this->space();
@@ -3474,7 +3449,8 @@ private:
             this->space();
             this->write("INT =");
             this->space();
-            if (loop->start_value) visit(loop->start_value);
+            if (loop->start_value)
+                visit(loop->start_value);
             this->write(';');
             this->space();
 
@@ -3484,7 +3460,8 @@ private:
             this->space();
             this->write(loop->reverse ? ">=" : "<=");
             this->space();
-            if (loop->end_value) visit(loop->end_value);
+            if (loop->end_value)
+                visit(loop->end_value);
             this->space();
 
             // BEGIN body; SET @variable = @variable +/- 1; END; END
@@ -3511,9 +3488,11 @@ private:
                 this->write("REVERSE");
                 this->space();
             }
-            if (loop->start_value) visit(loop->start_value);
+            if (loop->start_value)
+                visit(loop->start_value);
             this->write("..");
-            if (loop->end_value) visit(loop->end_value);
+            if (loop->end_value)
+                visit(loop->end_value);
             this->space();
             this->write("LOOP");
             write_statement_body(loop->body);
@@ -3540,13 +3519,9 @@ private:
         this->write("END LOOP");
     }
 
-    void visit_break_stmt(BreakStmt*) {
-        this->write("BREAK");
-    }
+    void visit_break_stmt(BreakStmt*) { this->write("BREAK"); }
 
-    void visit_continue_stmt(ContinueStmt*) {
-        this->write("CONTINUE");
-    }
+    void visit_continue_stmt(ContinueStmt*) { this->write("CONTINUE"); }
 
     void visit_begin_end_block(BeginEndBlock* block) {
         this->write("BEGIN");
@@ -3631,7 +3606,7 @@ private:
                 if (!stmt->sqlstate.empty()) {
                     this->write(stmt->sqlstate);
                 } else {
-                    this->write("'45000'");  // Generic user-defined error
+                    this->write("'45000'"); // Generic user-defined error
                 }
                 if (!stmt->message.empty()) {
                     this->space();
@@ -3690,9 +3665,7 @@ private:
         this->write(stmt->cursor_name);
         if (!stmt->args.empty()) {
             this->write('(');
-            this->write_list(stmt->args, [this](SQLNode* arg) {
-                visit(arg);
-            });
+            this->write_list(stmt->args, [this](SQLNode* arg) { visit(arg); });
             this->write(')');
         }
     }
@@ -3740,27 +3713,27 @@ private:
         write_identifier(stmt->name);
         this->space();
         switch (stmt->timing) {
-            case TriggerTiming::BEFORE:
-                this->write("BEFORE");
-                break;
-            case TriggerTiming::AFTER:
-                this->write("AFTER");
-                break;
-            case TriggerTiming::INSTEAD_OF:
-                this->write("INSTEAD OF");
-                break;
+        case TriggerTiming::BEFORE:
+            this->write("BEFORE");
+            break;
+        case TriggerTiming::AFTER:
+            this->write("AFTER");
+            break;
+        case TriggerTiming::INSTEAD_OF:
+            this->write("INSTEAD OF");
+            break;
         }
         this->space();
         switch (stmt->event) {
-            case TriggerEvent::INSERT:
-                this->write("INSERT");
-                break;
-            case TriggerEvent::UPDATE:
-                this->write("UPDATE");
-                break;
-            case TriggerEvent::DELETE:
-                this->write("DELETE");
-                break;
+        case TriggerEvent::INSERT:
+            this->write("INSERT");
+            break;
+        case TriggerEvent::UPDATE:
+            this->write("UPDATE");
+            break;
+        case TriggerEvent::DELETE:
+            this->write("DELETE");
+            break;
         }
         this->space();
         this->write("ON");
@@ -3800,18 +3773,18 @@ private:
         this->write("PIVOT");
         this->space();
         this->write('(');
-        if (pivot->aggregate) visit_function_call(pivot->aggregate);
+        if (pivot->aggregate)
+            visit_function_call(pivot->aggregate);
         this->space();
         this->write("FOR");
         this->space();
-        if (pivot->pivot_column) visit(pivot->pivot_column);
+        if (pivot->pivot_column)
+            visit(pivot->pivot_column);
         this->space();
         this->write("IN");
         this->space();
         this->write('(');
-        this->write_list(pivot->pivot_values, [this](SQLNode* val) {
-            visit(val);
-        });
+        this->write_list(pivot->pivot_values, [this](SQLNode* val) { visit(val); });
         this->write(')');
         this->write(')');
     }
@@ -3829,9 +3802,8 @@ private:
         this->write("IN");
         this->space();
         this->write('(');
-        this->write_list(unpivot->unpivot_columns, [this](std::string_view col) {
-            write_identifier(col);
-        });
+        this->write_list(unpivot->unpivot_columns,
+                         [this](std::string_view col) { write_identifier(col); });
         this->write(')');
         this->write(')');
     }
@@ -3842,17 +3814,13 @@ private:
 
     void visit_rollup_clause(RollupClause* rollup) {
         this->write("ROLLUP(");
-        this->write_list(rollup->expressions, [this](SQLNode* expr) {
-            visit(expr);
-        });
+        this->write_list(rollup->expressions, [this](SQLNode* expr) { visit(expr); });
         this->write(')');
     }
 
     void visit_cube_clause(CubeClause* cube) {
         this->write("CUBE(");
-        this->write_list(cube->expressions, [this](SQLNode* expr) {
-            visit(expr);
-        });
+        this->write_list(cube->expressions, [this](SQLNode* expr) { visit(expr); });
         this->write(')');
     }
 
@@ -3875,9 +3843,7 @@ private:
                 visit(set[0]);
             } else {
                 this->write('(');
-                this->write_list(set, [this](SQLNode* expr) {
-                    visit(expr);
-                });
+                this->write_list(set, [this](SQLNode* expr) { visit(expr); });
                 this->write(')');
             }
         }
@@ -3961,40 +3927,38 @@ private:
     /// with the statement's default row image (INSERTED/DELETED).
     void write_tsql_output_item(SQLNode* item, std::string_view default_qualifier) {
         switch (item->type) {
-            case SQLNodeKind::ALIAS: {
-                auto* alias = static_cast<Alias*>(item);
-                write_tsql_output_item(alias->expr, default_qualifier);
-                this->space();
-                this->write("AS");
-                this->space();
-                write_identifier(alias->alias);
+        case SQLNodeKind::ALIAS: {
+            auto* alias = static_cast<Alias*>(item);
+            write_tsql_output_item(alias->expr, default_qualifier);
+            this->space();
+            this->write("AS");
+            this->space();
+            write_identifier(alias->alias);
+            return;
+        }
+        case SQLNodeKind::STAR: {
+            auto* star = static_cast<Star*>(item);
+            std::string_view qualifier = star->table.empty() ? default_qualifier : star->table;
+            if (qualifier == "INSERTED" || qualifier == "DELETED") {
+                this->write(qualifier);
+                this->write(".*");
                 return;
             }
-            case SQLNodeKind::STAR: {
-                auto* star = static_cast<Star*>(item);
-                std::string_view qualifier =
-                    star->table.empty() ? default_qualifier : star->table;
-                if (qualifier == "INSERTED" || qualifier == "DELETED") {
-                    this->write(qualifier);
-                    this->write(".*");
-                    return;
-                }
-                break;
+            break;
+        }
+        case SQLNodeKind::COLUMN: {
+            auto* col = static_cast<Column*>(item);
+            std::string_view qualifier = col->table.empty() ? default_qualifier : col->table;
+            if (qualifier == "INSERTED" || qualifier == "DELETED") {
+                this->write(qualifier);
+                this->write('.');
+                write_identifier(col->column);
+                return;
             }
-            case SQLNodeKind::COLUMN: {
-                auto* col = static_cast<Column*>(item);
-                std::string_view qualifier =
-                    col->table.empty() ? default_qualifier : col->table;
-                if (qualifier == "INSERTED" || qualifier == "DELETED") {
-                    this->write(qualifier);
-                    this->write('.');
-                    write_identifier(col->column);
-                    return;
-                }
-                break;
-            }
-            default:
-                break;
+            break;
+        }
+        default:
+            break;
         }
         visit(item);
     }
@@ -4004,35 +3968,35 @@ private:
     /// with RETURNING and throws std::logic_error.
     void write_returning_item(SQLNode* item, std::string_view allowed_qualifier) {
         switch (item->type) {
-            case SQLNodeKind::ALIAS: {
-                auto* alias = static_cast<Alias*>(item);
-                write_returning_item(alias->expr, allowed_qualifier);
-                this->space();
-                this->write("AS");
-                this->space();
-                write_identifier(alias->alias);
+        case SQLNodeKind::ALIAS: {
+            auto* alias = static_cast<Alias*>(item);
+            write_returning_item(alias->expr, allowed_qualifier);
+            this->space();
+            this->write("AS");
+            this->space();
+            write_identifier(alias->alias);
+            return;
+        }
+        case SQLNodeKind::STAR: {
+            auto* star = static_cast<Star*>(item);
+            require_returning_qualifier(star->table, allowed_qualifier);
+            if (star->table == "INSERTED" || star->table == "DELETED") {
+                this->write('*');
                 return;
             }
-            case SQLNodeKind::STAR: {
-                auto* star = static_cast<Star*>(item);
-                require_returning_qualifier(star->table, allowed_qualifier);
-                if (star->table == "INSERTED" || star->table == "DELETED") {
-                    this->write('*');
-                    return;
-                }
-                break;
+            break;
+        }
+        case SQLNodeKind::COLUMN: {
+            auto* col = static_cast<Column*>(item);
+            require_returning_qualifier(col->table, allowed_qualifier);
+            if (col->table == "INSERTED" || col->table == "DELETED") {
+                write_identifier(col->column);
+                return;
             }
-            case SQLNodeKind::COLUMN: {
-                auto* col = static_cast<Column*>(item);
-                require_returning_qualifier(col->table, allowed_qualifier);
-                if (col->table == "INSERTED" || col->table == "DELETED") {
-                    write_identifier(col->column);
-                    return;
-                }
-                break;
-            }
-            default:
-                break;
+            break;
+        }
+        default:
+            break;
         }
         visit(item);
     }
@@ -4043,13 +4007,11 @@ private:
     /// DELETED, which only T-SQL can express).
     static void require_returning_qualifier(std::string_view qualifier,
                                             std::string_view allowed_qualifier) {
-        if ((qualifier == "INSERTED" || qualifier == "DELETED") &&
-            qualifier != allowed_qualifier) {
-            throw std::logic_error(
-                "OUTPUT " + std::string(qualifier) +
-                ".* references require a T-SQL dialect (SQL Server); RETURNING "
-                "only exposes " + std::string(allowed_qualifier) +
-                " rows for this statement");
+        if ((qualifier == "INSERTED" || qualifier == "DELETED") && qualifier != allowed_qualifier) {
+            throw std::logic_error("OUTPUT " + std::string(qualifier) +
+                                   ".* references require a T-SQL dialect (SQL Server); RETURNING "
+                                   "only exposes " +
+                                   std::string(allowed_qualifier) + " rows for this statement");
         }
     }
 
@@ -4079,7 +4041,8 @@ private:
         this->space();
         this->write("AS");
         this->space();
-        if (stmt->training_query) visit(stmt->training_query);
+        if (stmt->training_query)
+            visit(stmt->training_query);
     }
 
     void visit_drop_model_stmt(DropModelStmt* stmt) {
@@ -4100,7 +4063,8 @@ private:
         write_identifier(expr->model_name);
         this->write(',');
         this->space();
-        if (expr->input_query) visit(expr->input_query);
+        if (expr->input_query)
+            visit(expr->input_query);
         this->write(')');
     }
 
@@ -4112,7 +4076,8 @@ private:
         write_identifier(expr->model_name);
         this->write(',');
         this->space();
-        if (expr->evaluation_query) visit(expr->evaluation_query);
+        if (expr->evaluation_query)
+            visit(expr->evaluation_query);
         this->write(')');
     }
 

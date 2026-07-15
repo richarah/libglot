@@ -499,15 +499,20 @@ TEST_CASE("GRANT - Real-world: Database administrator role", "[grant][real-world
 }
 
 TEST_CASE("GRANT - Real-world: Read-only analyst", "[grant][real-world]") {
-    std::string sql = "GRANT SELECT ON analytics.users, analytics.orders, analytics.products TO data_analyst";
+    std::string sql =
+        "GRANT SELECT ON analytics.users, analytics.orders, analytics.products TO data_analyst";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "GRANT SELECT ON analytics.users, analytics.orders, analytics.products TO data_analyst");
+    REQUIRE(
+        result ==
+        "GRANT SELECT ON analytics.users, analytics.orders, analytics.products TO data_analyst");
 }
 
 TEST_CASE("GRANT - Real-world: Application service account", "[grant][real-world]") {
-    std::string sql = "GRANT SELECT, INSERT, UPDATE, DELETE ON app.users, app.sessions TO app_service";
+    std::string sql =
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON app.users, app.sessions TO app_service";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "GRANT SELECT, INSERT, UPDATE, DELETE ON app.users, app.sessions TO app_service");
+    REQUIRE(result ==
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON app.users, app.sessions TO app_service");
 }
 
 TEST_CASE("GRANT - Real-world: Column-level PII restrictions", "[grant][real-world]") {
@@ -592,7 +597,8 @@ TEST_CASE("REVOKE - Extremely long privilege list", "[revoke][security]") {
     // Test handling of many privileges (stress test)
     std::string privileges;
     for (int i = 0; i < 100; ++i) {
-        if (i > 0) privileges += ", ";
+        if (i > 0)
+            privileges += ", ";
         privileges += "SELECT";
     }
 

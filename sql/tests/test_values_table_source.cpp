@@ -5,8 +5,8 @@
 // column list.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -27,34 +27,38 @@ std::string gen(const std::string& sql, SQLDialect d) {
 } // namespace
 
 TEST_CASE("VALUES table source - exact string with column list", "[values-source]") {
-    REQUIRE(gen("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)", SQLDialect::ANSI)
-            == "SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS \"v\"(\"id\", \"name\")");
+    REQUIRE(gen("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)", SQLDialect::ANSI) ==
+            "SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS \"v\"(\"id\", \"name\")");
 }
 
 TEST_CASE("VALUES table source - alias without column list", "[values-source]") {
-    REQUIRE(gen("SELECT * FROM (VALUES (1), (2)) AS v", SQLDialect::PostgreSQL)
-            == "SELECT * FROM (VALUES (1), (2)) AS \"v\"");
+    REQUIRE(gen("SELECT * FROM (VALUES (1), (2)) AS v", SQLDialect::PostgreSQL) ==
+            "SELECT * FROM (VALUES (1), (2)) AS \"v\"");
 }
 
 TEST_CASE("VALUES table source - alias without AS keyword", "[values-source]") {
-    REQUIRE(gen("SELECT * FROM (VALUES (1, 2)) v(a, b)", SQLDialect::MySQL)
-            == "SELECT * FROM (VALUES (1, 2)) AS `v`(`a`, `b`)");
+    REQUIRE(gen("SELECT * FROM (VALUES (1, 2)) v(a, b)", SQLDialect::MySQL) ==
+            "SELECT * FROM (VALUES (1, 2)) AS `v`(`a`, `b`)");
 }
 
 TEST_CASE("VALUES table source - usable in a join", "[values-source]") {
-    REQUIRE(gen("SELECT * FROM t JOIN (VALUES (1, 'a')) AS v(id, name) ON t.id = v.id", SQLDialect::ANSI)
-            == "SELECT * FROM \"t\" INNER JOIN (VALUES (1, 'a')) AS \"v\"(\"id\", \"name\") ON \"t\".\"id\" = \"v\".\"id\"");
+    REQUIRE(gen("SELECT * FROM t JOIN (VALUES (1, 'a')) AS v(id, name) ON t.id = v.id",
+                SQLDialect::ANSI) == "SELECT * FROM \"t\" INNER JOIN (VALUES (1, 'a')) AS "
+                                     "\"v\"(\"id\", \"name\") ON \"t\".\"id\" = \"v\".\"id\"");
 }
 
-TEST_CASE("VALUES table source - missing closing paren is a clean ParseError", "[values-source][error]") {
+TEST_CASE("VALUES table source - missing closing paren is a clean ParseError",
+          "[values-source][error]") {
     libglot::Arena arena;
     SQLParser parser(arena, "SELECT * FROM (VALUES (1, 2) AS v(a, b)", SQLDialect::ANSI);
     REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }
 
-TEST_CASE("VALUES table source - generated SQL is a fixed point in every dialect", "[values-source][fixpoint]") {
+TEST_CASE("VALUES table source - generated SQL is a fixed point in every dialect",
+          "[values-source][fixpoint]") {
     const std::string q = "SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)";
-    for (auto d : {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::SQLServer}) {
+    for (auto d :
+         {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::SQLServer}) {
         const std::string g1 = gen(q, d);
         REQUIRE(gen(g1, d) == g1);
     }

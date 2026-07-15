@@ -8,12 +8,12 @@
  * - Clear, human-readable messages
  */
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <iostream>
 #include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 #include <string>
-#include <iostream>
-#include <algorithm>
 
 using namespace libglot::sql;
 
@@ -198,7 +198,7 @@ TEST_CASE("Error messages demonstrate fail-fast behavior", "[error][messages]") 
     }
 
     SECTION("No error recovery - precise single error") {
-        SQLParser parser(arena, "SELECT * FROM");  // Missing table name
+        SQLParser parser(arena, "SELECT * FROM"); // Missing table name
         try {
             parser.parse_top_level();
             FAIL("Should have thrown ParseError");
@@ -257,7 +257,7 @@ TEST_CASE("Error message edge cases", "[error][messages][edge_cases]") {
         for (int i = 0; i < 100; ++i) {
             sql += "col" + std::to_string(i) + ", ";
         }
-        sql += "FROM users";  // Error: trailing comma before FROM
+        sql += "FROM users"; // Error: trailing comma before FROM
 
         SQLParser parser(arena, sql);
         try {
@@ -280,7 +280,7 @@ TEST_CASE("Error message edge cases", "[error][messages][edge_cases]") {
         } catch (const libglot::ParseError& e) {
             // Should only report first error (missing column list)
             REQUIRE(e.line == 1);
-            REQUIRE(e.column == 8);  // Position of FROM token
+            REQUIRE(e.column == 8); // Position of FROM token
             std::string msg(e.what());
             REQUIRE(msg.find("FROM") != std::string::npos);
         }
@@ -295,7 +295,7 @@ TEST_CASE("Error message edge cases", "[error][messages][edge_cases]") {
             std::string msg(e.what());
             REQUIRE(e.line == 1);
             // Error should be in the subquery
-            REQUIRE(e.column > 15);  // After opening parenthesis
+            REQUIRE(e.column > 15); // After opening parenthesis
             REQUIRE(msg.find("FROM") != std::string::npos);
         }
     }
@@ -309,7 +309,7 @@ TEST_CASE("Error message edge cases", "[error][messages][edge_cases]") {
             std::string msg(e.what());
             REQUIRE(e.line == 1);
             // Error should be inside CTE definition
-            REQUIRE(e.column > 13);  // After CTE opening
+            REQUIRE(e.column > 13); // After CTE opening
         }
     }
 
@@ -390,7 +390,8 @@ TEST_CASE("Error message format examples", "[error][messages][examples]") {
             parser.parse_top_level();
             FAIL("Should have thrown");
         } catch (const libglot::ParseError& e) {
-            // Example output: Line 1, column 14: Expected table name after CREATE TABLE (found: '(')
+            // Example output: Line 1, column 14: Expected table name after CREATE TABLE (found:
+            // '(')
             std::string msg(e.what());
             std::cout << "Example error 2: " << msg << "\n";
             REQUIRE(msg.find("table name after CREATE TABLE") != std::string::npos);

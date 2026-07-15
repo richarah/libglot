@@ -61,8 +61,10 @@ public:
         int bits_collected = 0;
 
         for (char c : encoded) {
-            if (std::isspace(static_cast<unsigned char>(c))) continue;  // Skip whitespace
-            if (c == '=') break;  // Padding
+            if (std::isspace(static_cast<unsigned char>(c)))
+                continue; // Skip whitespace
+            if (c == '=')
+                break; // Padding
 
             std::uint8_t val = detail::kBase64ReverseTable[static_cast<unsigned char>(c)];
             if (val == detail::kBase64Invalid) {
@@ -159,11 +161,12 @@ public:
             if (c == '=') {
                 // Soft line break (=\n or =\r\n)
                 if (i + 1 < encoded.size()) {
-                    if (encoded[i + 1] == '\r' && i + 2 < encoded.size() && encoded[i + 2] == '\n') {
-                        i += 2;  // Skip =\r\n
+                    if (encoded[i + 1] == '\r' && i + 2 < encoded.size() &&
+                        encoded[i + 2] == '\n') {
+                        i += 2; // Skip =\r\n
                         continue;
                     } else if (encoded[i + 1] == '\n') {
-                        i += 1;  // Skip =\n
+                        i += 1; // Skip =\n
                         continue;
                     }
                 }
@@ -251,8 +254,8 @@ public:
             }
 
             if (c == ' ' || c == '\t') {
-                bool trailing = (i + 1 == data.size()) ||
-                                (data[i + 1] == '\r' || data[i + 1] == '\n');
+                bool trailing =
+                    (i + 1 == data.size()) || (data[i + 1] == '\r' || data[i + 1] == '\n');
                 if (trailing) {
                     emit_hex(c);
                 } else {
@@ -272,14 +275,7 @@ public:
     }
 
     /// Detect transfer encoding from Content-Transfer-Encoding header
-    enum class Encoding {
-        SevenBit,
-        EightBit,
-        Binary,
-        QuotedPrintable,
-        Base64,
-        Unknown
-    };
+    enum class Encoding { SevenBit, EightBit, Binary, QuotedPrintable, Base64, Unknown };
 
     static Encoding detect_encoding(std::string_view header_value) {
         // Convert to lowercase for comparison
@@ -292,14 +288,21 @@ public:
         std::string_view lv = lower;
 
         // Trim whitespace
-        while (!lv.empty() && std::isspace(lv.front())) lv.remove_prefix(1);
-        while (!lv.empty() && std::isspace(lv.back())) lv.remove_suffix(1);
+        while (!lv.empty() && std::isspace(lv.front()))
+            lv.remove_prefix(1);
+        while (!lv.empty() && std::isspace(lv.back()))
+            lv.remove_suffix(1);
 
-        if (lv == "base64") return Encoding::Base64;
-        if (lv == "quoted-printable") return Encoding::QuotedPrintable;
-        if (lv == "7bit") return Encoding::SevenBit;
-        if (lv == "8bit") return Encoding::EightBit;
-        if (lv == "binary") return Encoding::Binary;
+        if (lv == "base64")
+            return Encoding::Base64;
+        if (lv == "quoted-printable")
+            return Encoding::QuotedPrintable;
+        if (lv == "7bit")
+            return Encoding::SevenBit;
+        if (lv == "8bit")
+            return Encoding::EightBit;
+        if (lv == "binary")
+            return Encoding::Binary;
 
         return Encoding::Unknown;
     }
@@ -307,27 +310,30 @@ public:
     /// Decode body based on Content-Transfer-Encoding
     static std::string decode_body(std::string_view body, Encoding encoding) {
         switch (encoding) {
-            case Encoding::Base64:
-                return decode_base64(body);
+        case Encoding::Base64:
+            return decode_base64(body);
 
-            case Encoding::QuotedPrintable:
-                return decode_quoted_printable(body);
+        case Encoding::QuotedPrintable:
+            return decode_quoted_printable(body);
 
-            case Encoding::SevenBit:
-            case Encoding::EightBit:
-            case Encoding::Binary:
-            case Encoding::Unknown:
-            default:
-                // Pass through
-                return std::string(body);
+        case Encoding::SevenBit:
+        case Encoding::EightBit:
+        case Encoding::Binary:
+        case Encoding::Unknown:
+        default:
+            // Pass through
+            return std::string(body);
         }
     }
 
 private:
     static int hex_to_int(char c) {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'A' && c <= 'F')
+            return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f')
+            return c - 'a' + 10;
         return 0;
     }
 };
@@ -406,8 +412,10 @@ public:
 
             // Extract parts
             std::string_view charset = header_value.substr(start + 2, charset_end - (start + 2));
-            std::string_view encoding = header_value.substr(charset_end + 1, encoding_end - (charset_end + 1));
-            std::string_view text = header_value.substr(encoding_end + 1, text_end - (encoding_end + 1));
+            std::string_view encoding =
+                header_value.substr(charset_end + 1, encoding_end - (charset_end + 1));
+            std::string_view text =
+                header_value.substr(encoding_end + 1, text_end - (encoding_end + 1));
 
             // Decode based on encoding
             std::string decoded_text;
@@ -418,7 +426,8 @@ public:
                 // Quoted-printable (with _ instead of space)
                 std::string qp_text(text);
                 for (char& c : qp_text) {
-                    if (c == '_') c = ' ';
+                    if (c == '_')
+                        c = ' ';
                 }
                 decoded_text = TransferEncoding::decode_quoted_printable(qp_text);
             } else {
@@ -435,15 +444,15 @@ public:
             }
             auto cs = CharsetConverter::detect_charset(charset_lower);
             switch (cs) {
-                case CharsetConverter::Charset::UTF8:
-                case CharsetConverter::Charset::USASCII:
-                case CharsetConverter::Charset::ISO88591:
-                case CharsetConverter::Charset::WINDOWS1252:
-                    decoded_text = CharsetConverter::to_utf8(decoded_text, cs);
-                    break;
-                default:
-                    decode_result.has_unknown_charset = true;
-                    break;
+            case CharsetConverter::Charset::UTF8:
+            case CharsetConverter::Charset::USASCII:
+            case CharsetConverter::Charset::ISO88591:
+            case CharsetConverter::Charset::WINDOWS1252:
+                decoded_text = CharsetConverter::to_utf8(decoded_text, cs);
+                break;
+            default:
+                decode_result.has_unknown_charset = true;
+                break;
             }
 
             result.append(decoded_text);
@@ -468,7 +477,8 @@ public:
     /// treat any text between a word's "?=" and the next "=?" as ordinary
     /// literal content -- so this is what makes
     /// decode(encode_word(text, enc)) == text an exact round trip.
-    static std::string encode_word(std::string_view utf8_text, TransferEncoding::Encoding encoding) {
+    static std::string encode_word(std::string_view utf8_text,
+                                   TransferEncoding::Encoding encoding) {
         if (utf8_text.empty()) {
             return "";
         }
@@ -477,15 +487,14 @@ public:
         static constexpr std::string_view kCharset = "UTF-8";
         // "=?" + "UTF-8" + "?" + B-or-Q + "?" + "?=" = 2+5+1+1+1+2 = 12
         constexpr size_t kOverhead = 12;
-        constexpr size_t kBudget = 75 - kOverhead;  // 63 chars of encoded-text
+        constexpr size_t kBudget = 75 - kOverhead; // 63 chars of encoded-text
 
         std::string result;
         size_t pos = 0;
 
         while (pos < utf8_text.size()) {
-            size_t chunk_bytes = use_base64
-                ? base64_word_chunk_bytes(utf8_text, pos, kBudget)
-                : qp_word_chunk_bytes(utf8_text, pos, kBudget);
+            size_t chunk_bytes = use_base64 ? base64_word_chunk_bytes(utf8_text, pos, kBudget)
+                                            : qp_word_chunk_bytes(utf8_text, pos, kBudget);
             if (chunk_bytes == 0) {
                 // Defensive: guarantee forward progress even in a case this
                 // logic didn't anticipate (never happens for valid UTF-8).
@@ -527,7 +536,7 @@ private:
         } else if ((lead & 0xF8) == 0xF0) {
             len = 4;
         } else {
-            len = 1;  // invalid lead byte: treat as one byte, never loop forever
+            len = 1; // invalid lead byte: treat as one byte, never loop forever
         }
         if (pos + len > text.size()) {
             len = text.size() - pos;
@@ -556,8 +565,10 @@ private:
     /// Q-encoded length of a single byte: 1 for the literal/underscore form,
     /// 3 for the "=XX" escape.
     static size_t qp_word_byte_len(unsigned char c) {
-        if (c == ' ') return 1;
-        if (c >= 0x21 && c <= 0x7E && c != '=' && c != '?' && c != '_') return 1;
+        if (c == ' ')
+            return 1;
+        if (c >= 0x21 && c <= 0x7E && c != '=' && c != '?' && c != '_')
+            return 1;
         return 3;
     }
 
@@ -570,7 +581,8 @@ private:
             size_t rune_len = utf8_rune_length(text, pos + bytes);
             size_t rune_encoded_len = 0;
             for (size_t k = 0; k < rune_len; ++k) {
-                rune_encoded_len += qp_word_byte_len(static_cast<unsigned char>(text[pos + bytes + k]));
+                rune_encoded_len +=
+                    qp_word_byte_len(static_cast<unsigned char>(text[pos + bytes + k]));
             }
             if (encoded_len + rune_encoded_len > budget) {
                 break;

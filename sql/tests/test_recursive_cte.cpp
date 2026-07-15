@@ -1,10 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 
 using namespace libglot::sql;
 
-static std::string test_round_trip(const std::string& sql, SQLDialect dialect = SQLDialect::PostgreSQL) {
+static std::string test_round_trip(const std::string& sql,
+                                   SQLDialect dialect = SQLDialect::PostgreSQL) {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
     auto ast = parser.parse_top_level();
@@ -125,7 +126,8 @@ TEST_CASE("Recursive CTE - Advanced patterns", "[cte][recursive][advanced]") {
         INFO("Generated SQL: " << result);
         REQUIRE(result.find("WITH RECURSIVE") != std::string::npos);
         // Check for the arithmetic expression (may have quotes around identifiers)
-        REQUIRE((result.find("level + 1") != std::string::npos || result.find("\"level\" + 1") != std::string::npos));
+        REQUIRE((result.find("level + 1") != std::string::npos ||
+                 result.find("\"level\" + 1") != std::string::npos));
     }
 
     SECTION("Graph traversal - finding all paths") {
@@ -212,7 +214,8 @@ TEST_CASE("Recursive CTE - Depth limiting", "[cte][recursive][limits]") {
         INFO("Generated SQL: " << result);
         REQUIRE(result.find("WITH RECURSIVE") != std::string::npos);
         // Check for the comparison expression (may have quotes around identifiers)
-        REQUIRE((result.find("depth < 10") != std::string::npos || result.find("\"depth\" < 10") != std::string::npos));
+        REQUIRE((result.find("depth < 10") != std::string::npos ||
+                 result.find("\"depth\" < 10") != std::string::npos));
     }
 }
 

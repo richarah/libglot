@@ -9,8 +9,8 @@
 // with a WHERE filter, which callers must do by hand).
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -31,31 +31,34 @@ std::string gen(const std::string& sql, SQLDialect d) {
 } // namespace
 
 TEST_CASE("QUALIFY - exact string (Snowflake)", "[qualify]") {
-    REQUIRE(gen("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1", SQLDialect::Snowflake)
-            == "SELECT \"a\" FROM \"t\" QUALIFY ROW_NUMBER() OVER (ORDER BY \"a\") = 1");
+    REQUIRE(
+        gen("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1", SQLDialect::Snowflake) ==
+        "SELECT \"a\" FROM \"t\" QUALIFY ROW_NUMBER() OVER (ORDER BY \"a\") = 1");
 }
 
 TEST_CASE("QUALIFY - exact string (BigQuery, DuckDB)", "[qualify]") {
     // BigQuery quotes identifiers with backticks; DuckDB with double quotes.
-    REQUIRE(gen("SELECT a FROM t QUALIFY row_number() OVER (PARTITION BY a) = 1", SQLDialect::BigQuery)
-            == "SELECT `a` FROM `t` QUALIFY row_number() OVER (PARTITION BY `a`) = 1");
-    REQUIRE(gen("SELECT a FROM t QUALIFY row_number() OVER (PARTITION BY a) = 1", SQLDialect::DuckDB)
-            == "SELECT \"a\" FROM \"t\" QUALIFY row_number() OVER (PARTITION BY \"a\") = 1");
+    REQUIRE(gen("SELECT a FROM t QUALIFY row_number() OVER (PARTITION BY a) = 1",
+                SQLDialect::BigQuery) ==
+            "SELECT `a` FROM `t` QUALIFY row_number() OVER (PARTITION BY `a`) = 1");
+    REQUIRE(
+        gen("SELECT a FROM t QUALIFY row_number() OVER (PARTITION BY a) = 1", SQLDialect::DuckDB) ==
+        "SELECT \"a\" FROM \"t\" QUALIFY row_number() OVER (PARTITION BY \"a\") = 1");
 }
 
 TEST_CASE("QUALIFY combined with WHERE/GROUP BY/HAVING", "[qualify]") {
     REQUIRE(gen("SELECT a, SUM(b) FROM t WHERE a > 0 GROUP BY a HAVING SUM(b) > 10 "
                 "QUALIFY RANK() OVER (ORDER BY a) <= 5",
-                SQLDialect::Snowflake)
-            == "SELECT \"a\", SUM(\"b\") FROM \"t\" WHERE \"a\" > 0 GROUP BY \"a\" "
-               "HAVING SUM(\"b\") > 10 QUALIFY RANK() OVER (ORDER BY \"a\") <= 5");
+                SQLDialect::Snowflake) ==
+            "SELECT \"a\", SUM(\"b\") FROM \"t\" WHERE \"a\" > 0 GROUP BY \"a\" "
+            "HAVING SUM(\"b\") > 10 QUALIFY RANK() OVER (ORDER BY \"a\") <= 5");
 }
 
 TEST_CASE("QUALIFY throws for dialects without QUALIFY support", "[qualify][error]") {
-    for (auto d : {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::ANSI, SQLDialect::SQLServer}) {
-        REQUIRE_THROWS_AS(
-            gen("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1", d),
-            std::logic_error);
+    for (auto d :
+         {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::ANSI, SQLDialect::SQLServer}) {
+        REQUIRE_THROWS_AS(gen("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1", d),
+                          std::logic_error);
     }
 }
 

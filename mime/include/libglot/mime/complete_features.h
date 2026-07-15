@@ -6,8 +6,8 @@
 #include <cctype>
 #include <charconv>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 namespace libglot::mime {
 
@@ -43,9 +43,9 @@ public:
     /// Parse continued parameters: name*0=value0; name*1=value1; name*2=value2
     /// If `report` is non-null, invalid RFC 2231 percent-encoding is recorded
     /// there instead of aborting the parse.
-    static std::unordered_map<std::string, ContinuedParameter>
-    parse_continued_parameters(const std::vector<std::pair<std::string_view, std::string_view>>& params,
-                               AnomalyReport* report = nullptr) {
+    static std::unordered_map<std::string, ContinuedParameter> parse_continued_parameters(
+        const std::vector<std::pair<std::string_view, std::string_view>>& params,
+        AnomalyReport* report = nullptr) {
         std::unordered_map<std::string, std::vector<std::pair<int, std::string>>> fragments;
         std::unordered_map<std::string, bool> encoded_flags;
         std::unordered_map<std::string, std::string> charsets;
@@ -56,7 +56,8 @@ public:
 
             // Check for parameter continuation: name*N or name*N*
             size_t star_pos = key_str.find('*');
-            if (star_pos == std::string::npos) continue;
+            if (star_pos == std::string::npos)
+                continue;
 
             std::string base_name = key_str.substr(0, star_pos);
             std::string suffix = key_str.substr(star_pos + 1);
@@ -86,8 +87,8 @@ public:
                     charsets[base_name] = value_str.substr(0, first_quote);
                     size_t second_quote = value_str.find('\'', first_quote + 1);
                     if (second_quote != std::string::npos) {
-                        languages[base_name] = value_str.substr(first_quote + 1,
-                                                                 second_quote - first_quote - 1);
+                        languages[base_name] =
+                            value_str.substr(first_quote + 1, second_quote - first_quote - 1);
                         value_str = value_str.substr(second_quote + 1);
                     }
                 }
@@ -102,7 +103,7 @@ public:
         for (auto& [name, frags] : fragments) {
             // Sort by sequence number
             std::sort(frags.begin(), frags.end(),
-                     [](const auto& a, const auto& b) { return a.first < b.first; });
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
 
             ContinuedParameter param;
             param.name = name;
@@ -166,9 +167,12 @@ private:
     }
 
     static int hex_digit_value(char c) {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'A' && c <= 'F')
+            return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f')
+            return c - 'a' + 10;
         return -1;
     }
 };
@@ -188,20 +192,23 @@ public:
 
         for (char c : header) {
             if (escaped) {
-                if (depth == 0) result += c;
+                if (depth == 0)
+                    result += c;
                 escaped = false;
                 continue;
             }
 
             if (c == '\\') {
                 escaped = true;
-                if (depth == 0) result += c;
+                if (depth == 0)
+                    result += c;
                 continue;
             }
 
             if (c == '"') {
                 in_quote = !in_quote;
-                if (depth == 0) result += c;
+                if (depth == 0)
+                    result += c;
                 continue;
             }
 
@@ -210,7 +217,8 @@ public:
                     depth++;
                     continue;
                 } else if (c == ')') {
-                    if (depth > 0) depth--;
+                    if (depth > 0)
+                        depth--;
                     continue;
                 }
             }
@@ -233,14 +241,16 @@ public:
 
         for (char c : header) {
             if (escaped) {
-                if (depth > 0) current_comment += c;
+                if (depth > 0)
+                    current_comment += c;
                 escaped = false;
                 continue;
             }
 
             if (c == '\\') {
                 escaped = true;
-                if (depth > 0) current_comment += c;
+                if (depth > 0)
+                    current_comment += c;
                 continue;
             }
 
@@ -251,7 +261,8 @@ public:
 
             if (!in_quote) {
                 if (c == '(') {
-                    if (depth == 0) current_comment.clear();
+                    if (depth == 0)
+                        current_comment.clear();
                     depth++;
                     continue;
                 } else if (c == ')') {
@@ -291,21 +302,24 @@ public:
         while (pos < header_value.length()) {
             // Look for group syntax: group_name: addr1, addr2;
             size_t colon = header_value.find(':', pos);
-            if (colon == std::string::npos) break;
+            if (colon == std::string::npos)
+                break;
 
             AddressGroup group;
             group.group_name = std::string(trim(header_value.substr(pos, colon - pos)));
 
             // Find the semicolon that ends the group
             size_t semi = header_value.find(';', colon);
-            if (semi == std::string::npos) semi = header_value.length();
+            if (semi == std::string::npos)
+                semi = header_value.length();
 
             // Parse addresses in the group
             std::string_view addrs = header_value.substr(colon + 1, semi - colon - 1);
             size_t addr_pos = 0;
             while (addr_pos < addrs.length()) {
                 size_t comma = addrs.find(',', addr_pos);
-                if (comma == std::string::npos) comma = addrs.length();
+                if (comma == std::string::npos)
+                    comma = addrs.length();
 
                 std::string addr(trim(addrs.substr(addr_pos, comma - addr_pos)));
                 if (!addr.empty()) {
@@ -325,11 +339,11 @@ public:
 private:
     static std::string_view trim(std::string_view str) {
         size_t start = 0;
-        while (start < str.length() &&
-               std::isspace(static_cast<unsigned char>(str[start]))) start++;
+        while (start < str.length() && std::isspace(static_cast<unsigned char>(str[start])))
+            start++;
         size_t end = str.length();
-        while (end > start &&
-               std::isspace(static_cast<unsigned char>(str[end - 1]))) end--;
+        while (end > start && std::isspace(static_cast<unsigned char>(str[end - 1])))
+            end--;
         return str.substr(start, end - start);
     }
 };
@@ -356,20 +370,19 @@ public:
             }
 
             size_t end = body.find_first_of("\r\n", pos);
-            if (end == std::string_view::npos) end = body.length();
+            if (end == std::string_view::npos)
+                end = body.length();
 
             std::string_view candidate = body.substr(pos + 2, end - pos - 2);
 
             // Strip transport padding and a trailing "--" (close delimiter)
-            while (!candidate.empty() &&
-                   (candidate.back() == ' ' || candidate.back() == '\t')) {
+            while (!candidate.empty() && (candidate.back() == ' ' || candidate.back() == '\t')) {
                 candidate.remove_suffix(1);
             }
             if (candidate.size() >= 2 && candidate.substr(candidate.size() - 2) == "--") {
                 candidate.remove_suffix(2);
             }
-            while (!candidate.empty() &&
-                   (candidate.back() == ' ' || candidate.back() == '\t')) {
+            while (!candidate.empty() && (candidate.back() == ' ' || candidate.back() == '\t')) {
                 candidate.remove_suffix(1);
             }
 
@@ -384,7 +397,7 @@ public:
         std::string best_boundary;
         int max_count = 0;
         for (const auto& [boundary, count] : boundary_candidates) {
-            if (count > max_count && count > 1) {  // Must appear at least twice
+            if (count > max_count && count > 1) { // Must appear at least twice
                 max_count = count;
                 best_boundary = boundary;
             }
@@ -398,12 +411,13 @@ public:
     /// the body becomes the last part). Preamble (before the first delimiter)
     /// and epilogue (after the close delimiter) are discarded; boundary text
     /// appearing mid-line inside part content does not split.
-    static std::vector<std::string_view>
-    split_with_recovery(std::string_view body, std::string_view boundary) {
+    static std::vector<std::string_view> split_with_recovery(std::string_view body,
+                                                             std::string_view boundary) {
         std::vector<std::string_view> parts;
 
         auto delim = find_boundary_delimiter(body, boundary, 0);
-        if (!delim.found) return parts;
+        if (!delim.found)
+            return parts;
 
         bool closed = delim.is_close;
         size_t part_start = delim.next_pos;
@@ -433,19 +447,20 @@ public:
 /// ============================================================================
 
 struct ExternalBodyRef {
-    std::string access_type;  // ftp, http, local-file, mail-server
-    std::string name;         // Filename
-    std::string site;         // FTP/HTTP server
-    std::string directory;    // Directory path
-    std::string server;       // Mail server
-    std::string subject;      // Mail subject
+    std::string access_type; // ftp, http, local-file, mail-server
+    std::string name;        // Filename
+    std::string site;        // FTP/HTTP server
+    std::string directory;   // Directory path
+    std::string server;      // Mail server
+    std::string subject;     // Mail subject
     size_t size;             // File size in octets
-    std::string expiration;   // Expiration date
+    std::string expiration;  // Expiration date
 };
 
 class ExternalBodyParser {
 public:
-    static ExternalBodyRef parse(const std::vector<std::pair<std::string_view, std::string_view>>& params) {
+    static ExternalBodyRef
+    parse(const std::vector<std::pair<std::string_view, std::string_view>>& params) {
         ExternalBodyRef ref;
         ref.size = 0;
 
@@ -496,9 +511,9 @@ public:
 /// ============================================================================
 
 struct MessagePartialRef {
-    std::string id;   // Shared identifier across all fragments of one message
-    int number = 0;    // This fragment's 1-based sequence number (0 = absent/invalid)
-    int total = 0;     // Total fragment count (0 = absent/invalid)
+    std::string id; // Shared identifier across all fragments of one message
+    int number = 0; // This fragment's 1-based sequence number (0 = absent/invalid)
+    int total = 0;  // Total fragment count (0 = absent/invalid)
 };
 
 class MessagePartialParser {
@@ -508,7 +523,8 @@ public:
     /// std::from_chars (never throws); a malformed, negative, or
     /// out-of-range value leaves the field at 0 rather than propagating
     /// garbage.
-    static MessagePartialRef parse(const std::vector<std::pair<std::string_view, std::string_view>>& params) {
+    static MessagePartialRef
+    parse(const std::vector<std::pair<std::string_view, std::string_view>>& params) {
         MessagePartialRef ref;
 
         for (const auto& [key, value] : params) {

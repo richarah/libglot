@@ -21,10 +21,10 @@ namespace {
 
 SQLDialect dialect_from_name(std::string_view name) {
     static const std::map<std::string_view, SQLDialect> known = {
-        {"ansi", SQLDialect::ANSI},         {"postgresql", SQLDialect::PostgreSQL},
+        {"ansi", SQLDialect::ANSI},           {"postgresql", SQLDialect::PostgreSQL},
         {"postgres", SQLDialect::PostgreSQL}, {"mysql", SQLDialect::MySQL},
-        {"sqlite", SQLDialect::SQLite},     {"sqlserver", SQLDialect::SQLServer},
-        {"tsql", SQLDialect::SQLServer},    {"oracle", SQLDialect::Oracle},
+        {"sqlite", SQLDialect::SQLite},       {"sqlserver", SQLDialect::SQLServer},
+        {"tsql", SQLDialect::SQLServer},      {"oracle", SQLDialect::Oracle},
         {"snowflake", SQLDialect::Snowflake}, {"bigquery", SQLDialect::BigQuery},
         {"duckdb", SQLDialect::DuckDB},
     };
@@ -44,8 +44,7 @@ int main(int argc, char** argv) {
     } else {
         std::getline(std::cin, sql);
     }
-    const SQLDialect target =
-        argc > 2 ? dialect_from_name(argv[2]) : SQLDialect::PostgreSQL;
+    const SQLDialect target = argc > 2 ? dialect_from_name(argv[2]) : SQLDialect::PostgreSQL;
 
     try {
         libglot::Arena arena;

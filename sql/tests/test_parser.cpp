@@ -1,9 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
-#include <libglot/util/arena.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/sql/tokens.h>
+#include <libglot/util/arena.h>
 
 using namespace libglot::sql;
 
@@ -181,15 +181,14 @@ TEST_CASE("SQLParser - SELECT DISTINCT", "[parser]") {
 
 TEST_CASE("SQLParser - Complex query", "[parser]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT u.name, COUNT(o.id) "
-        "FROM users u "
-        "LEFT JOIN orders o ON u.id = o.user_id "
-        "WHERE u.active = 1 "
-        "GROUP BY u.name "
-        "HAVING COUNT(o.id) > 5 "
-        "ORDER BY COUNT(o.id) "
-        "LIMIT 10");
+    SQLParser parser(arena, "SELECT u.name, COUNT(o.id) "
+                            "FROM users u "
+                            "LEFT JOIN orders o ON u.id = o.user_id "
+                            "WHERE u.active = 1 "
+                            "GROUP BY u.name "
+                            "HAVING COUNT(o.id) > 5 "
+                            "ORDER BY COUNT(o.id) "
+                            "LIMIT 10");
 
     auto expr = parser.parse_top_level();
     auto stmt = static_cast<SelectStmt*>(expr);
@@ -419,7 +418,8 @@ TEST_CASE("SQLParser - TOP n PERCENT is represented and regenerated", "[parser][
 
 TEST_CASE("SQLParser - TOP n WITH TIES is represented and regenerated", "[parser][top]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT TOP 5 WITH TIES name FROM employees ORDER BY name", SQLDialect::SQLServer);
+    SQLParser parser(arena, "SELECT TOP 5 WITH TIES name FROM employees ORDER BY name",
+                     SQLDialect::SQLServer);
 
     auto expr = parser.parse_top_level();
     auto stmt = static_cast<SelectStmt*>(expr);
@@ -428,8 +428,7 @@ TEST_CASE("SQLParser - TOP n WITH TIES is represented and regenerated", "[parser
     REQUIRE(stmt->limit_with_ties == true);
 
     SQLGenerator gen(SQLDialect::SQLServer);
-    REQUIRE(gen.generate(expr) ==
-            "SELECT TOP 5 WITH TIES [name] FROM [employees] ORDER BY [name]");
+    REQUIRE(gen.generate(expr) == "SELECT TOP 5 WITH TIES [name] FROM [employees] ORDER BY [name]");
 }
 
 // ============================================================================

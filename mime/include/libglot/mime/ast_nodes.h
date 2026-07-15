@@ -10,10 +10,7 @@ namespace libglot::mime {
 /// MIME AST Node Types
 /// ============================================================================
 
-enum class MimeNodeKind {
-    HEADER,
-    MESSAGE
-};
+enum class MimeNodeKind { HEADER, MESSAGE };
 
 /// ============================================================================
 /// Forward declaration
@@ -55,11 +52,7 @@ struct Header : MimeNode {
     std::vector<AddressGroup>* address_groups = nullptr;
 
     explicit Header(std::string_view f, std::string_view v)
-        : MimeNode(MimeNodeKind::HEADER)
-        , field(f)
-        , value(v)
-        , parameters()
-    {}
+        : MimeNode(MimeNodeKind::HEADER), field(f), value(v), parameters() {}
 };
 
 /// Part is an alias for Message (used in multipart parsing)
@@ -85,19 +78,10 @@ struct Message : MimeNode {
     /// fragments is out of scope -- see MessagePartialParser.
     MessagePartialRef* message_partial = nullptr;
 
-    explicit Message()
-        : MimeNode(MimeNodeKind::MESSAGE)
-        , headers()
-        , body()
-        , parts()
-    {}
+    explicit Message() : MimeNode(MimeNodeKind::MESSAGE), headers(), body(), parts() {}
 
     explicit Message(std::vector<Header*> h, std::string_view b = "")
-        : MimeNode(MimeNodeKind::MESSAGE)
-        , headers(std::move(h))
-        , body(b)
-        , parts()
-    {}
+        : MimeNode(MimeNodeKind::MESSAGE), headers(std::move(h)), body(b), parts() {}
 };
 
 } // namespace libglot::mime

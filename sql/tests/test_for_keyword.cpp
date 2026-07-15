@@ -12,8 +12,8 @@
 // The test below only pins down that this input does not crash.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -87,8 +87,7 @@ TEST_CASE("FOR keyword - nested FOR loops", "[for][loop]") {
 
 TEST_CASE("FOR keyword - BREAK and CONTINUE inside a FOR body", "[for][loop]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "FOR i IN 1..10 LOOP IF i > 5 THEN BREAK; END IF; CONTINUE; END LOOP");
+    SQLParser parser(arena, "FOR i IN 1..10 LOOP IF i > 5 THEN BREAK; END IF; CONTINUE; END LOOP");
     auto* ast = parser.parse_top_level();
 
     REQUIRE(ast->type == SQLNodeKind::FOR_LOOP);
@@ -99,8 +98,8 @@ TEST_CASE("FOR keyword - BREAK and CONTINUE inside a FOR body", "[for][loop]") {
 }
 
 TEST_CASE("FOR keyword - loop lowered to WHILE for SQL Server", "[for][loop][transpile]") {
-    REQUIRE(transpile("FOR i IN 1..10 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer)
-            == "BEGIN DECLARE @i INT = 1; WHILE @i <= 10 BEGIN SELECT 1; SET @i = @i + 1; END; END");
+    REQUIRE(transpile("FOR i IN 1..10 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer) ==
+            "BEGIN DECLARE @i INT = 1; WHILE @i <= 10 BEGIN SELECT 1; SET @i = @i + 1; END; END");
 }
 
 // ============================================================================
@@ -147,16 +146,15 @@ TEST_CASE("FOR keyword - REVERSE range loop round-trips for FOR-native dialects"
 
 TEST_CASE("FOR keyword - REVERSE loop lowered to a descending WHILE for SQL Server",
           "[for][loop][reverse][transpile]") {
-    REQUIRE(transpile("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer)
-            == "BEGIN DECLARE @i INT = 10; WHILE @i >= 1 BEGIN SELECT 1; SET @i = @i - 1; END; END");
+    REQUIRE(transpile("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer) ==
+            "BEGIN DECLARE @i INT = 10; WHILE @i >= 1 BEGIN SELECT 1; SET @i = @i - 1; END; END");
 }
 
 // ============================================================================
 // Wave 2: FOR rec IN SELECT ... LOOP (PL/pgSQL / Oracle record iteration)
 // ============================================================================
 
-TEST_CASE("FOR keyword - record iteration (FOR rec IN SELECT) AST shape",
-          "[for][loop][record]") {
+TEST_CASE("FOR keyword - record iteration (FOR rec IN SELECT) AST shape", "[for][loop][record]") {
     libglot::Arena arena;
     SQLParser parser(arena, "FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP");
     auto* ast = parser.parse_top_level();
@@ -171,17 +169,20 @@ TEST_CASE("FOR keyword - record iteration (FOR rec IN SELECT) AST shape",
 
 TEST_CASE("FOR keyword - record iteration round-trips for PostgreSQL (no parens)",
           "[for][loop][record]") {
-    REQUIRE(transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::PostgreSQL)
-            == "FOR rec IN SELECT \"id\" FROM \"users\" LOOP SELECT 1; END LOOP");
+    REQUIRE(transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP",
+                      SQLDialect::PostgreSQL) ==
+            "FOR rec IN SELECT \"id\" FROM \"users\" LOOP SELECT 1; END LOOP");
 }
 
 TEST_CASE("FOR keyword - record iteration generates Oracle's parenthesized form",
           "[for][loop][record]") {
-    REQUIRE(transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::Oracle)
-            == "FOR rec IN (SELECT \"id\" FROM \"users\") LOOP SELECT 1; END LOOP");
+    REQUIRE(
+        transpile("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::Oracle) ==
+        "FOR rec IN (SELECT \"id\" FROM \"users\") LOOP SELECT 1; END LOOP");
     // Oracle's own parenthesized spelling parses too, and is a fixed point.
-    REQUIRE(transpile("FOR rec IN (SELECT id FROM users) LOOP SELECT 1; END LOOP", SQLDialect::Oracle)
-            == "FOR rec IN (SELECT \"id\" FROM \"users\") LOOP SELECT 1; END LOOP");
+    REQUIRE(transpile("FOR rec IN (SELECT id FROM users) LOOP SELECT 1; END LOOP",
+                      SQLDialect::Oracle) ==
+            "FOR rec IN (SELECT \"id\" FROM \"users\") LOOP SELECT 1; END LOOP");
 }
 
 TEST_CASE("FOR keyword - record iteration has no T-SQL lowering (clean std::logic_error)",

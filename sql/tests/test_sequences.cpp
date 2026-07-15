@@ -7,8 +7,8 @@
 // was parsed; MySQL/SQLite have no sequence object at all and throw.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -36,31 +36,31 @@ std::string transpile(const std::string& sql, SQLDialect dialect) {
 // ============================================================================
 
 TEST_CASE("CREATE SEQUENCE - minimal form", "[sequence][create]") {
-    REQUIRE(transpile("CREATE SEQUENCE seq_a", SQLDialect::PostgreSQL)
-            == "CREATE SEQUENCE \"seq_a\"");
+    REQUIRE(transpile("CREATE SEQUENCE seq_a", SQLDialect::PostgreSQL) ==
+            "CREATE SEQUENCE \"seq_a\"");
 }
 
 TEST_CASE("CREATE SEQUENCE - IF NOT EXISTS", "[sequence][create]") {
-    REQUIRE(transpile("CREATE SEQUENCE IF NOT EXISTS seq_a", SQLDialect::PostgreSQL)
-            == "CREATE SEQUENCE IF NOT EXISTS \"seq_a\"");
+    REQUIRE(transpile("CREATE SEQUENCE IF NOT EXISTS seq_a", SQLDialect::PostgreSQL) ==
+            "CREATE SEQUENCE IF NOT EXISTS \"seq_a\"");
 }
 
 TEST_CASE("CREATE SEQUENCE - every clause present", "[sequence][create]") {
-    REQUIRE(transpile(
-                "CREATE SEQUENCE seq_a START WITH 1 INCREMENT BY 1 "
-                "MINVALUE 1 MAXVALUE 1000 CYCLE CACHE 20",
-                SQLDialect::PostgreSQL)
-            == "CREATE SEQUENCE \"seq_a\" START WITH 1 INCREMENT BY 1 "
-               "MINVALUE 1 MAXVALUE 1000 CYCLE CACHE 20");
+    REQUIRE(transpile("CREATE SEQUENCE seq_a START WITH 1 INCREMENT BY 1 "
+                      "MINVALUE 1 MAXVALUE 1000 CYCLE CACHE 20",
+                      SQLDialect::PostgreSQL) ==
+            "CREATE SEQUENCE \"seq_a\" START WITH 1 INCREMENT BY 1 "
+            "MINVALUE 1 MAXVALUE 1000 CYCLE CACHE 20");
 }
 
 TEST_CASE("CREATE SEQUENCE - NO MINVALUE / NO MAXVALUE / NO CYCLE", "[sequence][create]") {
     REQUIRE(transpile("CREATE SEQUENCE seq_b NO MINVALUE NO MAXVALUE NO CYCLE",
-                       SQLDialect::PostgreSQL)
-            == "CREATE SEQUENCE \"seq_b\" NO MINVALUE NO MAXVALUE NO CYCLE");
+                      SQLDialect::PostgreSQL) ==
+            "CREATE SEQUENCE \"seq_b\" NO MINVALUE NO MAXVALUE NO CYCLE");
 }
 
-TEST_CASE("CREATE SEQUENCE - START WITH without WITH keyword is also accepted", "[sequence][create]") {
+TEST_CASE("CREATE SEQUENCE - START WITH without WITH keyword is also accepted",
+          "[sequence][create]") {
     // Some dialects omit the WITH after START; both spellings parse to the
     // same AST, so both regenerate identically (canonical form always
     // includes WITH).
@@ -73,9 +73,8 @@ TEST_CASE("CREATE SEQUENCE - START WITH without WITH keyword is also accepted", 
 }
 
 TEST_CASE("CREATE SEQUENCE - fixed point", "[sequence][create][roundtrip]") {
-    const std::string sql =
-        "CREATE SEQUENCE \"seq_a\" START WITH 1 INCREMENT BY 1 "
-        "MINVALUE 1 MAXVALUE 1000 CYCLE CACHE 20";
+    const std::string sql = "CREATE SEQUENCE \"seq_a\" START WITH 1 INCREMENT BY 1 "
+                            "MINVALUE 1 MAXVALUE 1000 CYCLE CACHE 20";
     REQUIRE(transpile(sql, SQLDialect::PostgreSQL) == sql);
 }
 
@@ -88,8 +87,8 @@ TEST_CASE("DROP SEQUENCE - plain", "[sequence][drop]") {
 }
 
 TEST_CASE("DROP SEQUENCE - IF EXISTS", "[sequence][drop]") {
-    REQUIRE(transpile("DROP SEQUENCE IF EXISTS seq_a", SQLDialect::PostgreSQL)
-            == "DROP SEQUENCE IF EXISTS \"seq_a\"");
+    REQUIRE(transpile("DROP SEQUENCE IF EXISTS seq_a", SQLDialect::PostgreSQL) ==
+            "DROP SEQUENCE IF EXISTS \"seq_a\"");
 }
 
 // ============================================================================
@@ -97,13 +96,13 @@ TEST_CASE("DROP SEQUENCE - IF EXISTS", "[sequence][drop]") {
 // ============================================================================
 
 TEST_CASE("ALTER SEQUENCE - RESTART bare", "[sequence][alter]") {
-    REQUIRE(transpile("ALTER SEQUENCE seq_a RESTART", SQLDialect::PostgreSQL)
-            == "ALTER SEQUENCE \"seq_a\" RESTART");
+    REQUIRE(transpile("ALTER SEQUENCE seq_a RESTART", SQLDialect::PostgreSQL) ==
+            "ALTER SEQUENCE \"seq_a\" RESTART");
 }
 
 TEST_CASE("ALTER SEQUENCE - RESTART WITH n", "[sequence][alter]") {
-    REQUIRE(transpile("ALTER SEQUENCE seq_a RESTART WITH 5", SQLDialect::PostgreSQL)
-            == "ALTER SEQUENCE \"seq_a\" RESTART WITH 5");
+    REQUIRE(transpile("ALTER SEQUENCE seq_a RESTART WITH 5", SQLDialect::PostgreSQL) ==
+            "ALTER SEQUENCE \"seq_a\" RESTART WITH 5");
 }
 
 TEST_CASE("ALTER SEQUENCE - missing RESTART is a clean ParseError", "[sequence][alter][error]") {
@@ -117,10 +116,10 @@ TEST_CASE("ALTER SEQUENCE - missing RESTART is a clean ParseError", "[sequence][
 // ============================================================================
 
 TEST_CASE("NEXTVAL/CURRVAL - function-style round-trip", "[sequence][nextval]") {
-    REQUIRE(transpile("SELECT NEXTVAL('seq_a')", SQLDialect::PostgreSQL)
-            == "SELECT NEXTVAL('seq_a')");
-    REQUIRE(transpile("SELECT CURRVAL('seq_a')", SQLDialect::PostgreSQL)
-            == "SELECT CURRVAL('seq_a')");
+    REQUIRE(transpile("SELECT NEXTVAL('seq_a')", SQLDialect::PostgreSQL) ==
+            "SELECT NEXTVAL('seq_a')");
+    REQUIRE(transpile("SELECT CURRVAL('seq_a')", SQLDialect::PostgreSQL) ==
+            "SELECT CURRVAL('seq_a')");
 }
 
 TEST_CASE("NEXTVAL/CURRVAL - AST shape", "[sequence][nextval]") {
@@ -139,16 +138,16 @@ TEST_CASE("NEXTVAL/CURRVAL - AST shape", "[sequence][nextval]") {
 // ============================================================================
 
 TEST_CASE("Sequence - Oracle member-style round-trip", "[sequence][oracle]") {
-    REQUIRE(transpile("SELECT seq_a.NEXTVAL FROM t", SQLDialect::Oracle)
-            == "SELECT \"seq_a\".NEXTVAL FROM \"t\"");
-    REQUIRE(transpile("SELECT seq_a.CURRVAL FROM t", SQLDialect::Oracle)
-            == "SELECT \"seq_a\".CURRVAL FROM \"t\"");
+    REQUIRE(transpile("SELECT seq_a.NEXTVAL FROM t", SQLDialect::Oracle) ==
+            "SELECT \"seq_a\".NEXTVAL FROM \"t\"");
+    REQUIRE(transpile("SELECT seq_a.CURRVAL FROM t", SQLDialect::Oracle) ==
+            "SELECT \"seq_a\".CURRVAL FROM \"t\"");
 }
 
 TEST_CASE("Sequence - Oracle member-style transpiles to function-style for PostgreSQL",
           "[sequence][oracle][transpile]") {
-    REQUIRE(transpile("SELECT seq_a.NEXTVAL FROM t", SQLDialect::Oracle, SQLDialect::PostgreSQL)
-            == "SELECT NEXTVAL('seq_a') FROM \"t\"");
+    REQUIRE(transpile("SELECT seq_a.NEXTVAL FROM t", SQLDialect::Oracle, SQLDialect::PostgreSQL) ==
+            "SELECT NEXTVAL('seq_a') FROM \"t\"");
 }
 
 TEST_CASE("Sequence - member-style syntax is Oracle-only at parse time", "[sequence][oracle]") {
@@ -165,10 +164,10 @@ TEST_CASE("Sequence - member-style syntax is Oracle-only at parse time", "[seque
 // Unsupported dialects: MySQL/SQLite have no sequence object
 // ============================================================================
 
-TEST_CASE("Sequence - MySQL has no sequence object (clean std::logic_error)",
-          "[sequence][error]") {
+TEST_CASE("Sequence - MySQL has no sequence object (clean std::logic_error)", "[sequence][error]") {
     REQUIRE_THROWS_AS(transpile("CREATE SEQUENCE seq_a", SQLDialect::MySQL), std::logic_error);
     REQUIRE_THROWS_AS(transpile("DROP SEQUENCE seq_a", SQLDialect::MySQL), std::logic_error);
-    REQUIRE_THROWS_AS(transpile("ALTER SEQUENCE seq_a RESTART", SQLDialect::MySQL), std::logic_error);
+    REQUIRE_THROWS_AS(transpile("ALTER SEQUENCE seq_a RESTART", SQLDialect::MySQL),
+                      std::logic_error);
     REQUIRE_THROWS_AS(transpile("SELECT NEXTVAL('seq_a')", SQLDialect::MySQL), std::logic_error);
 }

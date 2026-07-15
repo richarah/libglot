@@ -1,10 +1,10 @@
 #pragma once
 
-#include <libglot/parse/parser.h>
-#include "grammar.h"
 #include "ast_nodes.h"
-#include "tokens.h"
+#include "grammar.h"
 #include "header_folding.h"
+#include "tokens.h"
+#include <libglot/parse/parser.h>
 
 namespace libglot::mime {
 
@@ -30,16 +30,13 @@ public:
     // ========================================================================
 
     explicit MimeParser(libglot::Arena& arena, std::string_view source)
-        : MimeParser(arena, tokenize_and_copy(arena, source))
-    {}
+        : MimeParser(arena, tokenize_and_copy(arena, source)) {}
 
     // ========================================================================
     // Top-Level Parsing Entry Point (Required by Base)
     // ========================================================================
 
-    Message* parse_top_level() {
-        return parse_message();
-    }
+    Message* parse_top_level() { return parse_message(); }
 
     // ========================================================================
     // CRTP Customization Points (Required by ParserBase)
@@ -52,9 +49,7 @@ public:
     }
 
     /// Parse postfix expression (not used for MIME)
-    [[nodiscard]] MimeNode* parse_postfix(MimeNode* base) {
-        return base;
-    }
+    [[nodiscard]] MimeNode* parse_postfix(MimeNode* base) { return base; }
 
     /// Create binary operator node (not used for MIME)
     [[nodiscard]] MimeNode* make_binary_operator(TK, MimeNode*, MimeNode*) {
@@ -138,9 +133,7 @@ protected:
 
     /// Delegating constructor that receives pre-tokenized result
     MimeParser(libglot::Arena& arena, TokenizeResult&& result)
-        : source_(result.source)
-        , Base(arena, std::move(result.tokens))
-    {}
+        : source_(result.source), Base(arena, std::move(result.tokens)) {}
 
     /// Copy source into arena and tokenize the arena-owned copy
     /// This ensures all token string_views point to arena memory.
@@ -167,13 +160,8 @@ protected:
 
         for (const auto& tok : mime_tokens) {
             result.push_back(TokenType{
-                tok.type,
-                static_cast<uint32_t>(tok.start),
-                static_cast<uint32_t>(tok.end),
-                static_cast<uint16_t>(tok.line),
-                static_cast<uint16_t>(tok.col),
-                tok.text
-            });
+                tok.type, static_cast<uint32_t>(tok.start), static_cast<uint32_t>(tok.end),
+                static_cast<uint16_t>(tok.line), static_cast<uint16_t>(tok.col), tok.text});
         }
 
         return result;

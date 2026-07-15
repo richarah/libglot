@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../lex/spec.h"
 #include "../ast/node.h"
+#include "../lex/spec.h"
 #include <concepts>
 #include <span>
 
@@ -24,16 +24,12 @@ namespace libglot {
 /// Operator precedence and associativity (compile-time configuration)
 /// ============================================================================
 
-enum class Associativity : uint8_t {
-    LEFT,
-    RIGHT,
-    NONE
-};
+enum class Associativity : uint8_t { LEFT, RIGHT, NONE };
 
 template<ValidTokenKind Kind>
 struct OperatorInfo {
     Kind op;
-    uint8_t precedence;       ///< Higher number = higher precedence
+    uint8_t precedence; ///< Higher number = higher precedence
     Associativity associativity;
 
     constexpr OperatorInfo(Kind o, uint8_t prec, Associativity assoc) noexcept
@@ -71,7 +67,9 @@ concept GrammarSpec = requires {
     // ========================================================================
 
     /// Span of operator precedence entries
-    { T::operator_precedence() } -> std::convertible_to<std::span<const OperatorInfo<typename T::TokenKind>>>;
+    {
+        T::operator_precedence()
+    } -> std::convertible_to<std::span<const OperatorInfo<typename T::TokenKind>>>;
 };
 
 // ============================================================================
@@ -85,7 +83,7 @@ template<GrammarSpec Spec>
             return entry.precedence;
         }
     }
-    return -1;  // Not an operator
+    return -1; // Not an operator
 }
 
 template<GrammarSpec Spec>
@@ -102,7 +100,7 @@ template<GrammarSpec Spec>
 /// Example GrammarSpec Implementation (for documentation)
 /// ============================================================================
 
-#if 0  // Example only, not compiled
+#if 0 // Example only, not compiled
 
 // Assume we have ExampleTokenSpec and ExampleNode from previous examples
 
@@ -126,6 +124,6 @@ struct ExampleGrammar {
 
 static_assert(GrammarSpec<ExampleGrammar>, "ExampleGrammar must satisfy GrammarSpec");
 
-#endif  // Example
+#endif // Example
 
 } // namespace libglot

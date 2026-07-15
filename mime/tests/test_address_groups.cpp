@@ -1,5 +1,5 @@
-#include <catch2/catch_test_macros.hpp>
 #include "libglot/mime/complete_features.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -26,7 +26,8 @@ TEST_CASE("Address Groups - Single group with multiple addresses", "[mime][addre
 }
 
 TEST_CASE("Address Groups - Multiple groups", "[mime][address_groups]") {
-    std::string_view header = "Executives: john@example.com; Staff: jane@example.com, bob@example.com;";
+    std::string_view header =
+        "Executives: john@example.com; Staff: jane@example.com, bob@example.com;";
     auto groups = AddressGroupParser::parse(header);
 
     REQUIRE(groups.size() == 2);
@@ -46,7 +47,8 @@ TEST_CASE("Address Groups - Empty group", "[mime][address_groups]") {
 }
 
 TEST_CASE("Address Groups - Group with display names", "[mime][address_groups]") {
-    std::string_view header = "Management: \"John Doe\" <john@example.com>, \"Jane Smith\" <jane@example.com>;";
+    std::string_view header =
+        "Management: \"John Doe\" <john@example.com>, \"Jane Smith\" <jane@example.com>;";
     auto groups = AddressGroupParser::parse(header);
 
     REQUIRE(groups.size() == 1);
@@ -88,7 +90,8 @@ TEST_CASE("Address Groups - RFC 5322 example", "[mime][address_groups]") {
 }
 
 TEST_CASE("Address Groups - Three groups", "[mime][address_groups]") {
-    std::string_view header = "Sales: sales@example.com; Support: support@example.com; Dev: dev@example.com;";
+    std::string_view header =
+        "Sales: sales@example.com; Support: support@example.com; Dev: dev@example.com;";
     auto groups = AddressGroupParser::parse(header);
 
     REQUIRE(groups.size() == 3);
@@ -116,7 +119,8 @@ TEST_CASE("Address Groups - Single address in group", "[mime][address_groups]") 
 }
 
 TEST_CASE("Address Groups - Complex mixed list", "[mime][address_groups]") {
-    std::string_view header = "Recipients: user1@example.com; CC: user2@example.com, user3@example.com;";
+    std::string_view header =
+        "Recipients: user1@example.com; CC: user2@example.com, user3@example.com;";
     auto groups = AddressGroupParser::parse(header);
 
     REQUIRE(groups.size() == 2);

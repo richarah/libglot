@@ -1,8 +1,8 @@
 #pragma once
 
 #include <string_view>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace libglot::mime {
 
@@ -23,7 +23,7 @@ public:
     struct ValidationResult {
         bool valid = false;
         std::string_view error_message;
-        bool is_registered = false;  // Is it an IANA-registered type?
+        bool is_registered = false; // Is it an IANA-registered type?
     };
 
     /// Validate MIME type format: type/subtype
@@ -80,24 +80,26 @@ public:
     /// Check if a MIME type is registered with IANA
     static bool is_registered_type(std::string_view type) {
         static const std::unordered_set<std::string_view> registered_types = {
-            "text", "image", "audio", "video", "application",
-            "multipart", "message", "model", "font"
-        };
+            "text",      "image",   "audio", "video", "application",
+            "multipart", "message", "model", "font"};
 
         return registered_types.count(type) > 0;
     }
 
     /// Get common subtypes for a given type
     static std::unordered_set<std::string_view> get_common_subtypes(std::string_view type) {
-        static const std::unordered_map<std::string_view, std::unordered_set<std::string_view>> subtypes = {
-            {"text", {"plain", "html", "css", "javascript", "xml", "csv", "markdown"}},
-            {"image", {"jpeg", "png", "gif", "webp", "svg+xml", "bmp", "tiff"}},
-            {"audio", {"mpeg", "ogg", "wav", "webm", "aac", "flac"}},
-            {"video", {"mp4", "webm", "ogg", "mpeg", "quicktime", "x-msvideo"}},
-            {"application", {"json", "xml", "pdf", "zip", "octet-stream", "javascript", "x-www-form-urlencoded"}},
-            {"multipart", {"mixed", "alternative", "related", "form-data", "byteranges"}},
-            {"message", {"rfc822", "partial", "external-body"}},
-        };
+        static const std::unordered_map<std::string_view, std::unordered_set<std::string_view>>
+            subtypes = {
+                {"text", {"plain", "html", "css", "javascript", "xml", "csv", "markdown"}},
+                {"image", {"jpeg", "png", "gif", "webp", "svg+xml", "bmp", "tiff"}},
+                {"audio", {"mpeg", "ogg", "wav", "webm", "aac", "flac"}},
+                {"video", {"mp4", "webm", "ogg", "mpeg", "quicktime", "x-msvideo"}},
+                {"application",
+                 {"json", "xml", "pdf", "zip", "octet-stream", "javascript",
+                  "x-www-form-urlencoded"}},
+                {"multipart", {"mixed", "alternative", "related", "form-data", "byteranges"}},
+                {"message", {"rfc822", "partial", "external-body"}},
+            };
 
         auto it = subtypes.find(type);
         return (it != subtypes.end()) ? it->second : std::unordered_set<std::string_view>{};
@@ -106,7 +108,8 @@ public:
     /// Validate MIME type with subtype check
     static ValidationResult validate_with_subtype_check(std::string_view mime_type) {
         auto result = validate(mime_type);
-        if (!result.valid) return result;
+        if (!result.valid)
+            return result;
 
         // Extract type and subtype
         size_t slash_pos = mime_type.find('/');
@@ -135,15 +138,17 @@ public:
 private:
     /// Check if string is a valid RFC 2045 token
     static bool is_valid_token(std::string_view token) {
-        if (token.empty()) return false;
+        if (token.empty())
+            return false;
 
         for (char c : token) {
             // RFC 2045 token chars: ASCII except CTLs and specials
-            if (c <= 32 || c >= 127) return false;  // Control chars
-            if (c == '(' || c == ')' || c == '<' || c == '>' || c == '@' ||
-                c == ',' || c == ';' || c == ':' || c == '\\' || c == '"' ||
-                c == '/' || c == '[' || c == ']' || c == '?' || c == '=') {
-                return false;  // Special chars
+            if (c <= 32 || c >= 127)
+                return false; // Control chars
+            if (c == '(' || c == ')' || c == '<' || c == '>' || c == '@' || c == ',' || c == ';' ||
+                c == ':' || c == '\\' || c == '"' || c == '/' || c == '[' || c == ']' || c == '?' ||
+                c == '=') {
+                return false; // Special chars
             }
         }
 

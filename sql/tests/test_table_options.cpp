@@ -8,8 +8,8 @@
 // dialect (every dialect's own trailing options round-trip through it).
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -29,47 +29,47 @@ std::string transpile(const std::string& sql, SQLDialect dialect) {
 } // namespace
 
 TEST_CASE("Table options - single ENGINE=", "[table-options]") {
-    REQUIRE(transpile("CREATE TABLE t (id INT) ENGINE=InnoDB", SQLDialect::MySQL)
-            == "CREATE TABLE `t` (`id` INT) ENGINE=InnoDB");
+    REQUIRE(transpile("CREATE TABLE t (id INT) ENGINE=InnoDB", SQLDialect::MySQL) ==
+            "CREATE TABLE `t` (`id` INT) ENGINE=InnoDB");
 }
 
 TEST_CASE("Table options - MySQL combination", "[table-options]") {
-    REQUIRE(transpile(
-                "CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 "
-                "DEFAULT CHARSET=utf8mb4 COMMENT='hi'",
-                SQLDialect::MySQL)
-            == "CREATE TABLE `t` (`id` INT) ENGINE=InnoDB AUTO_INCREMENT=10 "
-               "DEFAULT CHARSET=utf8mb4 COMMENT='hi'");
+    REQUIRE(transpile("CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 "
+                      "DEFAULT CHARSET=utf8mb4 COMMENT='hi'",
+                      SQLDialect::MySQL) ==
+            "CREATE TABLE `t` (`id` INT) ENGINE=InnoDB AUTO_INCREMENT=10 "
+            "DEFAULT CHARSET=utf8mb4 COMMENT='hi'");
 }
 
 TEST_CASE("Table options - COLLATE=", "[table-options]") {
-    REQUIRE(transpile("CREATE TABLE t (id INT) COLLATE=utf8mb4_general_ci", SQLDialect::MySQL)
-            == "CREATE TABLE `t` (`id` INT) COLLATE=utf8mb4_general_ci");
+    REQUIRE(transpile("CREATE TABLE t (id INT) COLLATE=utf8mb4_general_ci", SQLDialect::MySQL) ==
+            "CREATE TABLE `t` (`id` INT) COLLATE=utf8mb4_general_ci");
 }
 
 TEST_CASE("Table options - bare DISTSTYLE KEY (Redshift)", "[table-options]") {
-    REQUIRE(transpile("CREATE TABLE t (id INT) DISTSTYLE KEY", SQLDialect::Redshift)
-            == "CREATE TABLE \"t\" (\"id\" INT) DISTSTYLE KEY");
+    REQUIRE(transpile("CREATE TABLE t (id INT) DISTSTYLE KEY", SQLDialect::Redshift) ==
+            "CREATE TABLE \"t\" (\"id\" INT) DISTSTYLE KEY");
 }
 
 TEST_CASE("Table options - DISTSTYLE + DISTKEY + SORTKEY (Redshift)", "[table-options]") {
     REQUIRE(transpile("CREATE TABLE t (id INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)",
-                       SQLDialect::Redshift)
-            == "CREATE TABLE \"t\" (\"id\" INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)");
+                      SQLDialect::Redshift) ==
+            "CREATE TABLE \"t\" (\"id\" INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)");
 }
 
 TEST_CASE("Table options - PARTITION BY with a parenthesized partition list", "[table-options]") {
     const std::string sql =
         "CREATE TABLE t (id INT) PARTITION BY RANGE (id) "
         "(PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN (20))";
-    REQUIRE(transpile(sql, SQLDialect::MySQL)
-            == "CREATE TABLE `t` (`id` INT) PARTITION BY RANGE (id) "
-               "(PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN (20))");
+    REQUIRE(transpile(sql, SQLDialect::MySQL) ==
+            "CREATE TABLE `t` (`id` INT) PARTITION BY RANGE (id) "
+            "(PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN (20))");
 }
 
 TEST_CASE("Table options - AST shape", "[table-options]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "CREATE TABLE t (id INT) ENGINE=InnoDB DISTSTYLE KEY", SQLDialect::MySQL);
+    SQLParser parser(arena, "CREATE TABLE t (id INT) ENGINE=InnoDB DISTSTYLE KEY",
+                     SQLDialect::MySQL);
     auto* ast = static_cast<CreateTableStmt*>(parser.parse_top_level());
     REQUIRE(ast->table_options.size() == 2);
     REQUIRE(ast->table_options[0].name == "ENGINE");
@@ -81,13 +81,15 @@ TEST_CASE("Table options - AST shape", "[table-options]") {
 }
 
 TEST_CASE("Table options - no trailing options is unaffected", "[table-options]") {
-    REQUIRE(transpile("CREATE TABLE t (id INT)", SQLDialect::MySQL) == "CREATE TABLE `t` (`id` INT)");
+    REQUIRE(transpile("CREATE TABLE t (id INT)", SQLDialect::MySQL) ==
+            "CREATE TABLE `t` (`id` INT)");
 }
 
 TEST_CASE("Table options - fixed point across dialects", "[table-options][roundtrip]") {
     const std::string queries[] = {
         "CREATE TABLE t (id INT) ENGINE=InnoDB",
-        "CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COMMENT='hi'",
+        "CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 "
+        "COMMENT='hi'",
         "CREATE TABLE t (id INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)",
     };
     for (const auto& q : queries) {

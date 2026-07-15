@@ -17,9 +17,9 @@
 /// Gate condition: Establish baseline numbers, validate zero-cost abstraction.
 /// ============================================================================
 
-#include <benchmark/benchmark.h>
-#include "../include/libglot/sql/parser.h"
 #include "../include/libglot/sql/generator.h"
+#include "../include/libglot/sql/parser.h"
+#include <benchmark/benchmark.h>
 
 using namespace libglot::sql;
 
@@ -34,8 +34,7 @@ static constexpr std::string_view kSimpleSelect1 = "SELECT 1";
 static constexpr std::string_view kSimpleSelectCol = "SELECT col FROM t";
 
 /// Simple query 3: Multi-column with WHERE
-static constexpr std::string_view kSimpleSelectMulti =
-    "SELECT a, b, c FROM t WHERE x = 1";
+static constexpr std::string_view kSimpleSelectMulti = "SELECT a, b, c FROM t WHERE x = 1";
 
 /// Representative query from Phase C1 (baseline)
 static constexpr std::string_view kRepresentativeQuery =

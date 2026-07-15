@@ -23,9 +23,7 @@ namespace libglot {
 /// ============================================================================
 
 template<typename T>
-concept AstNodeKind = requires {
-    requires std::is_enum_v<T>;
-};
+concept AstNodeKind = requires { requires std::is_enum_v<T>; };
 
 template<typename T>
 concept AstNode = requires(T node) {
@@ -60,16 +58,14 @@ concept AstNode = requires(T node) {
 
 template<typename Derived, AstNodeKind Kind>
 struct AstNodeBase {
-    using NodeKind = Kind;  // Expose NodeKind for AstNode concept
+    using NodeKind = Kind; // Expose NodeKind for AstNode concept
 
     Kind type;
 
     explicit constexpr AstNodeBase(Kind t) noexcept : type(t) {}
 
     /// CRTP: Cast to derived type (zero-cost, compile-time checked)
-    [[nodiscard]] constexpr Derived& as_derived() noexcept {
-        return static_cast<Derived&>(*this);
-    }
+    [[nodiscard]] constexpr Derived& as_derived() noexcept { return static_cast<Derived&>(*this); }
 
     [[nodiscard]] constexpr const Derived& as_derived() const noexcept {
         return static_cast<const Derived&>(*this);
@@ -98,17 +94,18 @@ struct AstNodeBase {
 /// ============================================================================
 
 struct SourceLocation {
-    uint32_t start_offset;    ///< Byte offset in source (0-indexed)
-    uint32_t end_offset;      ///< Byte offset (exclusive)
-    uint32_t start_line;      ///< Line number (1-indexed)
-    uint32_t start_col;       ///< Column number (1-indexed)
+    uint32_t start_offset; ///< Byte offset in source (0-indexed)
+    uint32_t end_offset;   ///< Byte offset (exclusive)
+    uint32_t start_line;   ///< Line number (1-indexed)
+    uint32_t start_col;    ///< Column number (1-indexed)
 
     [[nodiscard]] constexpr size_t length() const noexcept {
         return end_offset >= start_offset ? end_offset - start_offset : 0;
     }
 
     [[nodiscard]] constexpr std::string_view extract(std::string_view source) const noexcept {
-        if (start_offset >= source.size()) return "";
+        if (start_offset >= source.size())
+            return "";
         size_t len = std::min<size_t>(length(), source.size() - start_offset);
         return source.substr(start_offset, len);
     }

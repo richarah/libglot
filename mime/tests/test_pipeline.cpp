@@ -9,9 +9,9 @@
 /// decoded-to-UTF-8 body retrieval.
 /// ============================================================================
 
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/mime.h"
 #include "../../core/include/libglot/util/arena.h"
+#include "../include/libglot/mime/mime.h"
+#include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <string>
@@ -51,30 +51,29 @@ std::string_view parameter(const Header* header, std::string_view name) {
 
 TEST_CASE("Pipeline: realistic multipart email through the one entry point", "[mime][pipeline]") {
     libglot::Arena arena;
-    std::string_view source =
-        "MIME-Version: 1.0\n"
-        "From: Alice Example (Founder) <alice@example.com>\n"
-        "To: Team: bob@example.com, carol@example.com;\n"
-        "Subject: Quarterly\n"
-        " report attached\n"
-        "Content-Type: multipart/mixed; boundary=\"mix\"\n"
-        "\n"
-        "This preamble is discarded.\n"
-        "--mix\n"
-        "Content-Type: text/plain; charset=ISO-8859-1\n"
-        "Content-Transfer-Encoding: quoted-printable\n"
-        "\n"
-        "Caf=E9 r=E9sum=E9\n"
-        "--mix\n"
-        "Content-Type: application/octet-stream\n"
-        "Content-Disposition: attachment;\n"
-        " filename*0*=\"utf-8''very%20long%20\";\n"
-        " filename*1=\"report file.pdf\"\n"
-        "Content-Transfer-Encoding: base64\n"
-        "\n"
-        "SGVsbG8gV29ybGQ=\n"
-        "--mix--\n"
-        "Epilogue is discarded.\n";
+    std::string_view source = "MIME-Version: 1.0\n"
+                              "From: Alice Example (Founder) <alice@example.com>\n"
+                              "To: Team: bob@example.com, carol@example.com;\n"
+                              "Subject: Quarterly\n"
+                              " report attached\n"
+                              "Content-Type: multipart/mixed; boundary=\"mix\"\n"
+                              "\n"
+                              "This preamble is discarded.\n"
+                              "--mix\n"
+                              "Content-Type: text/plain; charset=ISO-8859-1\n"
+                              "Content-Transfer-Encoding: quoted-printable\n"
+                              "\n"
+                              "Caf=E9 r=E9sum=E9\n"
+                              "--mix\n"
+                              "Content-Type: application/octet-stream\n"
+                              "Content-Disposition: attachment;\n"
+                              " filename*0*=\"utf-8''very%20long%20\";\n"
+                              " filename*1=\"report file.pdf\"\n"
+                              "Content-Transfer-Encoding: base64\n"
+                              "\n"
+                              "SGVsbG8gV29ybGQ=\n"
+                              "--mix--\n"
+                              "Epilogue is discarded.\n";
 
     auto result = parse_message(arena, source);
     Message* msg = result.message;
@@ -124,7 +123,7 @@ TEST_CASE("Pipeline: realistic multipart email through the one entry point", "[m
 
     auto text_utf8 = decoded_body_utf8(*text_part);
     REQUIRE(text_utf8.has_value());
-    REQUIRE(*text_utf8 == "Caf\xC3\xA9 r\xC3\xA9sum\xC3\xA9");  // "Café résumé"
+    REQUIRE(*text_utf8 == "Caf\xC3\xA9 r\xC3\xA9sum\xC3\xA9"); // "Café résumé"
 
     // Part 2: base64 attachment with an RFC 2231 continued filename
     Message* attachment = msg->parts[1];
@@ -144,20 +143,21 @@ TEST_CASE("Pipeline: hostile message hits limits and is rejected", "[mime][pipel
     std::string nested = "Content-Type: text/plain\n\nleaf";
     for (int level = 30; level >= 1; --level) {
         std::string b = "n" + std::to_string(level);
-        nested = "Content-Type: multipart/mixed; boundary=" + b + "\n\n"
-                 "--" + b + "\n" + nested + "\n--" + b + "--\n";
+        nested = "Content-Type: multipart/mixed; boundary=" + b +
+                 "\n\n"
+                 "--" +
+                 b + "\n" + nested + "\n--" + b + "--\n";
     }
 
-    std::string source =
-        "MIME-Version: 1.0\n"
-        "Content-Type: multipart/mixed; boundary=outer\n"
-        "\n"
-        "--outer\n"
-        "Content-Type: br[oken/type\n"
-        "\n"
-        "part with syntactically invalid content type\n"
-        "--outer\n"
-        + nested;  // no "--outer--" close delimiter
+    std::string source = "MIME-Version: 1.0\n"
+                         "Content-Type: multipart/mixed; boundary=outer\n"
+                         "\n"
+                         "--outer\n"
+                         "Content-Type: br[oken/type\n"
+                         "\n"
+                         "part with syntactically invalid content type\n"
+                         "--outer\n" +
+                         nested; // no "--outer--" close delimiter
 
     libglot::Arena arena;
     ParseOptions options;
@@ -188,12 +188,12 @@ TEST_CASE("Pipeline: hostile message hits limits and is rejected", "[mime][pipel
     REQUIRE(result.rejected);
 }
 
-TEST_CASE("Pipeline: anomaly policies Ignore/Repair/Reject are honored", "[mime][pipeline][anomalies]") {
-    std::string_view source =
-        "Content-Type: text/plain; charset=utf-8\n"
-        "Content-Type: text/html; charset=utf-8\n"
-        "\n"
-        "Body\n";
+TEST_CASE("Pipeline: anomaly policies Ignore/Repair/Reject are honored",
+          "[mime][pipeline][anomalies]") {
+    std::string_view source = "Content-Type: text/plain; charset=utf-8\n"
+                              "Content-Type: text/html; charset=utf-8\n"
+                              "\n"
+                              "Body\n";
 
     libglot::Arena arena;
 
@@ -236,13 +236,13 @@ TEST_CASE("Pipeline: anomaly policies Ignore/Repair/Reject are honored", "[mime]
     }
 }
 
-TEST_CASE("Pipeline: message/external-body reference is parsed", "[mime][pipeline][external-body]") {
+TEST_CASE("Pipeline: message/external-body reference is parsed",
+          "[mime][pipeline][external-body]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: message/external-body; access-type=ftp; "
-        "name=\"data.bin\"; site=ftp.example.com; size=1024\n"
-        "\n"
-        "phantom body\n";
+    std::string_view source = "Content-Type: message/external-body; access-type=ftp; "
+                              "name=\"data.bin\"; site=ftp.example.com; size=1024\n"
+                              "\n"
+                              "phantom body\n";
 
     auto result = parse_message(arena, source);
     Message* msg = result.message;
@@ -259,10 +259,9 @@ TEST_CASE("Pipeline: decoded body helpers flag undecodable content", "[mime][pip
     libglot::Arena arena;
 
     SECTION("unknown charset yields no UTF-8 text") {
-        std::string_view source =
-            "Content-Type: text/plain; charset=KOI8-R\n"
-            "\n"
-            "some bytes\n";
+        std::string_view source = "Content-Type: text/plain; charset=KOI8-R\n"
+                                  "\n"
+                                  "some bytes\n";
 
         auto result = parse_message(arena, source);
         REQUIRE(result.message != nullptr);
@@ -270,11 +269,10 @@ TEST_CASE("Pipeline: decoded body helpers flag undecodable content", "[mime][pip
     }
 
     SECTION("invalid base64 payload yields no bytes") {
-        std::string_view source =
-            "Content-Type: application/octet-stream\n"
-            "Content-Transfer-Encoding: base64\n"
-            "\n"
-            "!!!not-base64!!!\n";
+        std::string_view source = "Content-Type: application/octet-stream\n"
+                                  "Content-Transfer-Encoding: base64\n"
+                                  "\n"
+                                  "!!!not-base64!!!\n";
 
         auto result = parse_message(arena, source);
         REQUIRE(result.message != nullptr);

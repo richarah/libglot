@@ -6,21 +6,20 @@
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
 
 TEST_CASE("CREATE TABLE - column definitions are parsed into the AST", "[ddl][create_table]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "CREATE TABLE users ("
-        "id INT PRIMARY KEY, "
-        "name VARCHAR(255) NOT NULL, "
-        "email VARCHAR(100) UNIQUE, "
-        "age INT DEFAULT 18, "
-        "dept_id INT REFERENCES departments (id))");
+    SQLParser parser(arena, "CREATE TABLE users ("
+                            "id INT PRIMARY KEY, "
+                            "name VARCHAR(255) NOT NULL, "
+                            "email VARCHAR(100) UNIQUE, "
+                            "age INT DEFAULT 18, "
+                            "dept_id INT REFERENCES departments (id))");
 
     auto* node = parser.parse_top_level();
     REQUIRE(node->type == SQLNodeKind::CREATE_TABLE_STMT);
@@ -63,15 +62,14 @@ TEST_CASE("CREATE TABLE - parameterized types keep their parameters", "[ddl][cre
 
 TEST_CASE("CREATE TABLE - table-level constraints", "[ddl][create_table][constraints]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "CREATE TABLE order_items ("
-        "order_id INT, "
-        "product_id INT, "
-        "qty INT NOT NULL, "
-        "PRIMARY KEY (order_id, product_id), "
-        "FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE, "
-        "UNIQUE (product_id), "
-        "CHECK (qty > 0))");
+    SQLParser parser(arena, "CREATE TABLE order_items ("
+                            "order_id INT, "
+                            "product_id INT, "
+                            "qty INT NOT NULL, "
+                            "PRIMARY KEY (order_id, product_id), "
+                            "FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE, "
+                            "UNIQUE (product_id), "
+                            "CHECK (qty > 0))");
 
     auto* stmt = static_cast<CreateTableStmt*>(parser.parse_top_level());
 
@@ -104,27 +102,26 @@ TEST_CASE("CREATE TABLE - table-level constraints", "[ddl][create_table][constra
     REQUIRE(ck->check_expr->type == SQLNodeKind::BINARY_OP);
 }
 
-TEST_CASE("CREATE TABLE - roundtrip of a realistic multi-column table", "[ddl][create_table][roundtrip]") {
+TEST_CASE("CREATE TABLE - roundtrip of a realistic multi-column table",
+          "[ddl][create_table][roundtrip]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "CREATE TABLE users ("
-        "id INT PRIMARY KEY, "
-        "name VARCHAR(255) NOT NULL, "
-        "age INT DEFAULT 18 CHECK (age > 0), "
-        "dept_id INT REFERENCES departments (id), "
-        "UNIQUE (name))");
+    SQLParser parser(arena, "CREATE TABLE users ("
+                            "id INT PRIMARY KEY, "
+                            "name VARCHAR(255) NOT NULL, "
+                            "age INT DEFAULT 18 CHECK (age > 0), "
+                            "dept_id INT REFERENCES departments (id), "
+                            "UNIQUE (name))");
 
     auto* stmt = parser.parse_top_level();
     SQLGenerator gen(SQLDialect::ANSI);
     std::string output = gen.generate(stmt);
 
-    REQUIRE(output ==
-        "CREATE TABLE \"users\" ("
-        "\"id\" INT PRIMARY KEY, "
-        "\"name\" VARCHAR(255) NOT NULL, "
-        "\"age\" INT DEFAULT 18 CHECK (\"age\" > 0), "
-        "\"dept_id\" INT REFERENCES \"departments\" (\"id\"), "
-        "UNIQUE (\"name\"))");
+    REQUIRE(output == "CREATE TABLE \"users\" ("
+                      "\"id\" INT PRIMARY KEY, "
+                      "\"name\" VARCHAR(255) NOT NULL, "
+                      "\"age\" INT DEFAULT 18 CHECK (\"age\" > 0), "
+                      "\"dept_id\" INT REFERENCES \"departments\" (\"id\"), "
+                      "UNIQUE (\"name\"))");
 
     // The regenerated DDL must parse back to the same schema shape
     libglot::Arena arena2;
@@ -141,8 +138,7 @@ TEST_CASE("CREATE TABLE - roundtrip of a realistic multi-column table", "[ddl][c
 
 TEST_CASE("CREATE TABLE - named constraint", "[ddl][create_table][constraints]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "CREATE TABLE t (a INT, CONSTRAINT pk_t PRIMARY KEY (a))");
+    SQLParser parser(arena, "CREATE TABLE t (a INT, CONSTRAINT pk_t PRIMARY KEY (a))");
 
     auto* stmt = static_cast<CreateTableStmt*>(parser.parse_top_level());
     REQUIRE(stmt->constraints.size() == 1);

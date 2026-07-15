@@ -1,5 +1,5 @@
-#include <catch2/catch_test_macros.hpp>
 #include "libglot/mime/complete_features.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -110,7 +110,8 @@ TEST_CASE("Header Comments - Deep nesting", "[mime][comments]") {
 }
 
 TEST_CASE("Header Comments - RFC 5322 example", "[mime][comments]") {
-    std::string_view header = "From: Pete(A nice \\) chap) <pete(his account)@silly.test(his host)>";
+    std::string_view header =
+        "From: Pete(A nice \\) chap) <pete(his account)@silly.test(his host)>";
     auto comments = HeaderCommentParser::extract_comments(header);
 
     REQUIRE(comments.size() == 3);

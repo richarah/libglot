@@ -20,7 +20,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURNS with VARCHAR type") {
-        std::string sql = "CREATE FUNCTION get_name() RETURNS VARCHAR(100) AS BEGIN RETURN 'test'; END";
+        std::string sql =
+            "CREATE FUNCTION get_name() RETURNS VARCHAR(100) AS BEGIN RETURN 'test'; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -29,11 +30,12 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
         REQUIRE(expr->type == SQLNodeKind::CREATE_PROCEDURE_STMT);
 
         auto* func = static_cast<CreateProcedureStmt*>(expr);
-        REQUIRE(func->return_type == "VARCHAR(100)");  // Fixed: includes type parameters
+        REQUIRE(func->return_type == "VARCHAR(100)"); // Fixed: includes type parameters
     }
 
     SECTION("RETURNS TABLE - complex type") {
-        std::string sql = "CREATE FUNCTION get_users() RETURNS TABLE(id INT, name VARCHAR) AS BEGIN RETURN NULL; END";
+        std::string sql = "CREATE FUNCTION get_users() RETURNS TABLE(id INT, name VARCHAR) AS "
+                          "BEGIN RETURN NULL; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -48,7 +50,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURNS SETOF - table-valued function") {
-        std::string sql = "CREATE FUNCTION get_all_ids() RETURNS SETOF INT AS BEGIN RETURN NULL; END";
+        std::string sql =
+            "CREATE FUNCTION get_all_ids() RETURNS SETOF INT AS BEGIN RETURN NULL; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -61,7 +64,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURNS void - procedure-like function") {
-        std::string sql = "CREATE FUNCTION log_event(msg TEXT) RETURNS VOID AS BEGIN INSERT INTO logs VALUES (msg); END";
+        std::string sql = "CREATE FUNCTION log_event(msg TEXT) RETURNS VOID AS BEGIN INSERT INTO "
+                          "logs VALUES (msg); END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -110,7 +114,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURN with expression") {
-        std::string sql = "CREATE FUNCTION double_value(x INT) RETURNS INT AS BEGIN RETURN x * 2; END";
+        std::string sql =
+            "CREATE FUNCTION double_value(x INT) RETURNS INT AS BEGIN RETURN x * 2; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -120,7 +125,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURN with function call") {
-        std::string sql = "CREATE FUNCTION get_upper(s TEXT) RETURNS TEXT AS BEGIN RETURN UPPER(s); END";
+        std::string sql =
+            "CREATE FUNCTION get_upper(s TEXT) RETURNS TEXT AS BEGIN RETURN UPPER(s); END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -130,7 +136,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURN with subquery") {
-        std::string sql = "CREATE FUNCTION get_max_id() RETURNS INT AS BEGIN RETURN (SELECT MAX(id) FROM users); END";
+        std::string sql = "CREATE FUNCTION get_max_id() RETURNS INT AS BEGIN RETURN (SELECT "
+                          "MAX(id) FROM users); END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -140,7 +147,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURN NULL explicitly") {
-        std::string sql = "CREATE FUNCTION maybe_value(flag BOOLEAN) RETURNS INT AS BEGIN IF flag THEN RETURN 1; ELSE RETURN NULL; END IF; END";
+        std::string sql = "CREATE FUNCTION maybe_value(flag BOOLEAN) RETURNS INT AS BEGIN IF flag "
+                          "THEN RETURN 1; ELSE RETURN NULL; END IF; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -150,7 +158,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURNS with DECIMAL type and precision") {
-        std::string sql = "CREATE FUNCTION calculate_rate() RETURNS DECIMAL(10, 2) AS BEGIN RETURN 3.14; END";
+        std::string sql =
+            "CREATE FUNCTION calculate_rate() RETURNS DECIMAL(10, 2) AS BEGIN RETURN 3.14; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -160,7 +169,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("Function with no parameters but RETURNS") {
-        std::string sql = "CREATE FUNCTION get_timestamp() RETURNS TIMESTAMP AS BEGIN RETURN CURRENT_TIMESTAMP; END";
+        std::string sql = "CREATE FUNCTION get_timestamp() RETURNS TIMESTAMP AS BEGIN RETURN "
+                          "CURRENT_TIMESTAMP; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();
@@ -218,7 +228,8 @@ TEST_CASE("RETURNS clause - Comprehensive testing", "[returns][functions][compre
     }
 
     SECTION("RETURNS with BOOLEAN type") {
-        std::string sql = "CREATE FUNCTION is_valid(x INT) RETURNS BOOLEAN AS BEGIN RETURN x > 0 AND x < 100; END";
+        std::string sql = "CREATE FUNCTION is_valid(x INT) RETURNS BOOLEAN AS BEGIN RETURN x > 0 "
+                          "AND x < 100; END";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
         auto expr = parser.parse();

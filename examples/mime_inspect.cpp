@@ -26,8 +26,7 @@ void print_part(const mime::Message& msg, int depth) {
     if (auto text = mime::decoded_body_utf8(msg)) {
         std::cout << indent << "  body (" << text->size() << " bytes UTF-8)\n";
     } else if (!msg.body.empty()) {
-        std::cout << indent << "  body (" << msg.body.size()
-                  << " raw bytes, not text-decodable)\n";
+        std::cout << indent << "  body (" << msg.body.size() << " raw bytes, not text-decodable)\n";
     }
 
     for (const auto* part : msg.parts) {

@@ -8,8 +8,8 @@ namespace libglot::sql::lex {
 // Forward declarations
 class Arena;
 class StringPool;
-struct Expression;  // Defined as struct in expression.h
-struct Token;  // Defined as struct in tokens.h
+struct Expression; // Defined as struct in expression.h
+struct Token;      // Defined as struct in tokens.h
 class Tokenizer;
 class Parser;
 class Generator;

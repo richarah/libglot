@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -43,7 +43,8 @@ TEST_CASE("DATE_TRUNC: Truncate to month", "[date_trunc]") {
 
 TEST_CASE("DATE_TRUNC: Truncate to year with WHERE", "[date_trunc]") {
     libglot::Arena arena;
-    std::string_view sql = "SELECT id, DATE_TRUNC('year', created_at) as year_created FROM users WHERE active = TRUE";
+    std::string_view sql =
+        "SELECT id, DATE_TRUNC('year', created_at) as year_created FROM users WHERE active = TRUE";
 
     SQLParser parser(arena, sql);
     auto* node = parser.parse_select();
@@ -56,7 +57,8 @@ TEST_CASE("DATE_TRUNC: Truncate to year with WHERE", "[date_trunc]") {
 
 TEST_CASE("DATE_TRUNC: Multiple truncations", "[date_trunc]") {
     libglot::Arena arena;
-    std::string_view sql = "SELECT DATE_TRUNC('hour', start_time), DATE_TRUNC('day', end_time) FROM sessions";
+    std::string_view sql =
+        "SELECT DATE_TRUNC('hour', start_time), DATE_TRUNC('day', end_time) FROM sessions";
 
     SQLParser parser(arena, sql);
     auto* node = parser.parse_select();
@@ -70,7 +72,8 @@ TEST_CASE("DATE_TRUNC: Multiple truncations", "[date_trunc]") {
 
 TEST_CASE("DATE_TRUNC: With GROUP BY", "[date_trunc]") {
     libglot::Arena arena;
-    std::string_view sql = "SELECT DATE_TRUNC('week', created_at) as week, COUNT(*) FROM orders GROUP BY week";
+    std::string_view sql =
+        "SELECT DATE_TRUNC('week', created_at) as week, COUNT(*) FROM orders GROUP BY week";
 
     SQLParser parser(arena, sql);
     auto* node = parser.parse_select();

@@ -1,9 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <libglot/ast/node.h>
 #include <string_view>
 #include <vector>
-#include <cstdint>
 
 namespace libglot::mime {
 
@@ -355,8 +355,8 @@ struct AnomalyRecord {
     AnomalySeverity severity;
     AnomalyPolicy applied_policy;
     SourceLocation location;
-    std::string_view context;    // Up to 80 chars of surrounding raw data
-    std::string_view detail;     // Human-readable description
+    std::string_view context; // Up to 80 chars of surrounding raw data
+    std::string_view detail;  // Human-readable description
 };
 
 /// Anomaly report - attached to parsed messages
@@ -364,8 +364,8 @@ struct AnomalyReport {
     std::vector<AnomalyRecord> records;
 
     /// Add anomaly to report
-    void add(AnomalyKind kind, AnomalySeverity severity, AnomalyPolicy policy,
-             SourceLocation loc, std::string_view context, std::string_view detail) {
+    void add(AnomalyKind kind, AnomalySeverity severity, AnomalyPolicy policy, SourceLocation loc,
+             std::string_view context, std::string_view detail) {
         records.push_back({kind, severity, policy, loc, context, detail});
     }
 
@@ -484,69 +484,69 @@ struct AnomalyConfig {
     /// Get severity level for an anomaly kind
     [[nodiscard]] static constexpr AnomalySeverity get_severity(AnomalyKind kind) {
         switch (kind) {
-            // Cosmetic
-            case AnomalyKind::ExtraWhitespaceBeforeBoundary:
-            case AnomalyKind::MissingSpaceAfterColon:
-            case AnomalyKind::SpaceBeforeColon:
-                return AnomalySeverity::Cosmetic;
+        // Cosmetic
+        case AnomalyKind::ExtraWhitespaceBeforeBoundary:
+        case AnomalyKind::MissingSpaceAfterColon:
+        case AnomalyKind::SpaceBeforeColon:
+            return AnomalySeverity::Cosmetic;
 
-            // Degraded
-            case AnomalyKind::NakedCR:
-            case AnomalyKind::NakedLF:
-            case AnomalyKind::MixedLineEndings:
-            case AnomalyKind::EightBitUnencoded:
-            case AnomalyKind::NonAsciiInUnstructuredHeader:
-            case AnomalyKind::ObsoleteHeaderSyntax:
-            case AnomalyKind::WhitespaceOnlyFoldLine:
-            case AnomalyKind::InvalidDateFormat:
-                return AnomalySeverity::Degraded;
+        // Degraded
+        case AnomalyKind::NakedCR:
+        case AnomalyKind::NakedLF:
+        case AnomalyKind::MixedLineEndings:
+        case AnomalyKind::EightBitUnencoded:
+        case AnomalyKind::NonAsciiInUnstructuredHeader:
+        case AnomalyKind::ObsoleteHeaderSyntax:
+        case AnomalyKind::WhitespaceOnlyFoldLine:
+        case AnomalyKind::InvalidDateFormat:
+            return AnomalySeverity::Degraded;
 
-            // Structural
-            case AnomalyKind::MissingMIMEVersion:
-            case AnomalyKind::MissingContentType:
-            case AnomalyKind::MissingBoundaryParameter:
-            case AnomalyKind::MissingFinalBoundary:
-            case AnomalyKind::EmptyBoundary:
-            case AnomalyKind::ZeroLengthPart:
-            case AnomalyKind::MissingCharsetInfo:
-            case AnomalyKind::TruncatedBase64:
-            case AnomalyKind::InvalidQuotedPrintableSequence:
-            case AnomalyKind::MultipartTypo:
-            case AnomalyKind::InvalidMediaType:
-            case AnomalyKind::MissingMediaSubtype:
-            case AnomalyKind::MessagePartialDetected:
-                return AnomalySeverity::Structural;
+        // Structural
+        case AnomalyKind::MissingMIMEVersion:
+        case AnomalyKind::MissingContentType:
+        case AnomalyKind::MissingBoundaryParameter:
+        case AnomalyKind::MissingFinalBoundary:
+        case AnomalyKind::EmptyBoundary:
+        case AnomalyKind::ZeroLengthPart:
+        case AnomalyKind::MissingCharsetInfo:
+        case AnomalyKind::TruncatedBase64:
+        case AnomalyKind::InvalidQuotedPrintableSequence:
+        case AnomalyKind::MultipartTypo:
+        case AnomalyKind::InvalidMediaType:
+        case AnomalyKind::MissingMediaSubtype:
+        case AnomalyKind::MessagePartialDetected:
+            return AnomalySeverity::Structural;
 
-            // Security
-            case AnomalyKind::DuplicateContentType:
-            case AnomalyKind::NullByteInHeader:
-            case AnomalyKind::DuplicateBoundaryDefinition:
-            case AnomalyKind::EncodedWordInBoundary:
-            case AnomalyKind::ConflictingTransferEncoding:
-            case AnomalyKind::NestedEncodingAmbiguity:
-            case AnomalyKind::NullInBase64:
-            case AnomalyKind::BinaryInTextPart:
-            case AnomalyKind::CharsetMismatch:
-            case AnomalyKind::Windows1252AsISO8859_1:
-            case AnomalyKind::InvalidFilenameChars:
-            case AnomalyKind::BoundaryWithinQuotedString:
-            case AnomalyKind::FaultyContentTransferEncoding:
-                return AnomalySeverity::Security;
+        // Security
+        case AnomalyKind::DuplicateContentType:
+        case AnomalyKind::NullByteInHeader:
+        case AnomalyKind::DuplicateBoundaryDefinition:
+        case AnomalyKind::EncodedWordInBoundary:
+        case AnomalyKind::ConflictingTransferEncoding:
+        case AnomalyKind::NestedEncodingAmbiguity:
+        case AnomalyKind::NullInBase64:
+        case AnomalyKind::BinaryInTextPart:
+        case AnomalyKind::CharsetMismatch:
+        case AnomalyKind::Windows1252AsISO8859_1:
+        case AnomalyKind::InvalidFilenameChars:
+        case AnomalyKind::BoundaryWithinQuotedString:
+        case AnomalyKind::FaultyContentTransferEncoding:
+            return AnomalySeverity::Security;
 
-            // DoS
-            case AnomalyKind::ExcessiveNestingDepth:
-            case AnomalyKind::ExcessivePartCount:
-            case AnomalyKind::ExcessiveHeaderSize:
-            case AnomalyKind::ExcessiveLineLength:
-            case AnomalyKind::ExcessiveMessageSize:
-            case AnomalyKind::OversizedLine:
-            case AnomalyKind::ExcessiveHeaderFieldSize:
-            case AnomalyKind::ExcessiveFilenameLength:
-                return AnomalySeverity::DoS;
+        // DoS
+        case AnomalyKind::ExcessiveNestingDepth:
+        case AnomalyKind::ExcessivePartCount:
+        case AnomalyKind::ExcessiveHeaderSize:
+        case AnomalyKind::ExcessiveLineLength:
+        case AnomalyKind::ExcessiveMessageSize:
+        case AnomalyKind::OversizedLine:
+        case AnomalyKind::ExcessiveHeaderFieldSize:
+        case AnomalyKind::ExcessiveFilenameLength:
+            return AnomalySeverity::DoS;
 
-            // Default to Structural for anything not explicitly categorized
-            default:
-                return AnomalySeverity::Structural;
+        // Default to Structural for anything not explicitly categorized
+        default:
+            return AnomalySeverity::Structural;
         }
     }
 };
@@ -554,104 +554,190 @@ struct AnomalyConfig {
 /// Get human-readable name for anomaly kind
 [[nodiscard]] constexpr std::string_view anomaly_kind_name(AnomalyKind kind) {
     switch (kind) {
-        case AnomalyKind::NakedCR: return "NakedCR";
-        case AnomalyKind::NakedLF: return "NakedLF";
-        case AnomalyKind::MixedLineEndings: return "MixedLineEndings";
-        case AnomalyKind::ObsoleteHeaderSyntax: return "ObsoleteHeaderSyntax";
-        case AnomalyKind::DuplicateAngleBrackets: return "DuplicateAngleBrackets";
-        case AnomalyKind::MissingAngleBrackets: return "MissingAngleBrackets";
-        case AnomalyKind::WhitespaceOnlyFoldLine: return "WhitespaceOnlyFoldLine";
-        case AnomalyKind::EightBitUnencoded: return "EightBitUnencoded";
-        case AnomalyKind::MissingCharsetInfo: return "MissingCharsetInfo";
-        case AnomalyKind::IncorrectCharsetInfo: return "IncorrectCharsetInfo";
-        case AnomalyKind::NonAsciiInUnstructuredHeader: return "NonAsciiInUnstructuredHeader";
-        case AnomalyKind::ExtraColonInHeaderName: return "ExtraColonInHeaderName";
-        case AnomalyKind::SpaceBeforeColon: return "SpaceBeforeColon";
-        case AnomalyKind::MissingSpaceAfterColon: return "MissingSpaceAfterColon";
-        case AnomalyKind::MissingMIMEVersion: return "MissingMIMEVersion";
-        case AnomalyKind::DuplicateContentType: return "DuplicateContentType";
-        case AnomalyKind::MultipleContentTypeValues: return "MultipleContentTypeValues";
-        case AnomalyKind::DuplicateBoundaryDefinition: return "DuplicateBoundaryDefinition";
-        case AnomalyKind::EmptyBoundary: return "EmptyBoundary";
-        case AnomalyKind::MissingBoundaryParameter: return "MissingBoundaryParameter";
-        case AnomalyKind::MissingFinalBoundary: return "MissingFinalBoundary";
-        case AnomalyKind::ExtraWhitespaceBeforeBoundary: return "ExtraWhitespaceBeforeBoundary";
-        case AnomalyKind::BoundaryWithinQuotedString: return "BoundaryWithinQuotedString";
-        case AnomalyKind::ZeroLengthPart: return "ZeroLengthPart";
-        case AnomalyKind::MissingContentType: return "MissingContentType";
-        case AnomalyKind::MultipartTypo: return "MultipartTypo";
-        case AnomalyKind::ConflictingTransferEncoding: return "ConflictingTransferEncoding";
-        case AnomalyKind::NullByteInHeader: return "NullByteInHeader";
-        case AnomalyKind::EncodedWordInBoundary: return "EncodedWordInBoundary";
-        case AnomalyKind::EncodedWordInParameterValue: return "EncodedWordInParameterValue";
-        case AnomalyKind::TruncatedEncodedWord: return "TruncatedEncodedWord";
-        case AnomalyKind::MalformedEncodedWordDelimiters: return "MalformedEncodedWordDelimiters";
-        case AnomalyKind::NestedEncodingAmbiguity: return "NestedEncodingAmbiguity";
-        case AnomalyKind::InvalidBase64Chars: return "InvalidBase64Chars";
-        case AnomalyKind::TruncatedBase64: return "TruncatedBase64";
-        case AnomalyKind::NullInBase64: return "NullInBase64";
-        case AnomalyKind::BrokenQuotedPrintableSoftBreak: return "BrokenQuotedPrintableSoftBreak";
-        case AnomalyKind::InvalidQuotedPrintableSequence: return "InvalidQuotedPrintableSequence";
-        case AnomalyKind::QuotedPrintableNonAsciiPassthrough: return "QuotedPrintableNonAsciiPassthrough";
-        case AnomalyKind::FaultyContentTransferEncoding: return "FaultyContentTransferEncoding";
-        case AnomalyKind::OversizedLine: return "OversizedLine";
-        case AnomalyKind::BinaryInTextPart: return "BinaryInTextPart";
-        case AnomalyKind::ExcessiveNestingDepth: return "ExcessiveNestingDepth";
-        case AnomalyKind::ExcessivePartCount: return "ExcessivePartCount";
-        case AnomalyKind::ExcessiveHeaderSize: return "ExcessiveHeaderSize";
-        case AnomalyKind::ExcessiveLineLength: return "ExcessiveLineLength";
-        case AnomalyKind::ExcessiveMessageSize: return "ExcessiveMessageSize";
-        case AnomalyKind::UuencodedContent: return "UuencodedContent";
-        case AnomalyKind::BinhexContent: return "BinhexContent";
-        case AnomalyKind::YencContent: return "YencContent";
-        case AnomalyKind::CharsetMismatch: return "CharsetMismatch";
-        case AnomalyKind::UTF8BOMInBody: return "UTF8BOMInBody";
-        case AnomalyKind::UTF8BOMInHeader: return "UTF8BOMInHeader";
-        case AnomalyKind::UnknownCharset: return "UnknownCharset";
-        case AnomalyKind::Windows1252AsISO8859_1: return "Windows1252AsISO8859_1";
-        case AnomalyKind::InvalidParameterSyntax: return "InvalidParameterSyntax";
-        case AnomalyKind::UnquotedSpecialChars: return "UnquotedSpecialChars";
-        case AnomalyKind::MissingClosingQuote: return "MissingClosingQuote";
-        case AnomalyKind::InvalidMediaType: return "InvalidMediaType";
-        case AnomalyKind::MissingMediaSubtype: return "MissingMediaSubtype";
-        case AnomalyKind::ObsoleteMediaType: return "ObsoleteMediaType";
-        case AnomalyKind::InvalidFolding: return "InvalidFolding";
-        case AnomalyKind::ExcessiveHeaderFieldSize: return "ExcessiveHeaderFieldSize";
-        case AnomalyKind::InvalidDateFormat: return "InvalidDateFormat";
-        case AnomalyKind::FutureDateValue: return "FutureDateValue";
-        case AnomalyKind::AncientDateValue: return "AncientDateValue";
-        case AnomalyKind::InvalidContentDisposition: return "InvalidContentDisposition";
-        case AnomalyKind::DuplicateFilenameParameter: return "DuplicateFilenameParameter";
-        case AnomalyKind::InvalidFilenameChars: return "InvalidFilenameChars";
-        case AnomalyKind::ExcessiveFilenameLength: return "ExcessiveFilenameLength";
-        case AnomalyKind::BoundaryInPreamble: return "BoundaryInPreamble";
-        case AnomalyKind::BoundaryInEpilogue: return "BoundaryInEpilogue";
-        case AnomalyKind::MissingBoundaryPrefix: return "MissingBoundaryPrefix";
-        case AnomalyKind::MalformedBoundaryDelimiter: return "MalformedBoundaryDelimiter";
-        case AnomalyKind::MessagePartialDetected: return "MessagePartialDetected";
-        default: return "Unknown";
+    case AnomalyKind::NakedCR:
+        return "NakedCR";
+    case AnomalyKind::NakedLF:
+        return "NakedLF";
+    case AnomalyKind::MixedLineEndings:
+        return "MixedLineEndings";
+    case AnomalyKind::ObsoleteHeaderSyntax:
+        return "ObsoleteHeaderSyntax";
+    case AnomalyKind::DuplicateAngleBrackets:
+        return "DuplicateAngleBrackets";
+    case AnomalyKind::MissingAngleBrackets:
+        return "MissingAngleBrackets";
+    case AnomalyKind::WhitespaceOnlyFoldLine:
+        return "WhitespaceOnlyFoldLine";
+    case AnomalyKind::EightBitUnencoded:
+        return "EightBitUnencoded";
+    case AnomalyKind::MissingCharsetInfo:
+        return "MissingCharsetInfo";
+    case AnomalyKind::IncorrectCharsetInfo:
+        return "IncorrectCharsetInfo";
+    case AnomalyKind::NonAsciiInUnstructuredHeader:
+        return "NonAsciiInUnstructuredHeader";
+    case AnomalyKind::ExtraColonInHeaderName:
+        return "ExtraColonInHeaderName";
+    case AnomalyKind::SpaceBeforeColon:
+        return "SpaceBeforeColon";
+    case AnomalyKind::MissingSpaceAfterColon:
+        return "MissingSpaceAfterColon";
+    case AnomalyKind::MissingMIMEVersion:
+        return "MissingMIMEVersion";
+    case AnomalyKind::DuplicateContentType:
+        return "DuplicateContentType";
+    case AnomalyKind::MultipleContentTypeValues:
+        return "MultipleContentTypeValues";
+    case AnomalyKind::DuplicateBoundaryDefinition:
+        return "DuplicateBoundaryDefinition";
+    case AnomalyKind::EmptyBoundary:
+        return "EmptyBoundary";
+    case AnomalyKind::MissingBoundaryParameter:
+        return "MissingBoundaryParameter";
+    case AnomalyKind::MissingFinalBoundary:
+        return "MissingFinalBoundary";
+    case AnomalyKind::ExtraWhitespaceBeforeBoundary:
+        return "ExtraWhitespaceBeforeBoundary";
+    case AnomalyKind::BoundaryWithinQuotedString:
+        return "BoundaryWithinQuotedString";
+    case AnomalyKind::ZeroLengthPart:
+        return "ZeroLengthPart";
+    case AnomalyKind::MissingContentType:
+        return "MissingContentType";
+    case AnomalyKind::MultipartTypo:
+        return "MultipartTypo";
+    case AnomalyKind::ConflictingTransferEncoding:
+        return "ConflictingTransferEncoding";
+    case AnomalyKind::NullByteInHeader:
+        return "NullByteInHeader";
+    case AnomalyKind::EncodedWordInBoundary:
+        return "EncodedWordInBoundary";
+    case AnomalyKind::EncodedWordInParameterValue:
+        return "EncodedWordInParameterValue";
+    case AnomalyKind::TruncatedEncodedWord:
+        return "TruncatedEncodedWord";
+    case AnomalyKind::MalformedEncodedWordDelimiters:
+        return "MalformedEncodedWordDelimiters";
+    case AnomalyKind::NestedEncodingAmbiguity:
+        return "NestedEncodingAmbiguity";
+    case AnomalyKind::InvalidBase64Chars:
+        return "InvalidBase64Chars";
+    case AnomalyKind::TruncatedBase64:
+        return "TruncatedBase64";
+    case AnomalyKind::NullInBase64:
+        return "NullInBase64";
+    case AnomalyKind::BrokenQuotedPrintableSoftBreak:
+        return "BrokenQuotedPrintableSoftBreak";
+    case AnomalyKind::InvalidQuotedPrintableSequence:
+        return "InvalidQuotedPrintableSequence";
+    case AnomalyKind::QuotedPrintableNonAsciiPassthrough:
+        return "QuotedPrintableNonAsciiPassthrough";
+    case AnomalyKind::FaultyContentTransferEncoding:
+        return "FaultyContentTransferEncoding";
+    case AnomalyKind::OversizedLine:
+        return "OversizedLine";
+    case AnomalyKind::BinaryInTextPart:
+        return "BinaryInTextPart";
+    case AnomalyKind::ExcessiveNestingDepth:
+        return "ExcessiveNestingDepth";
+    case AnomalyKind::ExcessivePartCount:
+        return "ExcessivePartCount";
+    case AnomalyKind::ExcessiveHeaderSize:
+        return "ExcessiveHeaderSize";
+    case AnomalyKind::ExcessiveLineLength:
+        return "ExcessiveLineLength";
+    case AnomalyKind::ExcessiveMessageSize:
+        return "ExcessiveMessageSize";
+    case AnomalyKind::UuencodedContent:
+        return "UuencodedContent";
+    case AnomalyKind::BinhexContent:
+        return "BinhexContent";
+    case AnomalyKind::YencContent:
+        return "YencContent";
+    case AnomalyKind::CharsetMismatch:
+        return "CharsetMismatch";
+    case AnomalyKind::UTF8BOMInBody:
+        return "UTF8BOMInBody";
+    case AnomalyKind::UTF8BOMInHeader:
+        return "UTF8BOMInHeader";
+    case AnomalyKind::UnknownCharset:
+        return "UnknownCharset";
+    case AnomalyKind::Windows1252AsISO8859_1:
+        return "Windows1252AsISO8859_1";
+    case AnomalyKind::InvalidParameterSyntax:
+        return "InvalidParameterSyntax";
+    case AnomalyKind::UnquotedSpecialChars:
+        return "UnquotedSpecialChars";
+    case AnomalyKind::MissingClosingQuote:
+        return "MissingClosingQuote";
+    case AnomalyKind::InvalidMediaType:
+        return "InvalidMediaType";
+    case AnomalyKind::MissingMediaSubtype:
+        return "MissingMediaSubtype";
+    case AnomalyKind::ObsoleteMediaType:
+        return "ObsoleteMediaType";
+    case AnomalyKind::InvalidFolding:
+        return "InvalidFolding";
+    case AnomalyKind::ExcessiveHeaderFieldSize:
+        return "ExcessiveHeaderFieldSize";
+    case AnomalyKind::InvalidDateFormat:
+        return "InvalidDateFormat";
+    case AnomalyKind::FutureDateValue:
+        return "FutureDateValue";
+    case AnomalyKind::AncientDateValue:
+        return "AncientDateValue";
+    case AnomalyKind::InvalidContentDisposition:
+        return "InvalidContentDisposition";
+    case AnomalyKind::DuplicateFilenameParameter:
+        return "DuplicateFilenameParameter";
+    case AnomalyKind::InvalidFilenameChars:
+        return "InvalidFilenameChars";
+    case AnomalyKind::ExcessiveFilenameLength:
+        return "ExcessiveFilenameLength";
+    case AnomalyKind::BoundaryInPreamble:
+        return "BoundaryInPreamble";
+    case AnomalyKind::BoundaryInEpilogue:
+        return "BoundaryInEpilogue";
+    case AnomalyKind::MissingBoundaryPrefix:
+        return "MissingBoundaryPrefix";
+    case AnomalyKind::MalformedBoundaryDelimiter:
+        return "MalformedBoundaryDelimiter";
+    case AnomalyKind::MessagePartialDetected:
+        return "MessagePartialDetected";
+    default:
+        return "Unknown";
     }
 }
 
 /// Get human-readable name for severity level
 [[nodiscard]] constexpr std::string_view anomaly_severity_name(AnomalySeverity severity) {
     switch (severity) {
-        case AnomalySeverity::Cosmetic: return "Cosmetic";
-        case AnomalySeverity::Degraded: return "Degraded";
-        case AnomalySeverity::Structural: return "Structural";
-        case AnomalySeverity::Security: return "Security";
-        case AnomalySeverity::DoS: return "DoS";
-        default: return "Unknown";
+    case AnomalySeverity::Cosmetic:
+        return "Cosmetic";
+    case AnomalySeverity::Degraded:
+        return "Degraded";
+    case AnomalySeverity::Structural:
+        return "Structural";
+    case AnomalySeverity::Security:
+        return "Security";
+    case AnomalySeverity::DoS:
+        return "DoS";
+    default:
+        return "Unknown";
     }
 }
 
 /// Get human-readable name for policy
 [[nodiscard]] constexpr std::string_view anomaly_policy_name(AnomalyPolicy policy) {
     switch (policy) {
-        case AnomalyPolicy::Ignore: return "Ignore";
-        case AnomalyPolicy::Repair: return "Repair";
-        case AnomalyPolicy::Reject: return "Reject";
-        default: return "Unknown";
+    case AnomalyPolicy::Ignore:
+        return "Ignore";
+    case AnomalyPolicy::Repair:
+        return "Repair";
+    case AnomalyPolicy::Reject:
+        return "Reject";
+    default:
+        return "Unknown";
     }
 }
 

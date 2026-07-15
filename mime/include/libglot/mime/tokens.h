@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cctype>
 #include <string_view>
 #include <vector>
-#include <cctype>
 
 namespace libglot::mime {
 
@@ -19,14 +19,14 @@ namespace libglot::mime {
 
 enum class MimeTokenType {
     // Structure
-    IDENTIFIER,     ///< Header field name (Content-Type, Subject, etc.)
-    COLON,          ///< ':'
-    STRING,         ///< Header value (may contain spaces)
-    NEWLINE,        ///< '\n' or '\r\n'
+    IDENTIFIER, ///< Header field name (Content-Type, Subject, etc.)
+    COLON,      ///< ':'
+    STRING,     ///< Header value (may contain spaces)
+    NEWLINE,    ///< '\n' or '\r\n'
 
     // Special
-    EOF_TOKEN,      ///< End of input
-    INVALID         ///< Invalid token (error recovery)
+    EOF_TOKEN, ///< End of input
+    INVALID    ///< Invalid token (error recovery)
 };
 
 /// ============================================================================
@@ -53,12 +53,7 @@ struct MimeToken {
 class MimeTokenizer {
 public:
     explicit MimeTokenizer(std::string_view source)
-        : source_(source)
-        , pos_(0)
-        , line_(1)
-        , col_(1)
-        , after_colon_(false)
-    {}
+        : source_(source), pos_(0), line_(1), col_(1), after_colon_(false) {}
 
     std::vector<MimeToken> tokenize_all() {
         std::vector<MimeToken> tokens;
@@ -112,14 +107,14 @@ private:
         // Newline: CRLF (RFC standard), LF, or (lenient) bare CR
         if (c == '\n' || c == '\r') {
             consume_line_break();
-            after_colon_ = false;  // Reset state after newline
+            after_colon_ = false; // Reset state after newline
             return make_token(MimeTokenType::NEWLINE, start, pos_);
         }
 
         // Colon
         if (c == ':') {
             advance();
-            after_colon_ = true;  // Next token should be a STRING (header value)
+            after_colon_ = true; // Next token should be a STRING (header value)
             return make_token(MimeTokenType::COLON, start, pos_);
         }
 
@@ -140,7 +135,8 @@ private:
             }
             // Trim trailing whitespace
             size_t end = pos_;
-            while (end > start && std::isspace(source_[end - 1]) && source_[end - 1] != '\n' && source_[end - 1] != '\r') {
+            while (end > start && std::isspace(source_[end - 1]) && source_[end - 1] != '\n' &&
+                   source_[end - 1] != '\r') {
                 end--;
             }
             return make_token(MimeTokenType::STRING, start, end);
@@ -152,9 +148,7 @@ private:
     }
 
     /// True if the next character begins a line break (CRLF, LF, or bare CR)
-    [[nodiscard]] bool at_line_break() const noexcept {
-        return peek() == '\n' || peek() == '\r';
-    }
+    [[nodiscard]] bool at_line_break() const noexcept { return peek() == '\n' || peek() == '\r'; }
 
     /// Consume a single line break: CRLF, LF, or (lenient) bare CR
     void consume_line_break() {
@@ -176,13 +170,9 @@ private:
         }
     }
 
-    [[nodiscard]] bool is_eof() const noexcept {
-        return pos_ >= source_.size();
-    }
+    [[nodiscard]] bool is_eof() const noexcept { return pos_ >= source_.size(); }
 
-    [[nodiscard]] char peek() const noexcept {
-        return is_eof() ? '\0' : source_[pos_];
-    }
+    [[nodiscard]] char peek() const noexcept { return is_eof() ? '\0' : source_[pos_]; }
 
     [[nodiscard]] char peek_next() const noexcept {
         return (pos_ + 1 >= source_.size()) ? '\0' : source_[pos_ + 1];
@@ -196,21 +186,14 @@ private:
     }
 
     MimeToken make_token(MimeTokenType type, size_t start, size_t end) const {
-        return MimeToken{
-            type,
-            source_.substr(start, end - start),
-            start,
-            end,
-            line_,
-            col_
-        };
+        return MimeToken{type, source_.substr(start, end - start), start, end, line_, col_};
     }
 
     std::string_view source_;
     size_t pos_;
     size_t line_;
     size_t col_;
-    bool after_colon_;  ///< Track if we just saw a colon (next token should be STRING)
+    bool after_colon_; ///< Track if we just saw a colon (next token should be STRING)
 };
 
 /// ============================================================================
@@ -219,12 +202,18 @@ private:
 
 inline std::string_view mime_token_type_name(MimeTokenType type) {
     switch (type) {
-        case MimeTokenType::IDENTIFIER: return "IDENTIFIER";
-        case MimeTokenType::COLON: return "COLON";
-        case MimeTokenType::STRING: return "STRING";
-        case MimeTokenType::NEWLINE: return "NEWLINE";
-        case MimeTokenType::EOF_TOKEN: return "EOF";
-        case MimeTokenType::INVALID: return "INVALID";
+    case MimeTokenType::IDENTIFIER:
+        return "IDENTIFIER";
+    case MimeTokenType::COLON:
+        return "COLON";
+    case MimeTokenType::STRING:
+        return "STRING";
+    case MimeTokenType::NEWLINE:
+        return "NEWLINE";
+    case MimeTokenType::EOF_TOKEN:
+        return "EOF";
+    case MimeTokenType::INVALID:
+        return "INVALID";
     }
     return "UNKNOWN";
 }

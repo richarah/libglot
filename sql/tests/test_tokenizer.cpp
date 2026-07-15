@@ -84,7 +84,8 @@ TEST_CASE("Tokenizer - quoted identifiers strip their quotes", "[tokenizer][iden
     REQUIRE(text_of(toks[2]) == "brack");
 }
 
-TEST_CASE("Tokenizer - quoted identifier can contain keywords and symbols", "[tokenizer][identifiers]") {
+TEST_CASE("Tokenizer - quoted identifier can contain keywords and symbols",
+          "[tokenizer][identifiers]") {
     auto toks = lex("\"select * from\"");
 
     REQUIRE(toks.size() == 2);
@@ -92,7 +93,8 @@ TEST_CASE("Tokenizer - quoted identifier can contain keywords and symbols", "[to
     REQUIRE(text_of(toks[0]) == "select * from");
 }
 
-TEST_CASE("Tokenizer - unterminated quoted identifier consumes to EOF", "[tokenizer][identifiers]") {
+TEST_CASE("Tokenizer - unterminated quoted identifier consumes to EOF",
+          "[tokenizer][identifiers]") {
     auto toks = lex("\"unterminated");
 
     REQUIRE(toks.size() == 2);
@@ -105,7 +107,8 @@ TEST_CASE("Tokenizer - unterminated quoted identifier consumes to EOF", "[tokeni
 // String literals
 // ============================================================================
 
-TEST_CASE("Tokenizer - string literals keep quotes and doubled-quote escapes", "[tokenizer][strings]") {
+TEST_CASE("Tokenizer - string literals keep quotes and doubled-quote escapes",
+          "[tokenizer][strings]") {
     auto toks = lex("'hello' 'it''s'");
 
     REQUIRE(toks.size() == 3);
@@ -184,7 +187,8 @@ TEST_CASE("Tokenizer - dollar quote with embedded quotes and newlines", "[tokeni
     REQUIRE(text_of(toks[0]) == "$fn$it's a 'quote'\nline2$fn$");
 }
 
-TEST_CASE("Tokenizer - unterminated dollar quote consumes to EOF as STRING", "[tokenizer][dollar]") {
+TEST_CASE("Tokenizer - unterminated dollar quote consumes to EOF as STRING",
+          "[tokenizer][dollar]") {
     auto toks = lex("$tag$unterminated");
 
     REQUIRE(toks.size() == 2);
@@ -212,7 +216,8 @@ TEST_CASE("Tokenizer - line and block comments are skipped", "[tokenizer][commen
     REQUIRE(only[0].type == TokenType::EOF_TOKEN);
 }
 
-TEST_CASE("Tokenizer - default config treats hash as a line comment", "[tokenizer][comments][config]") {
+TEST_CASE("Tokenizer - default config treats hash as a line comment",
+          "[tokenizer][comments][config]") {
     auto toks = lex("# comment line\n5");
 
     REQUIRE(toks.size() == 2);
@@ -231,8 +236,8 @@ TEST_CASE("Tokenizer - multi-character operators", "[tokenizer][operators]") {
 
     REQUIRE(toks.size() == 14);
     REQUIRE(toks[0].type == TokenType::LTE);
-    REQUIRE(toks[1].type == TokenType::NEQ);   // <>
-    REQUIRE(toks[2].type == TokenType::NEQ);   // != maps to the same NEQ
+    REQUIRE(toks[1].type == TokenType::NEQ); // <>
+    REQUIRE(toks[2].type == TokenType::NEQ); // != maps to the same NEQ
     REQUIRE(toks[3].type == TokenType::GTE);
     REQUIRE(toks[4].type == TokenType::CONCAT);
     REQUIRE(toks[5].type == TokenType::DOUBLE_COLON);
@@ -283,7 +288,8 @@ TEST_CASE("Tokenizer - parameter syntaxes", "[tokenizer][parameters]") {
     REQUIRE(text_of(toks[3]) == "?");
 }
 
-TEST_CASE("Tokenizer - colon-equals and double-colon are operators not parameters", "[tokenizer][parameters]") {
+TEST_CASE("Tokenizer - colon-equals and double-colon are operators not parameters",
+          "[tokenizer][parameters]") {
     auto toks = lex("x := 1 :: y");
 
     REQUIRE(toks.size() == 6);
@@ -298,7 +304,8 @@ TEST_CASE("Tokenizer - colon-equals and double-colon are operators not parameter
 // TokenizerConfig: sqlserver()
 // ============================================================================
 
-TEST_CASE("Tokenizer - sqlserver config lexes temp table names as identifiers", "[tokenizer][config][sqlserver]") {
+TEST_CASE("Tokenizer - sqlserver config lexes temp table names as identifiers",
+          "[tokenizer][config][sqlserver]") {
     auto toks = lex("#temp ##global", TokenizerConfig::sqlserver());
 
     REQUIRE(toks.size() == 3);
@@ -308,7 +315,8 @@ TEST_CASE("Tokenizer - sqlserver config lexes temp table names as identifiers", 
     REQUIRE(text_of(toks[1]) == "##global");
 }
 
-TEST_CASE("Tokenizer - sqlserver config does not treat hash as a comment", "[tokenizer][config][sqlserver]") {
+TEST_CASE("Tokenizer - sqlserver config does not treat hash as a comment",
+          "[tokenizer][config][sqlserver]") {
     // With the default config everything after '#' would be skipped.
     auto def = lex("#t 5");
     REQUIRE(def.size() == 1);
@@ -326,7 +334,8 @@ TEST_CASE("Tokenizer - sqlserver config does not treat hash as a comment", "[tok
 // TokenizerConfig: postgresql()
 // ============================================================================
 
-TEST_CASE("Tokenizer - postgresql config lexes hash arrows and hash as operators", "[tokenizer][config][postgresql]") {
+TEST_CASE("Tokenizer - postgresql config lexes hash arrows and hash as operators",
+          "[tokenizer][config][postgresql]") {
     auto toks = lex("#> #>> #", TokenizerConfig::postgresql());
 
     REQUIRE(toks.size() == 4);
@@ -336,7 +345,8 @@ TEST_CASE("Tokenizer - postgresql config lexes hash arrows and hash as operators
     REQUIRE(toks[3].type == TokenType::EOF_TOKEN);
 }
 
-TEST_CASE("Tokenizer - postgresql config lexes question mark as QUESTION operator", "[tokenizer][config][postgresql]") {
+TEST_CASE("Tokenizer - postgresql config lexes question mark as QUESTION operator",
+          "[tokenizer][config][postgresql]") {
     auto pg = lex("?", TokenizerConfig::postgresql());
     REQUIRE(pg.size() == 2);
     REQUIRE(pg[0].type == TokenType::QUESTION);
@@ -351,7 +361,8 @@ TEST_CASE("Tokenizer - postgresql config lexes question mark as QUESTION operato
 // TokenizerConfig: snowflake()
 // ============================================================================
 
-TEST_CASE("Tokenizer - snowflake config lexes colon as COLON path operator", "[tokenizer][config][snowflake]") {
+TEST_CASE("Tokenizer - snowflake config lexes colon as COLON path operator",
+          "[tokenizer][config][snowflake]") {
     auto toks = lex("col:field", TokenizerConfig::snowflake());
 
     REQUIRE(toks.size() == 4);
@@ -369,7 +380,8 @@ TEST_CASE("Tokenizer - snowflake config lexes colon as COLON path operator", "[t
     REQUIRE(text_of(def[1]) == ":field");
 }
 
-TEST_CASE("Tokenizer - snowflake config lexes bracket as LBRACKET subscript", "[tokenizer][config][snowflake]") {
+TEST_CASE("Tokenizer - snowflake config lexes bracket as LBRACKET subscript",
+          "[tokenizer][config][snowflake]") {
     auto snow = lex("[0]", TokenizerConfig::snowflake());
     REQUIRE(snow.size() == 4);
     REQUIRE(snow[0].type == TokenType::LBRACKET);

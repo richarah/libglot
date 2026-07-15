@@ -1,8 +1,8 @@
 #pragma once
 
-#include "parser_extended.h"
-#include "encoding.h"
 #include "charset.h"
+#include "encoding.h"
+#include "parser_extended.h"
 #include <optional>
 #include <string>
 #include <string_view>
@@ -138,20 +138,20 @@ inline std::optional<std::string> decoded_body_utf8(const Message& part) {
 
     auto charset = CharsetConverter::detect_charset(detail::ascii_lower(charset_name));
     switch (charset) {
-        case CharsetConverter::Charset::UTF8:
-        case CharsetConverter::Charset::USASCII:
-            return decoded;
-        case CharsetConverter::Charset::ISO88591:
-            return CharsetConverter::iso88591_to_utf8(*decoded);
-        case CharsetConverter::Charset::WINDOWS1252:
-            return CharsetConverter::windows1252_to_utf8(*decoded);
-        case CharsetConverter::Charset::UTF16:
-        case CharsetConverter::Charset::UTF16BE:
-        case CharsetConverter::Charset::UTF16LE:
-            return CharsetConverter::to_utf8(*decoded, charset);
-        default:
-            // Unknown or unconvertible charset
-            return std::nullopt;
+    case CharsetConverter::Charset::UTF8:
+    case CharsetConverter::Charset::USASCII:
+        return decoded;
+    case CharsetConverter::Charset::ISO88591:
+        return CharsetConverter::iso88591_to_utf8(*decoded);
+    case CharsetConverter::Charset::WINDOWS1252:
+        return CharsetConverter::windows1252_to_utf8(*decoded);
+    case CharsetConverter::Charset::UTF16:
+    case CharsetConverter::Charset::UTF16BE:
+    case CharsetConverter::Charset::UTF16LE:
+        return CharsetConverter::to_utf8(*decoded, charset);
+    default:
+        // Unknown or unconvertible charset
+        return std::nullopt;
     }
 }
 

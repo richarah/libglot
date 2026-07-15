@@ -7,10 +7,10 @@
 // mentions the recursion depth.
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
 #include <catch2/matchers/catch_matchers_exception.hpp>
-#include <libglot/sql/parser.h>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -46,15 +46,14 @@ TEST_CASE("Mad queries - 50-deep nested parentheses parse", "[mad][nesting]") {
     REQUIRE(roundtrip(nested_parens_query(50)) == "SELECT 1");
 }
 
-TEST_CASE("Mad queries - 300-deep nested parentheses throw ParseError, not crash", "[mad][nesting]") {
+TEST_CASE("Mad queries - 300-deep nested parentheses throw ParseError, not crash",
+          "[mad][nesting]") {
     libglot::Arena arena;
     SQLParser parser(arena, nested_parens_query(300));
 
-    REQUIRE_THROWS_MATCHES(
-        parser.parse_top_level(),
-        libglot::ParseError,
-        Catch::Matchers::MessageMatches(
-            Catch::Matchers::ContainsSubstring("Maximum recursion depth exceeded")));
+    REQUIRE_THROWS_MATCHES(parser.parse_top_level(), libglot::ParseError,
+                           Catch::Matchers::MessageMatches(Catch::Matchers::ContainsSubstring(
+                               "Maximum recursion depth exceeded")));
 }
 
 TEST_CASE("Mad queries - 1000-deep nested parentheses also throw cleanly", "[mad][nesting]") {
@@ -71,7 +70,10 @@ TEST_CASE("Mad queries - IN list with 1000 items", "[mad][in-list]") {
     std::string sql = "SELECT * FROM t WHERE id IN (";
     std::string expected = "SELECT * FROM \"t\" WHERE \"id\" IN (";
     for (int i = 1; i <= 1000; ++i) {
-        if (i > 1) { sql += ", "; expected += ", "; }
+        if (i > 1) {
+            sql += ", ";
+            expected += ", ";
+        }
         sql += std::to_string(i);
         expected += std::to_string(i);
     }
@@ -94,18 +96,19 @@ TEST_CASE("Mad queries - IN list with 1000 items", "[mad][in-list]") {
 // ============================================================================
 
 TEST_CASE("Mad queries - nested IN subqueries round-trip", "[mad][subquery]") {
-    REQUIRE(roundtrip(
-        "SELECT * FROM t WHERE a IN (SELECT b FROM u WHERE c IN "
-        "(SELECT d FROM v WHERE e IN (SELECT f FROM w)))")
-        == "SELECT * FROM \"t\" WHERE \"a\" IN (SELECT \"b\" FROM \"u\" WHERE \"c\" IN "
-           "(SELECT \"d\" FROM \"v\" WHERE \"e\" IN (SELECT \"f\" FROM \"w\")))");
+    REQUIRE(roundtrip("SELECT * FROM t WHERE a IN (SELECT b FROM u WHERE c IN "
+                      "(SELECT d FROM v WHERE e IN (SELECT f FROM w)))") ==
+            "SELECT * FROM \"t\" WHERE \"a\" IN (SELECT \"b\" FROM \"u\" WHERE \"c\" IN "
+            "(SELECT \"d\" FROM \"v\" WHERE \"e\" IN (SELECT \"f\" FROM \"w\")))");
 }
 
 TEST_CASE("Mad queries - 40 levels of scalar subqueries parse", "[mad][subquery]") {
     std::string sql = "SELECT ";
-    for (int i = 0; i < 40; ++i) sql += "(SELECT ";
+    for (int i = 0; i < 40; ++i)
+        sql += "(SELECT ";
     sql += "1";
-    for (int i = 0; i < 40; ++i) sql += ")";
+    for (int i = 0; i < 40; ++i)
+        sql += ")";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);
@@ -117,9 +120,11 @@ TEST_CASE("Mad queries - 40 levels of scalar subqueries parse", "[mad][subquery]
 
 TEST_CASE("Mad queries - subquery nesting beyond the guard throws cleanly", "[mad][subquery]") {
     std::string sql = "SELECT ";
-    for (int i = 0; i < 400; ++i) sql += "(SELECT ";
+    for (int i = 0; i < 400; ++i)
+        sql += "(SELECT ";
     sql += "1";
-    for (int i = 0; i < 400; ++i) sql += ")";
+    for (int i = 0; i < 400; ++i)
+        sql += ")";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);
@@ -144,13 +149,15 @@ TEST_CASE("Mad queries - 5000-character identifier survives round-trip", "[mad][
 
 TEST_CASE("Mad queries - 5-way mixed set-op chain round-trips exactly", "[mad][setops]") {
     REQUIRE(roundtrip(
-        "SELECT 1 UNION SELECT 2 UNION ALL SELECT 3 INTERSECT SELECT 4 EXCEPT SELECT 5")
-        == "SELECT 1 UNION SELECT 2 UNION ALL SELECT 3 INTERSECT SELECT 4 EXCEPT SELECT 5");
+                "SELECT 1 UNION SELECT 2 UNION ALL SELECT 3 INTERSECT SELECT 4 EXCEPT SELECT 5") ==
+            "SELECT 1 UNION SELECT 2 UNION ALL SELECT 3 INTERSECT SELECT 4 EXCEPT SELECT 5");
 }
 
-TEST_CASE("Mad queries - 100-way UNION ALL chain parses without recursion failure", "[mad][setops]") {
+TEST_CASE("Mad queries - 100-way UNION ALL chain parses without recursion failure",
+          "[mad][setops]") {
     std::string sql = "SELECT 1";
-    for (int i = 0; i < 100; ++i) sql += " UNION ALL SELECT 1";
+    for (int i = 0; i < 100; ++i)
+        sql += " UNION ALL SELECT 1";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);
@@ -187,11 +194,9 @@ TEST_CASE("Mad queries - comment-only input throws ParseError", "[mad][minimal]"
     {
         libglot::Arena arena;
         SQLParser parser(arena, "-- just a comment");
-        REQUIRE_THROWS_MATCHES(
-            parser.parse_top_level(),
-            libglot::ParseError,
-            Catch::Matchers::MessageMatches(
-                Catch::Matchers::ContainsSubstring("Expected SQL statement")));
+        REQUIRE_THROWS_MATCHES(parser.parse_top_level(), libglot::ParseError,
+                               Catch::Matchers::MessageMatches(
+                                   Catch::Matchers::ContainsSubstring("Expected SQL statement")));
     }
     {
         libglot::Arena arena;
@@ -213,7 +218,10 @@ TEST_CASE("Mad queries - 500-column select list", "[mad][wide]") {
     std::string sql = "SELECT ";
     std::string expected = "SELECT ";
     for (int i = 1; i <= 500; ++i) {
-        if (i > 1) { sql += ", "; expected += ", "; }
+        if (i > 1) {
+            sql += ", ";
+            expected += ", ";
+        }
         sql += std::to_string(i);
         expected += std::to_string(i);
     }
@@ -230,7 +238,8 @@ TEST_CASE("Mad queries - 500-column select list", "[mad][wide]") {
 TEST_CASE("Mad queries - long flat AND chain does not exhaust recursion", "[mad][wide]") {
     // Left-associative binary chains grow the AST, not the recursion depth.
     std::string sql = "SELECT * FROM t WHERE 1 = 1";
-    for (int i = 0; i < 200; ++i) sql += " AND 1 = 1";
+    for (int i = 0; i < 200; ++i)
+        sql += " AND 1 = 1";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);

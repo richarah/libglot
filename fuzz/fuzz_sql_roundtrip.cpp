@@ -20,10 +20,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         return 0;
     }
 
-    const auto parse_dialect = static_cast<SQLDialect>(
-        data[0] % static_cast<uint8_t>(SQLDialect::COUNT));
-    const auto gen_dialect = static_cast<SQLDialect>(
-        data[1] % static_cast<uint8_t>(SQLDialect::COUNT));
+    const auto parse_dialect =
+        static_cast<SQLDialect>(data[0] % static_cast<uint8_t>(SQLDialect::COUNT));
+    const auto gen_dialect =
+        static_cast<SQLDialect>(data[1] % static_cast<uint8_t>(SQLDialect::COUNT));
     std::string_view source(reinterpret_cast<const char*>(data + 2), size - 2);
 
     libglot::Arena arena;

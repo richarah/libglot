@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -71,7 +71,7 @@ TEST_CASE("Dialect - Feature support", "[dialect]") {
     // ANSI and PostgreSQL support LIMIT/OFFSET
     REQUIRE(ansi.supports_limit_offset == true);
     REQUIRE(postgres.supports_limit_offset == true);
-    REQUIRE(postgres.supports_ilike == true);  // PostgreSQL supports ILIKE
+    REQUIRE(postgres.supports_ilike == true); // PostgreSQL supports ILIKE
 }
 
 TEST_CASE("Dialect - Names", "[dialect]") {

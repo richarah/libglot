@@ -6,8 +6,8 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -38,7 +38,6 @@ TEST_CASE("DuckDB dialect - QUALIFY clause", "[dialect][duckdb]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
     parser.parse_top_level();
-
 }
 
 TEST_CASE("DuckDB dialect - ASOF joins", "[dialect][duckdb]") {
@@ -50,7 +49,6 @@ TEST_CASE("DuckDB dialect - ASOF joins", "[dialect][duckdb]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("CockroachDB dialect - UPSERT statement", "[dialect][cockroachdb]") {
@@ -62,7 +60,6 @@ TEST_CASE("CockroachDB dialect - UPSERT statement", "[dialect][cockroachdb]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("Materialize dialect - TAIL statement", "[dialect][materialize]") {
@@ -74,11 +71,11 @@ TEST_CASE("Materialize dialect - TAIL statement", "[dialect][materialize]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("Vertica dialect - PROJECTION", "[dialect][vertica]") {
-    std::string sql = "CREATE PROJECTION customer_proj AS SELECT * FROM customers SEGMENTED BY HASH(id) ALL NODES;";
+    std::string sql = "CREATE PROJECTION customer_proj AS SELECT * FROM customers SEGMENTED BY "
+                      "HASH(id) ALL NODES;";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);
@@ -86,7 +83,6 @@ TEST_CASE("Vertica dialect - PROJECTION", "[dialect][vertica]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("Greenplum dialect - DISTRIBUTED BY", "[dialect][greenplum]") {
@@ -98,7 +94,6 @@ TEST_CASE("Greenplum dialect - DISTRIBUTED BY", "[dialect][greenplum]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 // MySQL Family Tests
@@ -111,11 +106,11 @@ TEST_CASE("SingleStore dialect - VECTOR type and DOT_PRODUCT", "[dialect][single
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("Doris dialect - DUPLICATE KEY model", "[dialect][doris]") {
-    std::string sql = "CREATE TABLE orders (order_id INT, user_id INT) DUPLICATE KEY(order_id) DISTRIBUTED BY HASH(user_id) BUCKETS 10;";
+    std::string sql = "CREATE TABLE orders (order_id INT, user_id INT) DUPLICATE KEY(order_id) "
+                      "DISTRIBUTED BY HASH(user_id) BUCKETS 10;";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);
@@ -123,7 +118,6 @@ TEST_CASE("Doris dialect - DUPLICATE KEY model", "[dialect][doris]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("TiDB dialect - AUTO_RANDOM", "[dialect][tidb]") {
@@ -135,7 +129,6 @@ TEST_CASE("TiDB dialect - AUTO_RANDOM", "[dialect][tidb]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 // Hive/Spark Family Tests
@@ -145,7 +138,6 @@ TEST_CASE("Spark dialect - NULL-SAFE equality operator", "[dialect][spark]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
     parser.parse_top_level();
-
 }
 
 TEST_CASE("Databricks dialect - OPTIMIZE and ZORDER", "[dialect][databricks]") {
@@ -157,7 +149,6 @@ TEST_CASE("Databricks dialect - OPTIMIZE and ZORDER", "[dialect][databricks]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 TEST_CASE("Impala dialect - COMPUTE STATS", "[dialect][impala]") {
@@ -169,7 +160,6 @@ TEST_CASE("Impala dialect - COMPUTE STATS", "[dialect][impala]") {
 
     // Verify query parses successfully
     // Parse successful if no exception thrown
-
 }
 
 // BigQuery Tests
@@ -179,7 +169,6 @@ TEST_CASE("BigQuery dialect - STRUCT and ARRAY syntax", "[dialect][bigquery]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
     parser.parse_top_level();
-
 }
 
 TEST_CASE("BigQuery dialect - SAFE_CAST function", "[dialect][bigquery]") {
@@ -188,7 +177,6 @@ TEST_CASE("BigQuery dialect - SAFE_CAST function", "[dialect][bigquery]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
     parser.parse_top_level();
-
 }
 
 // Trino/Presto Family Tests
@@ -205,7 +193,8 @@ TEST_CASE("Presto dialect - APPROX_DISTINCT", "[dialect][presto]") {
 
 // Oracle/T-SQL Tests
 TEST_CASE("Oracle dialect - CONNECT BY hierarchical query", "[dialect][oracle]") {
-    std::string sql = "SELECT * FROM employees START WITH manager_id IS NULL CONNECT BY PRIOR employee_id = manager_id;";
+    std::string sql = "SELECT * FROM employees START WITH manager_id IS NULL CONNECT BY PRIOR "
+                      "employee_id = manager_id;";
 
     libglot::Arena arena;
     SQLParser parser(arena, sql);
@@ -261,6 +250,5 @@ TEST_CASE("All dialects tokenize without errors", "[dialect][comprehensive]") {
 
         INFO("Dialect: " << dialect << ", Query: " << query);
         // Parse successful if no exception thrown
-
     }
 }

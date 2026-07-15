@@ -6,8 +6,8 @@
 // Snowflake-only at generation time, everything else throws.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -31,27 +31,28 @@ std::string transpile(const std::string& sql, SQLDialect dialect) {
 // behavior - not specific to FLATTEN).
 
 TEST_CASE("LATERAL FLATTEN - INPUT only", "[flatten]") {
-    REQUIRE(transpile("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col) f", SQLDialect::Snowflake)
-            == "SELECT * FROM \"t\" CROSS JOIN LATERAL FLATTEN(INPUT => \"t\".\"col\") \"f\"");
+    REQUIRE(
+        transpile("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col) f", SQLDialect::Snowflake) ==
+        "SELECT * FROM \"t\" CROSS JOIN LATERAL FLATTEN(INPUT => \"t\".\"col\") \"f\"");
 }
 
 TEST_CASE("LATERAL FLATTEN - INPUT, PATH, OUTER", "[flatten]") {
     REQUIRE(transpile(
                 "SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col, PATH => 'a.b', OUTER => TRUE) f",
-                SQLDialect::Snowflake)
-            == "SELECT * FROM \"t\" CROSS JOIN LATERAL FLATTEN(INPUT => \"t\".\"col\", "
-               "PATH => 'a.b', OUTER => TRUE) \"f\"");
+                SQLDialect::Snowflake) ==
+            "SELECT * FROM \"t\" CROSS JOIN LATERAL FLATTEN(INPUT => \"t\".\"col\", "
+            "PATH => 'a.b', OUTER => TRUE) \"f\"");
 }
 
 TEST_CASE("LATERAL FLATTEN - no alias", "[flatten]") {
-    REQUIRE(transpile("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col)", SQLDialect::Snowflake)
-            == "SELECT * FROM \"t\" CROSS JOIN LATERAL FLATTEN(INPUT => \"t\".\"col\")");
+    REQUIRE(transpile("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col)", SQLDialect::Snowflake) ==
+            "SELECT * FROM \"t\" CROSS JOIN LATERAL FLATTEN(INPUT => \"t\".\"col\")");
 }
 
 TEST_CASE("LATERAL FLATTEN - AST shape", "[flatten]") {
     libglot::Arena arena;
     SQLParser parser(arena, "SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col, PATH => 'p') f",
-                      SQLDialect::Snowflake);
+                     SQLDialect::Snowflake);
     auto* ast = static_cast<SelectStmt*>(parser.parse_top_level());
     REQUIRE(ast->from->type == SQLNodeKind::JOIN_CLAUSE);
     auto* join = static_cast<JoinClause*>(ast->from);
@@ -76,21 +77,24 @@ TEST_CASE("LATERAL FLATTEN - fixed point (Snowflake)", "[flatten][roundtrip]") {
     }
 }
 
-TEST_CASE("LATERAL FLATTEN - unsupported dialects throw a clean std::logic_error", "[flatten][error]") {
+TEST_CASE("LATERAL FLATTEN - unsupported dialects throw a clean std::logic_error",
+          "[flatten][error]") {
     for (auto d : {SQLDialect::PostgreSQL, SQLDialect::BigQuery, SQLDialect::MySQL}) {
-        REQUIRE_THROWS_AS(
-            transpile("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col) f", d), std::logic_error);
+        REQUIRE_THROWS_AS(transpile("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col) f", d),
+                          std::logic_error);
     }
 }
 
 TEST_CASE("LATERAL FLATTEN - missing INPUT is a clean ParseError", "[flatten][error]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT * FROM t, LATERAL FLATTEN(PATH => 'a.b') f", SQLDialect::Snowflake);
+    SQLParser parser(arena, "SELECT * FROM t, LATERAL FLATTEN(PATH => 'a.b') f",
+                     SQLDialect::Snowflake);
     REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }
 
 TEST_CASE("LATERAL FLATTEN - '=>' is required, not '='", "[flatten][error]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT * FROM t, LATERAL FLATTEN(INPUT = t.col) f", SQLDialect::Snowflake);
+    SQLParser parser(arena, "SELECT * FROM t, LATERAL FLATTEN(INPUT = t.col) f",
+                     SQLDialect::Snowflake);
     REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }

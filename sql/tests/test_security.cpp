@@ -6,8 +6,8 @@
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -59,7 +59,8 @@ TEST_CASE("String literal escaping - embedded single quotes are doubled", "[secu
     }
 }
 
-TEST_CASE("String literal roundtrip - source-level quote escaping preserved", "[security][literal]") {
+TEST_CASE("String literal roundtrip - source-level quote escaping preserved",
+          "[security][literal]") {
     libglot::Arena arena;
     SQLParser parser(arena, "SELECT * FROM users WHERE name = 'O''Brien'");
 

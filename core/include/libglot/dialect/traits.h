@@ -23,8 +23,9 @@ namespace libglot {
 template<typename T>
 concept DialectEnum = requires {
     requires std::is_enum_v<T>;
-    T::COUNT;  ///< Number of dialects (must exist)
-    requires std::convertible_to<std::underlying_type_t<T>, size_t>;  ///< Underlying type must be numeric
+    T::COUNT; ///< Number of dialects (must exist)
+    requires std::convertible_to<std::underlying_type_t<T>,
+                                 size_t>; ///< Underlying type must be numeric
 };
 
 template<typename T>

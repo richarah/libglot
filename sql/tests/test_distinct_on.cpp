@@ -7,8 +7,8 @@
 // equivalent construct to transpile to.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -29,19 +29,21 @@ std::string gen(const std::string& sql, SQLDialect d) {
 } // namespace
 
 TEST_CASE("DISTINCT ON - exact string (PostgreSQL)", "[distinct-on]") {
-    REQUIRE(gen("SELECT DISTINCT ON (a) a, b FROM t", SQLDialect::PostgreSQL)
-            == "SELECT DISTINCT ON (\"a\") \"a\", \"b\" FROM \"t\"");
-    REQUIRE(gen("SELECT DISTINCT ON (a, b) a, b, c FROM t ORDER BY a, b, c", SQLDialect::PostgreSQL)
-            == "SELECT DISTINCT ON (\"a\", \"b\") \"a\", \"b\", \"c\" FROM \"t\" ORDER BY \"a\", \"b\", \"c\"");
+    REQUIRE(gen("SELECT DISTINCT ON (a) a, b FROM t", SQLDialect::PostgreSQL) ==
+            "SELECT DISTINCT ON (\"a\") \"a\", \"b\" FROM \"t\"");
+    REQUIRE(gen("SELECT DISTINCT ON (a, b) a, b, c FROM t ORDER BY a, b, c",
+                SQLDialect::PostgreSQL) == "SELECT DISTINCT ON (\"a\", \"b\") \"a\", \"b\", \"c\" "
+                                           "FROM \"t\" ORDER BY \"a\", \"b\", \"c\"");
 }
 
 TEST_CASE("Plain DISTINCT is unaffected", "[distinct-on]") {
-    REQUIRE(gen("SELECT DISTINCT a FROM t", SQLDialect::PostgreSQL)
-            == "SELECT DISTINCT \"a\" FROM \"t\"");
+    REQUIRE(gen("SELECT DISTINCT a FROM t", SQLDialect::PostgreSQL) ==
+            "SELECT DISTINCT \"a\" FROM \"t\"");
 }
 
 TEST_CASE("DISTINCT ON throws for non-PostgreSQL dialects", "[distinct-on][error]") {
-    for (auto d : {SQLDialect::ANSI, SQLDialect::MySQL, SQLDialect::SQLServer, SQLDialect::Snowflake}) {
+    for (auto d :
+         {SQLDialect::ANSI, SQLDialect::MySQL, SQLDialect::SQLServer, SQLDialect::Snowflake}) {
         REQUIRE_THROWS_AS(gen("SELECT DISTINCT ON (a) a FROM t", d), std::logic_error);
     }
 }

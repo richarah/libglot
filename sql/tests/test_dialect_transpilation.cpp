@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -22,7 +22,8 @@ TEST_CASE("Transpile: PostgreSQL → MySQL", "[transpilation][postgres][mysql]")
     REQUIRE(output == "SELECT * FROM `users` WHERE `active` = 1 LIMIT 10");
 }
 
-TEST_CASE("Transpile: PostgreSQL → SQL Server (LIMIT to TOP)", "[transpilation][postgres][sqlserver]") {
+TEST_CASE("Transpile: PostgreSQL → SQL Server (LIMIT to TOP)",
+          "[transpilation][postgres][sqlserver]") {
     std::string sql = "SELECT * FROM users LIMIT 10";
 
     libglot::Arena arena;
@@ -270,18 +271,15 @@ TEST_CASE("Transpile: Complex CTE query across dialects", "[transpilation][compl
     SQLGenerator gen3(SQLDialect::BigQuery);
     std::string bigquery = gen3.generate(ast3);
 
-    REQUIRE(pg ==
-            "WITH \"regional_sales\" AS (SELECT \"region\", SUM(\"amount\") AS \"total\" "
-            "FROM \"sales\" GROUP BY \"region\") "
-            "SELECT * FROM \"regional_sales\" WHERE \"total\" > 10000");
-    REQUIRE(mysql ==
-            "WITH `regional_sales` AS (SELECT `region`, SUM(`amount`) AS `total` "
-            "FROM `sales` GROUP BY `region`) "
-            "SELECT * FROM `regional_sales` WHERE `total` > 10000");
-    REQUIRE(bigquery ==
-            "WITH `regional_sales` AS (SELECT `region`, SUM(`amount`) AS `total` "
-            "FROM `sales` GROUP BY `region`) "
-            "SELECT * FROM `regional_sales` WHERE `total` > 10000");
+    REQUIRE(pg == "WITH \"regional_sales\" AS (SELECT \"region\", SUM(\"amount\") AS \"total\" "
+                  "FROM \"sales\" GROUP BY \"region\") "
+                  "SELECT * FROM \"regional_sales\" WHERE \"total\" > 10000");
+    REQUIRE(mysql == "WITH `regional_sales` AS (SELECT `region`, SUM(`amount`) AS `total` "
+                     "FROM `sales` GROUP BY `region`) "
+                     "SELECT * FROM `regional_sales` WHERE `total` > 10000");
+    REQUIRE(bigquery == "WITH `regional_sales` AS (SELECT `region`, SUM(`amount`) AS `total` "
+                        "FROM `sales` GROUP BY `region`) "
+                        "SELECT * FROM `regional_sales` WHERE `total` > 10000");
 }
 
 TEST_CASE("Transpile: Window functions across dialects", "[transpilation][complex]") {
@@ -309,12 +307,10 @@ TEST_CASE("Transpile: Window functions across dialects", "[transpilation][comple
     SQLGenerator gen3(SQLDialect::Snowflake);
     std::string snowflake = gen3.generate(stmt3);
 
-    REQUIRE(pg ==
-            "SELECT \"user_id\", ROW_NUMBER() OVER (ORDER BY \"score\" DESC) AS \"rank\" "
-            "FROM \"leaderboard\"");
-    REQUIRE(bigquery ==
-            "SELECT `user_id`, ROW_NUMBER() OVER (ORDER BY `score` DESC) AS `rank` "
-            "FROM `leaderboard`");
+    REQUIRE(pg == "SELECT \"user_id\", ROW_NUMBER() OVER (ORDER BY \"score\" DESC) AS \"rank\" "
+                  "FROM \"leaderboard\"");
+    REQUIRE(bigquery == "SELECT `user_id`, ROW_NUMBER() OVER (ORDER BY `score` DESC) AS `rank` "
+                        "FROM `leaderboard`");
     REQUIRE(snowflake ==
             "SELECT \"user_id\", ROW_NUMBER() OVER (ORDER BY \"score\" DESC) AS \"rank\" "
             "FROM \"leaderboard\"");
@@ -345,10 +341,9 @@ TEST_CASE("Transpile: JOIN queries across dialects", "[transpilation][complex]")
     SQLGenerator gen3(SQLDialect::DuckDB);
     std::string duckdb = gen3.generate(ast3);
 
-    REQUIRE(mysql ==
-            "SELECT `u`.`id`, `u`.`name`, `o`.`total` FROM `users` AS `u` "
-            "INNER JOIN `orders` AS `o` ON `u`.`id` = `o`.`user_id` "
-            "WHERE `o`.`status` = 'completed'");
+    REQUIRE(mysql == "SELECT `u`.`id`, `u`.`name`, `o`.`total` FROM `users` AS `u` "
+                     "INNER JOIN `orders` AS `o` ON `u`.`id` = `o`.`user_id` "
+                     "WHERE `o`.`status` = 'completed'");
     REQUIRE(postgres ==
             "SELECT \"u\".\"id\", \"u\".\"name\", \"o\".\"total\" FROM \"users\" AS \"u\" "
             "INNER JOIN \"orders\" AS \"o\" ON \"u\".\"id\" = \"o\".\"user_id\" "

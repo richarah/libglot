@@ -25,17 +25,12 @@ public:
     static constexpr size_t kMaxAlignment = 64;
 
     explicit Arena(size_t chunk_size = kDefaultChunkSize)
-        : chunk_size_(chunk_size)
-        , current_chunk_(nullptr)
-        , current_offset_(0)
-        , current_capacity_(0)
-    {
+        : chunk_size_(chunk_size), current_chunk_(nullptr), current_offset_(0),
+          current_capacity_(0) {
         allocate_chunk();
     }
 
-    ~Arena() {
-        run_finalizers();
-    }
+    ~Arena() { run_finalizers(); }
 
     // Non-copyable. Movable: the moved-from arena is left empty and unusable
     // until reassigned (its chunk pointer is nulled so it cannot corrupt the
@@ -44,13 +39,9 @@ public:
     Arena& operator=(const Arena&) = delete;
 
     Arena(Arena&& other) noexcept
-        : chunk_size_(other.chunk_size_)
-        , current_chunk_(other.current_chunk_)
-        , current_offset_(other.current_offset_)
-        , current_capacity_(other.current_capacity_)
-        , chunks_(std::move(other.chunks_))
-        , finalizers_(std::move(other.finalizers_))
-    {
+        : chunk_size_(other.chunk_size_), current_chunk_(other.current_chunk_),
+          current_offset_(other.current_offset_), current_capacity_(other.current_capacity_),
+          chunks_(std::move(other.chunks_)), finalizers_(std::move(other.finalizers_)) {
         other.current_chunk_ = nullptr;
         other.current_offset_ = 0;
         other.current_capacity_ = 0;
@@ -116,8 +107,7 @@ public:
         T* obj = new (mem) T(std::forward<Args>(args)...);
         if constexpr (!std::is_trivially_destructible_v<T>) {
             try {
-                finalizers_.push_back(Finalizer{
-                    [](void* p) { static_cast<T*>(p)->~T(); }, obj});
+                finalizers_.push_back(Finalizer{[](void* p) { static_cast<T*>(p)->~T(); }, obj});
             } catch (...) {
                 obj->~T();
                 throw;
@@ -147,9 +137,7 @@ public:
     }
 
     /// Number of chunks
-    [[nodiscard]] size_t chunk_count() const {
-        return chunks_.size();
-    }
+    [[nodiscard]] size_t chunk_count() const { return chunks_.size(); }
 
     /// Copy source string into arena and return a string_view to it
     /// This ensures the source outlives all AST nodes allocated from this arena
@@ -201,9 +189,8 @@ private:
     };
 
     static char* aligned_base(char* raw_ptr) noexcept {
-        return reinterpret_cast<char*>(
-            (reinterpret_cast<uintptr_t>(raw_ptr) + kMaxAlignment - 1) &
-            ~(kMaxAlignment - 1));
+        return reinterpret_cast<char*>((reinterpret_cast<uintptr_t>(raw_ptr) + kMaxAlignment - 1) &
+                                       ~(kMaxAlignment - 1));
     }
 
     void run_finalizers() noexcept {

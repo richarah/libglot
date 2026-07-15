@@ -1,8 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <libglot/parse/error_recovery.h>
 #include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
-#include <chrono>
 
 using namespace libglot;
 using namespace libglot::sql;
@@ -141,12 +141,14 @@ TEST_CASE("Error Recovery - ErrorRecoveryGuard", "[error_recovery]") {
 TEST_CASE("Error Recovery - Integration with SQLParser", "[error_recovery][parser]") {
     SECTION("SQLParser throws on missing closing paren") {
         libglot::Arena arena;
-        const std::string invalid_sql = "SELECT (id + 1 FROM users";  // Missing )
+        const std::string invalid_sql = "SELECT (id + 1 FROM users"; // Missing )
 
-        REQUIRE_THROWS_AS([&]() {
-            SQLParser parser(arena, invalid_sql);
-            parser.parse_select();
-        }(), ParseError);
+        REQUIRE_THROWS_AS(
+            [&]() {
+                SQLParser parser(arena, invalid_sql);
+                parser.parse_select();
+            }(),
+            ParseError);
     }
 
     SECTION("Valid query succeeds") {
@@ -164,22 +166,28 @@ TEST_CASE("Error Recovery - Integration with SQLParser", "[error_recovery][parse
         libglot::Arena arena;
 
         // Missing closing paren in expression
-        REQUIRE_THROWS_AS([&]() {
-            SQLParser parser(arena, "SELECT (id FROM users");
-            parser.parse_select();
-        }(), ParseError);
+        REQUIRE_THROWS_AS(
+            [&]() {
+                SQLParser parser(arena, "SELECT (id FROM users");
+                parser.parse_select();
+            }(),
+            ParseError);
 
         // Invalid CASE without END
-        REQUIRE_THROWS_AS([&]() {
-            SQLParser parser(arena, "SELECT CASE WHEN age > 18 THEN 'adult' FROM users");
-            parser.parse_select();
-        }(), ParseError);
+        REQUIRE_THROWS_AS(
+            [&]() {
+                SQLParser parser(arena, "SELECT CASE WHEN age > 18 THEN 'adult' FROM users");
+                parser.parse_select();
+            }(),
+            ParseError);
 
         // Invalid table name (number not allowed)
-        REQUIRE_THROWS_AS([&]() {
-            SQLParser parser(arena, "CREATE TABLE 123invalid (id INTEGER)");
-            parser.parse_create_table();
-        }(), ParseError);
+        REQUIRE_THROWS_AS(
+            [&]() {
+                SQLParser parser(arena, "CREATE TABLE 123invalid (id INTEGER)");
+                parser.parse_create_table();
+            }(),
+            ParseError);
     }
 }
 
@@ -189,11 +197,9 @@ TEST_CASE("Error Recovery - Stress test", "[error_recovery][stress]") {
         collector.set_max_errors(1000);
 
         for (int i = 0; i < 500; ++i) {
-            collector.add_error(
-                "Error number " + std::to_string(i),
-                i * 10,
-                i / 80 + 1,  // Line number
-                i % 80       // Column number
+            collector.add_error("Error number " + std::to_string(i), i * 10,
+                                i / 80 + 1, // Line number
+                                i % 80      // Column number
             );
         }
 
@@ -235,7 +241,8 @@ TEST_CASE("Error Recovery - Edge cases", "[error_recovery]") {
 TEST_CASE("Error Recovery - Real-world scenarios", "[error_recovery]") {
     SECTION("Missing semicolon between statements") {
         ErrorCollector collector(ErrorRecoveryMode::COLLECT_ERRORS);
-        collector.add_error("Expected semicolon", 30, 2, 0, "SELECT * FROM users SELECT * FROM orders");
+        collector.add_error("Expected semicolon", 30, 2, 0,
+                            "SELECT * FROM users SELECT * FROM orders");
 
         REQUIRE(collector.error_count() == 1);
         REQUIRE(collector.get_errors()[0].message == "Expected semicolon");
@@ -243,7 +250,8 @@ TEST_CASE("Error Recovery - Real-world scenarios", "[error_recovery]") {
 
     SECTION("Typo in keyword") {
         ErrorCollector collector(ErrorRecoveryMode::COLLECT_ERRORS);
-        collector.add_error("Unknown keyword 'FORM', did you mean 'FROM'?", 15, 1, 10, "SELECT * FORM users");
+        collector.add_error("Unknown keyword 'FORM', did you mean 'FROM'?", 15, 1, 10,
+                            "SELECT * FORM users");
 
         REQUIRE(collector.error_count() == 1);
         std::string report = collector.format_errors();
@@ -252,14 +260,16 @@ TEST_CASE("Error Recovery - Real-world scenarios", "[error_recovery]") {
 
     SECTION("Unmatched parentheses") {
         ErrorCollector collector(ErrorRecoveryMode::COLLECT_ERRORS);
-        collector.add_error("Unmatched '(' in expression", 25, 1, 20, "SELECT (id + salary FROM users");
+        collector.add_error("Unmatched '(' in expression", 25, 1, 20,
+                            "SELECT (id + salary FROM users");
 
         REQUIRE(collector.error_count() == 1);
     }
 
     SECTION("Invalid column name") {
         ErrorCollector collector(ErrorRecoveryMode::COLLECT_ERRORS);
-        collector.add_error("Expected identifier for column name", 18, 1, 15, "SELECT 123invalid FROM users");
+        collector.add_error("Expected identifier for column name", 18, 1, 15,
+                            "SELECT 123invalid FROM users");
 
         REQUIRE(collector.error_count() == 1);
     }

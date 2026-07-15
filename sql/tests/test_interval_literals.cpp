@@ -6,8 +6,8 @@
 // IntervalLiteral node that regenerates verbatim.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -48,14 +48,16 @@ TEST_CASE("INTERVAL literal - malformed clause is a clean ParseError", "[interva
     REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }
 
-TEST_CASE("INTERVAL literal - generated SQL is a fixed point in every dialect", "[interval][fixpoint]") {
+TEST_CASE("INTERVAL literal - generated SQL is a fixed point in every dialect",
+          "[interval][fixpoint]") {
     const std::string queries[] = {
         "SELECT INTERVAL '1 day'",
         "SELECT INTERVAL '2' HOUR",
         "SELECT INTERVAL 7 DAY",
         "SELECT NOW() - INTERVAL '1 day'",
     };
-    for (auto d : {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::SQLServer}) {
+    for (auto d :
+         {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::SQLServer}) {
         for (const auto& q : queries) {
             const std::string g1 = gen(q, d);
             REQUIRE(gen(g1, d) == g1);

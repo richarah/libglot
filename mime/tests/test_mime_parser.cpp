@@ -13,9 +13,9 @@
 /// Gate condition: Demonstrates that ParserBase<Spec> works for non-SQL domains.
 /// ============================================================================
 
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/parser.h"
 #include "../../core/include/libglot/util/arena.h"
+#include "../include/libglot/mime/parser.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -38,10 +38,9 @@ TEST_CASE("MIME Parser: Parse simple header", "[mime][parser]") {
 
 TEST_CASE("MIME Parser: Parse multiple headers", "[mime][parser]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: text/html\n"
-        "Subject: Test Message\n"
-        "From: alice@example.com\n";
+    std::string_view source = "Content-Type: text/html\n"
+                              "Subject: Test Message\n"
+                              "From: alice@example.com\n";
 
     MimeParser parser(arena, source);
     auto* msg = parser.parse_top_level();
@@ -61,12 +60,11 @@ TEST_CASE("MIME Parser: Parse multiple headers", "[mime][parser]") {
 
 TEST_CASE("MIME Parser: Parse message with body", "[mime][parser]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: text/plain\n"
-        "Subject: Hello\n"
-        "\n"
-        "This is the message body.\n"
-        "It can have multiple lines.";
+    std::string_view source = "Content-Type: text/plain\n"
+                              "Subject: Hello\n"
+                              "\n"
+                              "This is the message body.\n"
+                              "It can have multiple lines.";
 
     MimeParser parser(arena, source);
     auto* msg = parser.parse_top_level();
@@ -99,16 +97,14 @@ TEST_CASE("MIME Parser: Parse empty value", "[mime][parser]") {
 TEST_CASE("MIME Parser: CRLF and LF messages parse identically", "[mime][parser][crlf]") {
     // RFC 5322 messages use CRLF line endings; the parser must treat
     // CRLF, LF, and (leniently) bare CR uniformly.
-    std::string_view lf_source =
-        "Content-Type: text/plain\n"
-        "Subject: Hello\n"
-        "\n"
-        "Body line 1\nBody line 2";
-    std::string_view crlf_source =
-        "Content-Type: text/plain\r\n"
-        "Subject: Hello\r\n"
-        "\r\n"
-        "Body line 1\nBody line 2";
+    std::string_view lf_source = "Content-Type: text/plain\n"
+                                 "Subject: Hello\n"
+                                 "\n"
+                                 "Body line 1\nBody line 2";
+    std::string_view crlf_source = "Content-Type: text/plain\r\n"
+                                   "Subject: Hello\r\n"
+                                   "\r\n"
+                                   "Body line 1\nBody line 2";
 
     libglot::Arena arena_lf;
     MimeParser parser_lf(arena_lf, lf_source);
@@ -172,12 +168,11 @@ TEST_CASE("MIME Parser: Folded header value is unfolded", "[mime][parser][foldin
     // lines start with SP/HTAB. Unfolding removes the line break and
     // keeps the whitespace.
     libglot::Arena arena;
-    std::string_view source =
-        "Subject: This is a long\n"
-        " subject that spans\n"
-        " multiple lines\n"
-        "\n"
-        "Body";
+    std::string_view source = "Subject: This is a long\n"
+                              " subject that spans\n"
+                              " multiple lines\n"
+                              "\n"
+                              "Body";
 
     MimeParser parser(arena, source);
     auto* msg = parser.parse_top_level();
@@ -191,12 +186,11 @@ TEST_CASE("MIME Parser: Folded header value is unfolded", "[mime][parser][foldin
 
 TEST_CASE("MIME Parser: Folded header with CRLF line endings", "[mime][parser][folding]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Subject: Part one\r\n"
-        "\tpart two\r\n"
-        "From: x@y.z\r\n"
-        "\r\n"
-        "Body";
+    std::string_view source = "Subject: Part one\r\n"
+                              "\tpart two\r\n"
+                              "From: x@y.z\r\n"
+                              "\r\n"
+                              "Body";
 
     MimeParser parser(arena, source);
     auto* msg = parser.parse_top_level();

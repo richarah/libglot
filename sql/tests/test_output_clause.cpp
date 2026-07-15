@@ -11,8 +11,8 @@
 //    INSERTED and DELETED) throw std::logic_error.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -22,9 +22,7 @@ using namespace libglot::sql;
 
 namespace {
 
-std::string transpile(const std::string& sql,
-                      SQLDialect parse_dialect,
-                      SQLDialect gen_dialect) {
+std::string transpile(const std::string& sql, SQLDialect parse_dialect, SQLDialect gen_dialect) {
     libglot::Arena arena;
     SQLParser parser(arena, sql, parse_dialect);
     auto ast = parser.parse_top_level();
@@ -47,31 +45,30 @@ std::string postgres(const std::string& sql) {
 // ============================================================================
 
 TEST_CASE("OUTPUT - INSERT with INSERTED columns", "[output][insert][sqlserver]") {
-    REQUIRE(sqlserver("INSERT INTO t (a, b) OUTPUT INSERTED.a, INSERTED.b VALUES (1, 2)")
-            == "INSERT INTO [t] ([a], [b]) OUTPUT INSERTED.[a], INSERTED.[b] VALUES (1, 2)");
+    REQUIRE(sqlserver("INSERT INTO t (a, b) OUTPUT INSERTED.a, INSERTED.b VALUES (1, 2)") ==
+            "INSERT INTO [t] ([a], [b]) OUTPUT INSERTED.[a], INSERTED.[b] VALUES (1, 2)");
 }
 
 TEST_CASE("OUTPUT - INSERT ... SELECT with OUTPUT", "[output][insert][sqlserver]") {
-    REQUIRE(sqlserver("INSERT INTO t (a) OUTPUT INSERTED.a SELECT a FROM u")
-            == "INSERT INTO [t] ([a]) OUTPUT INSERTED.[a] SELECT [a] FROM [u]");
+    REQUIRE(sqlserver("INSERT INTO t (a) OUTPUT INSERTED.a SELECT a FROM u") ==
+            "INSERT INTO [t] ([a]) OUTPUT INSERTED.[a] SELECT [a] FROM [u]");
 }
 
 TEST_CASE("OUTPUT - UPDATE with INSERTED and DELETED", "[output][update][sqlserver]") {
-    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2")
-            == "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a], DELETED.[a] WHERE [b] = 2");
+    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2") ==
+            "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a], DELETED.[a] WHERE [b] = 2");
 }
 
 TEST_CASE("OUTPUT - DELETE with DELETED star", "[output][delete][sqlserver]") {
-    REQUIRE(sqlserver("DELETE FROM t OUTPUT DELETED.* WHERE a = 1")
-            == "DELETE FROM [t] OUTPUT DELETED.* WHERE [a] = 1");
+    REQUIRE(sqlserver("DELETE FROM t OUTPUT DELETED.* WHERE a = 1") ==
+            "DELETE FROM [t] OUTPUT DELETED.* WHERE [a] = 1");
     // Without a WHERE clause
-    REQUIRE(sqlserver("DELETE FROM t OUTPUT DELETED.id")
-            == "DELETE FROM [t] OUTPUT DELETED.[id]");
+    REQUIRE(sqlserver("DELETE FROM t OUTPUT DELETED.id") == "DELETE FROM [t] OUTPUT DELETED.[id]");
 }
 
 TEST_CASE("OUTPUT - aliased items", "[output][alias][sqlserver]") {
-    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT INSERTED.a AS new_a, DELETED.a AS old_a")
-            == "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a] AS [new_a], DELETED.[a] AS [old_a]");
+    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT INSERTED.a AS new_a, DELETED.a AS old_a") ==
+            "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a] AS [new_a], DELETED.[a] AS [old_a]");
 }
 
 TEST_CASE("OUTPUT - generated T-SQL is a fixed point", "[output][fixpoint][sqlserver]") {
@@ -91,19 +88,19 @@ TEST_CASE("OUTPUT - generated T-SQL is a fixed point", "[output][fixpoint][sqlse
 // ============================================================================
 
 TEST_CASE("RETURNING - INSERT/UPDATE/DELETE native round trips", "[returning][postgresql]") {
-    REQUIRE(postgres("INSERT INTO t (a) VALUES (1) RETURNING id")
-            == "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"id\"");
-    REQUIRE(postgres("INSERT INTO t (a) VALUES (1) RETURNING id, a + 1 AS next_a")
-            == "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"id\", \"a\" + 1 AS \"next_a\"");
-    REQUIRE(postgres("UPDATE t SET a = 1 WHERE b = 2 RETURNING a")
-            == "UPDATE \"t\" SET \"a\" = 1 WHERE \"b\" = 2 RETURNING \"a\"");
-    REQUIRE(postgres("DELETE FROM t WHERE a = 1 RETURNING *")
-            == "DELETE FROM \"t\" WHERE \"a\" = 1 RETURNING *");
+    REQUIRE(postgres("INSERT INTO t (a) VALUES (1) RETURNING id") ==
+            "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"id\"");
+    REQUIRE(postgres("INSERT INTO t (a) VALUES (1) RETURNING id, a + 1 AS next_a") ==
+            "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"id\", \"a\" + 1 AS \"next_a\"");
+    REQUIRE(postgres("UPDATE t SET a = 1 WHERE b = 2 RETURNING a") ==
+            "UPDATE \"t\" SET \"a\" = 1 WHERE \"b\" = 2 RETURNING \"a\"");
+    REQUIRE(postgres("DELETE FROM t WHERE a = 1 RETURNING *") ==
+            "DELETE FROM \"t\" WHERE \"a\" = 1 RETURNING *");
 }
 
 TEST_CASE("RETURNING - INSERT ... SELECT ... RETURNING", "[returning][postgresql]") {
-    REQUIRE(postgres("INSERT INTO t (a) SELECT a FROM u RETURNING id")
-            == "INSERT INTO \"t\" (\"a\") SELECT \"a\" FROM \"u\" RETURNING \"id\"");
+    REQUIRE(postgres("INSERT INTO t (a) SELECT a FROM u RETURNING id") ==
+            "INSERT INTO \"t\" (\"a\") SELECT \"a\" FROM \"u\" RETURNING \"id\"");
 }
 
 // ============================================================================
@@ -111,28 +108,26 @@ TEST_CASE("RETURNING - INSERT ... SELECT ... RETURNING", "[returning][postgresql
 // ============================================================================
 
 TEST_CASE("OUTPUT INSERTED.x transpiles to RETURNING x for PostgreSQL", "[output][transpile]") {
-    REQUIRE(transpile("INSERT INTO t (a) OUTPUT INSERTED.a VALUES (1)",
-                      SQLDialect::SQLServer, SQLDialect::PostgreSQL)
-            == "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"a\"");
-    REQUIRE(transpile("UPDATE t SET a = 1 OUTPUT INSERTED.a WHERE b = 2",
-                      SQLDialect::SQLServer, SQLDialect::PostgreSQL)
-            == "UPDATE \"t\" SET \"a\" = 1 WHERE \"b\" = 2 RETURNING \"a\"");
+    REQUIRE(transpile("INSERT INTO t (a) OUTPUT INSERTED.a VALUES (1)", SQLDialect::SQLServer,
+                      SQLDialect::PostgreSQL) ==
+            "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"a\"");
+    REQUIRE(transpile("UPDATE t SET a = 1 OUTPUT INSERTED.a WHERE b = 2", SQLDialect::SQLServer,
+                      SQLDialect::PostgreSQL) ==
+            "UPDATE \"t\" SET \"a\" = 1 WHERE \"b\" = 2 RETURNING \"a\"");
     // DELETE returns the deleted rows: DELETED.x maps to RETURNING x
-    REQUIRE(transpile("DELETE FROM t OUTPUT DELETED.* WHERE a = 1",
-                      SQLDialect::SQLServer, SQLDialect::PostgreSQL)
-            == "DELETE FROM \"t\" WHERE \"a\" = 1 RETURNING *");
+    REQUIRE(transpile("DELETE FROM t OUTPUT DELETED.* WHERE a = 1", SQLDialect::SQLServer,
+                      SQLDialect::PostgreSQL) == "DELETE FROM \"t\" WHERE \"a\" = 1 RETURNING *");
 }
 
 TEST_CASE("RETURNING transpiles to OUTPUT for SQL Server", "[returning][transpile]") {
-    REQUIRE(transpile("INSERT INTO t (a) VALUES (1) RETURNING id",
-                      SQLDialect::PostgreSQL, SQLDialect::SQLServer)
-            == "INSERT INTO [t] ([a]) OUTPUT INSERTED.[id] VALUES (1)");
-    REQUIRE(transpile("UPDATE t SET a = 1 WHERE b = 2 RETURNING a",
-                      SQLDialect::PostgreSQL, SQLDialect::SQLServer)
-            == "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a] WHERE [b] = 2");
-    REQUIRE(transpile("DELETE FROM t WHERE a = 1 RETURNING *",
-                      SQLDialect::PostgreSQL, SQLDialect::SQLServer)
-            == "DELETE FROM [t] OUTPUT DELETED.* WHERE [a] = 1");
+    REQUIRE(transpile("INSERT INTO t (a) VALUES (1) RETURNING id", SQLDialect::PostgreSQL,
+                      SQLDialect::SQLServer) ==
+            "INSERT INTO [t] ([a]) OUTPUT INSERTED.[id] VALUES (1)");
+    REQUIRE(transpile("UPDATE t SET a = 1 WHERE b = 2 RETURNING a", SQLDialect::PostgreSQL,
+                      SQLDialect::SQLServer) ==
+            "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a] WHERE [b] = 2");
+    REQUIRE(transpile("DELETE FROM t WHERE a = 1 RETURNING *", SQLDialect::PostgreSQL,
+                      SQLDialect::SQLServer) == "DELETE FROM [t] OUTPUT DELETED.* WHERE [a] = 1");
 }
 
 // ============================================================================
@@ -168,8 +163,8 @@ TEST_CASE("DELETED in UPDATE / INSERTED in DELETE throw for non-T-SQL", "[output
         REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
     }
     // ... but both are fine when targeting SQL Server itself
-    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT DELETED.a")
-            == "UPDATE [t] SET [a] = 1 OUTPUT DELETED.[a]");
+    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT DELETED.a") ==
+            "UPDATE [t] SET [a] = 1 OUTPUT DELETED.[a]");
 }
 
 // ============================================================================
@@ -185,8 +180,7 @@ TEST_CASE("OUTPUT/RETURNING do not relax trailing-input checking", "[output][str
     }
     {
         libglot::Arena arena;
-        SQLParser parser(arena, "DELETE FROM t OUTPUT DELETED. WHERE a = 1",
-                         SQLDialect::SQLServer);
+        SQLParser parser(arena, "DELETE FROM t OUTPUT DELETED. WHERE a = 1", SQLDialect::SQLServer);
         REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
     }
 }

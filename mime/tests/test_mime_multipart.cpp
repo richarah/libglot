@@ -1,6 +1,6 @@
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/parser_extended.h"
 #include "../../core/include/libglot/util/arena.h"
+#include "../include/libglot/mime/parser_extended.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -69,7 +69,8 @@ TEST_CASE("MIME Multipart: Parse header parameters", "[mime][parameters]") {
 
 TEST_CASE("MIME Multipart: Parse quoted parameter values", "[mime][parameters]") {
     libglot::Arena arena;
-    std::string_view source = R"(Content-Disposition: attachment; filename="document with spaces.pdf"
+    std::string_view source =
+        R"(Content-Disposition: attachment; filename="document with spaces.pdf"
 
 Body)";
 
@@ -117,7 +118,8 @@ PDF data here
 
     // First part should be multipart/alternative with 2 nested parts
     REQUIRE(msg->parts[0]->headers.size() == 1);
-    REQUIRE(msg->parts[0]->headers[0]->value.find("multipart/alternative") != std::string_view::npos);
+    REQUIRE(msg->parts[0]->headers[0]->value.find("multipart/alternative") !=
+            std::string_view::npos);
     REQUIRE(msg->parts[0]->parts.size() == 2);
     REQUIRE(msg->parts[0]->parts[0]->body.find("Plain text version") != std::string_view::npos);
     REQUIRE(msg->parts[0]->parts[1]->body.find("HTML version") != std::string_view::npos);
@@ -130,20 +132,19 @@ PDF data here
 
 TEST_CASE("MIME Multipart: CRLF multipart message", "[mime][multipart][crlf]") {
     libglot::Arena arena;
-    std::string source =
-        "Content-Type: multipart/mixed; boundary=\"bnd\"\r\n"
-        "\r\n"
-        "preamble to be discarded\r\n"
-        "--bnd\r\n"
-        "Content-Type: text/plain\r\n"
-        "\r\n"
-        "Part one content\r\n"
-        "--bnd\r\n"
-        "Content-Type: text/html\r\n"
-        "\r\n"
-        "<p>Part two</p>\r\n"
-        "--bnd--\r\n"
-        "epilogue to be discarded\r\n";
+    std::string source = "Content-Type: multipart/mixed; boundary=\"bnd\"\r\n"
+                         "\r\n"
+                         "preamble to be discarded\r\n"
+                         "--bnd\r\n"
+                         "Content-Type: text/plain\r\n"
+                         "\r\n"
+                         "Part one content\r\n"
+                         "--bnd\r\n"
+                         "Content-Type: text/html\r\n"
+                         "\r\n"
+                         "<p>Part two</p>\r\n"
+                         "--bnd--\r\n"
+                         "epilogue to be discarded\r\n";
 
     MimeParserExtended parser(arena, source);
     auto* msg = parser.parse_message_multipart();
@@ -156,20 +157,20 @@ TEST_CASE("MIME Multipart: CRLF multipart message", "[mime][multipart][crlf]") {
     REQUIRE(msg->parts[1]->body == "<p>Part two</p>");
 }
 
-TEST_CASE("MIME Multipart: Boundary text inside part content does not split", "[mime][multipart][boundary]") {
+TEST_CASE("MIME Multipart: Boundary text inside part content does not split",
+          "[mime][multipart][boundary]") {
     libglot::Arena arena;
-    std::string source =
-        "Content-Type: multipart/mixed; boundary=xyz\n"
-        "\n"
-        "--xyz\n"
-        "Content-Type: text/plain\n"
-        "\n"
-        "This line mentions --xyz mid-line and must not split\n"
-        "--xyzlonger is a prefix match and must not split either\n"
-        "--xyz\n"
-        "\n"
-        "second part\n"
-        "--xyz--\n";
+    std::string source = "Content-Type: multipart/mixed; boundary=xyz\n"
+                         "\n"
+                         "--xyz\n"
+                         "Content-Type: text/plain\n"
+                         "\n"
+                         "This line mentions --xyz mid-line and must not split\n"
+                         "--xyzlonger is a prefix match and must not split either\n"
+                         "--xyz\n"
+                         "\n"
+                         "second part\n"
+                         "--xyz--\n";
 
     MimeParserExtended parser(arena, source);
     auto* msg = parser.parse_message_multipart();
@@ -183,16 +184,15 @@ TEST_CASE("MIME Multipart: Boundary text inside part content does not split", "[
 
 TEST_CASE("MIME Multipart: Whitespace after boundary marker", "[mime][multipart][boundary]") {
     libglot::Arena arena;
-    std::string source =
-        "Content-Type: multipart/mixed; boundary=pad\n"
-        "\n"
-        "--pad  \n"
-        "\n"
-        "part one\n"
-        "--pad \t \n"
-        "\n"
-        "part two\n"
-        "--pad-- \n";
+    std::string source = "Content-Type: multipart/mixed; boundary=pad\n"
+                         "\n"
+                         "--pad  \n"
+                         "\n"
+                         "part one\n"
+                         "--pad \t \n"
+                         "\n"
+                         "part two\n"
+                         "--pad-- \n";
 
     MimeParserExtended parser(arena, source);
     auto* msg = parser.parse_message_multipart();
@@ -203,19 +203,19 @@ TEST_CASE("MIME Multipart: Whitespace after boundary marker", "[mime][multipart]
     REQUIRE(msg->parts[1]->body == "part two");
 }
 
-TEST_CASE("MIME Multipart: Missing final boundary still returns parts", "[mime][multipart][boundary]") {
+TEST_CASE("MIME Multipart: Missing final boundary still returns parts",
+          "[mime][multipart][boundary]") {
     libglot::Arena arena;
-    std::string source =
-        "Content-Type: multipart/mixed; boundary=nofinal\n"
-        "\n"
-        "--nofinal\n"
-        "Content-Type: text/plain\n"
-        "\n"
-        "part one\n"
-        "--nofinal\n"
-        "Content-Type: text/plain\n"
-        "\n"
-        "part two, message truncated before close delimiter\n";
+    std::string source = "Content-Type: multipart/mixed; boundary=nofinal\n"
+                         "\n"
+                         "--nofinal\n"
+                         "Content-Type: text/plain\n"
+                         "\n"
+                         "part one\n"
+                         "--nofinal\n"
+                         "Content-Type: text/plain\n"
+                         "\n"
+                         "part two, message truncated before close delimiter\n";
 
     MimeParserExtended parser(arena, source);
     auto* msg = parser.parse_message_multipart();
@@ -236,16 +236,15 @@ TEST_CASE("MIME Multipart: Missing final boundary still returns parts", "[mime][
 
 TEST_CASE("MIME Multipart: Folded Content-Type header in part", "[mime][multipart][folding]") {
     libglot::Arena arena;
-    std::string source =
-        "Content-Type: multipart/mixed;\n"
-        " boundary=\"folded\"\n"
-        "\n"
-        "--folded\n"
-        "Content-Type: text/plain;\n"
-        " charset=utf-8\n"
-        "\n"
-        "part body\n"
-        "--folded--\n";
+    std::string source = "Content-Type: multipart/mixed;\n"
+                         " boundary=\"folded\"\n"
+                         "\n"
+                         "--folded\n"
+                         "Content-Type: text/plain;\n"
+                         " charset=utf-8\n"
+                         "\n"
+                         "part body\n"
+                         "--folded--\n";
 
     MimeParserExtended parser(arena, source);
     auto* msg = parser.parse_message_multipart();
@@ -276,8 +275,10 @@ std::string build_nested_multipart(int depth) {
     std::string content = "Content-Type: text/plain\n\nleaf content";
     for (int level = depth; level >= 1; --level) {
         std::string b = "b" + std::to_string(level);
-        content = "Content-Type: multipart/mixed; boundary=" + b + "\n\n"
-                  "--" + b + "\n" + content + "\n--" + b + "--\n";
+        content = "Content-Type: multipart/mixed; boundary=" + b +
+                  "\n\n"
+                  "--" +
+                  b + "\n" + content + "\n--" + b + "--\n";
     }
     return content;
 }
@@ -293,7 +294,8 @@ int multipart_depth(const Message* msg) {
 
 } // namespace
 
-TEST_CASE("MIME Multipart: 100-deep nesting parses without stack overflow", "[mime][multipart][limits]") {
+TEST_CASE("MIME Multipart: 100-deep nesting parses without stack overflow",
+          "[mime][multipart][limits]") {
     libglot::Arena arena;
     std::string source = build_nested_multipart(100);
 
@@ -309,7 +311,8 @@ TEST_CASE("MIME Multipart: 100-deep nesting parses without stack overflow", "[mi
     }
 }
 
-TEST_CASE("MIME Multipart: Nesting depth limit stops descent cleanly", "[mime][multipart][limits]") {
+TEST_CASE("MIME Multipart: Nesting depth limit stops descent cleanly",
+          "[mime][multipart][limits]") {
     libglot::Arena arena;
     std::string source = build_nested_multipart(100);
 
@@ -378,8 +381,8 @@ Content-Type: text/html
     REQUIRE(msg->parts.size() == 2);
 
     // First part has empty body (or only whitespace)
-    bool first_part_empty = msg->parts[0]->body.empty() ||
-                           msg->parts[0]->body.find_first_not_of(" \r\n\t") == std::string_view::npos;
+    bool first_part_empty = msg->parts[0]->body.empty() || msg->parts[0]->body.find_first_not_of(
+                                                               " \r\n\t") == std::string_view::npos;
     REQUIRE(first_part_empty);
 
     // Second part has content

@@ -22,16 +22,15 @@ namespace libglot::mime {
 
 struct BoundaryDelimiter {
     bool found = false;
-    bool is_close = false;    ///< Close delimiter ("--boundary--")
-    size_t line_start = 0;    ///< Position of the "--" that starts the line
-    size_t content_end = 0;   ///< End of preceding part content (excludes the
-                              ///< line break owned by the delimiter)
-    size_t next_pos = 0;      ///< Position just past the delimiter line
+    bool is_close = false;  ///< Close delimiter ("--boundary--")
+    size_t line_start = 0;  ///< Position of the "--" that starts the line
+    size_t content_end = 0; ///< End of preceding part content (excludes the
+                            ///< line break owned by the delimiter)
+    size_t next_pos = 0;    ///< Position just past the delimiter line
 };
 
 /// Find the next RFC 2046 boundary delimiter line at or after `from`.
-inline BoundaryDelimiter find_boundary_delimiter(std::string_view body,
-                                                 std::string_view boundary,
+inline BoundaryDelimiter find_boundary_delimiter(std::string_view body, std::string_view boundary,
                                                  size_t from) {
     BoundaryDelimiter result;
     if (boundary.empty()) {

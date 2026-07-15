@@ -1,6 +1,6 @@
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/encoding.h"
 #include "../include/libglot/mime/charset.h"
+#include "../include/libglot/mime/encoding.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -35,7 +35,7 @@ TEST_CASE("Transfer Encoding: Quoted-Printable with soft line breaks", "[encodin
 }
 
 TEST_CASE("Transfer Encoding: Quoted-Printable hex encoding", "[encoding][qp]") {
-    std::string_view encoded = "Caf=E9";  // é in ISO-8859-1
+    std::string_view encoded = "Caf=E9"; // é in ISO-8859-1
     std::string decoded = TransferEncoding::decode_quoted_printable(encoded);
     REQUIRE(decoded.find("Caf") != std::string::npos);
     REQUIRE(decoded.size() == 4);
@@ -43,7 +43,8 @@ TEST_CASE("Transfer Encoding: Quoted-Printable hex encoding", "[encoding][qp]") 
 
 TEST_CASE("Transfer Encoding: Detect encoding types", "[encoding][detect]") {
     REQUIRE(TransferEncoding::detect_encoding("base64") == TransferEncoding::Encoding::Base64);
-    REQUIRE(TransferEncoding::detect_encoding("quoted-printable") == TransferEncoding::Encoding::QuotedPrintable);
+    REQUIRE(TransferEncoding::detect_encoding("quoted-printable") ==
+            TransferEncoding::Encoding::QuotedPrintable);
     REQUIRE(TransferEncoding::detect_encoding("7bit") == TransferEncoding::Encoding::SevenBit);
     REQUIRE(TransferEncoding::detect_encoding("8bit") == TransferEncoding::Encoding::EightBit);
     REQUIRE(TransferEncoding::detect_encoding("binary") == TransferEncoding::Encoding::Binary);
@@ -53,7 +54,8 @@ TEST_CASE("Transfer Encoding: Detect encoding types", "[encoding][detect]") {
 
 TEST_CASE("Transfer Encoding: Decode body with encoding", "[encoding][decode_body]") {
     std::string_view base64_body = "SGVsbG8gV29ybGQ=";
-    std::string decoded = TransferEncoding::decode_body(base64_body, TransferEncoding::Encoding::Base64);
+    std::string decoded =
+        TransferEncoding::decode_body(base64_body, TransferEncoding::Encoding::Base64);
     REQUIRE(decoded == "Hello World");
 
     std::string_view qp_body = "Hello=20World";
@@ -134,11 +136,11 @@ TEST_CASE("Transfer Encoding: Base64 strict on valid and empty input", "[encodin
 
 TEST_CASE("Transfer Encoding: Base64 'A' still decodes correctly", "[encoding][base64]") {
     // 'A' maps to value 0 and must remain distinguishable from invalid bytes
-    auto decoded = TransferEncoding::decode_base64_strict("QUFB");  // "AAA"
+    auto decoded = TransferEncoding::decode_base64_strict("QUFB"); // "AAA"
     REQUIRE(decoded.has_value());
     REQUIRE(*decoded == "AAA");
 
-    auto zeros = TransferEncoding::decode_base64_strict("AAAA");  // 3 zero bytes
+    auto zeros = TransferEncoding::decode_base64_strict("AAAA"); // 3 zero bytes
     REQUIRE(zeros.has_value());
     REQUIRE(*zeros == std::string("\0\0\0", 3));
 }
@@ -149,7 +151,7 @@ TEST_CASE("Transfer Encoding: Base64 'A' still decodes correctly", "[encoding][b
 
 TEST_CASE("Encoded-Word: ISO-8859-1 decodes to UTF-8", "[encoding][rfc2047][charset]") {
     std::string decoded = EncodedWordDecoder::decode("=?ISO-8859-1?Q?caf=E9?=");
-    REQUIRE(decoded == "caf\xC3\xA9");  // UTF-8 "café"
+    REQUIRE(decoded == "caf\xC3\xA9"); // UTF-8 "café"
 }
 
 TEST_CASE("Encoded-Word: ISO-8859-1 base64 decodes to UTF-8", "[encoding][rfc2047][charset]") {
@@ -173,10 +175,11 @@ TEST_CASE("Encoded-Word: charset name is case-insensitive", "[encoding][rfc2047]
     REQUIRE(!result.has_unknown_charset);
 }
 
-TEST_CASE("Encoded-Word: unknown charset returns raw bytes and is flagged", "[encoding][rfc2047][charset]") {
+TEST_CASE("Encoded-Word: unknown charset returns raw bytes and is flagged",
+          "[encoding][rfc2047][charset]") {
     auto result = EncodedWordDecoder::decode_with_charset_info("=?KOI8-R?Q?=D0=D2=C9?=");
     REQUIRE(result.has_unknown_charset);
-    REQUIRE(result.text == "\xD0\xD2\xC9");  // raw bytes, unconverted
+    REQUIRE(result.text == "\xD0\xD2\xC9"); // raw bytes, unconverted
 }
 
 TEST_CASE("Encoded-Word: UTF-8 input is not flagged", "[encoding][rfc2047][charset]") {
@@ -261,19 +264,21 @@ TEST_CASE("Transfer Encoding: Base64 encode RFC known example", "[encoding][base
 
 TEST_CASE("Transfer Encoding: Base64 encode padding cases", "[encoding][base64][encode]") {
     REQUIRE(TransferEncoding::encode_base64_raw("") == "");
-    REQUIRE(TransferEncoding::encode_base64_raw("M") == "TQ==");        // 1 byte -> 2 padding
-    REQUIRE(TransferEncoding::encode_base64_raw("Ma") == "TWE=");       // 2 bytes -> 1 padding
-    REQUIRE(TransferEncoding::encode_base64_raw("Man") == "TWFu");      // 3 bytes -> no padding
+    REQUIRE(TransferEncoding::encode_base64_raw("M") == "TQ==");   // 1 byte -> 2 padding
+    REQUIRE(TransferEncoding::encode_base64_raw("Ma") == "TWE=");  // 2 bytes -> 1 padding
+    REQUIRE(TransferEncoding::encode_base64_raw("Man") == "TWFu"); // 3 bytes -> no padding
 }
 
-TEST_CASE("Transfer Encoding: Base64 encode binary data with nulls and high bytes", "[encoding][base64][encode]") {
+TEST_CASE("Transfer Encoding: Base64 encode binary data with nulls and high bytes",
+          "[encoding][base64][encode]") {
     std::string binary("\x00\x01\x02\xFF\xFE\xFD", 6);
     std::string encoded = TransferEncoding::encode_base64_raw(binary);
     std::string decoded = TransferEncoding::decode_base64(encoded);
     REQUIRE(decoded == binary);
 }
 
-TEST_CASE("Transfer Encoding: Base64 encode wraps at 76 characters with CRLF", "[encoding][base64][encode][wrap]") {
+TEST_CASE("Transfer Encoding: Base64 encode wraps at 76 characters with CRLF",
+          "[encoding][base64][encode][wrap]") {
     // 60 'A' bytes -> 80 base64 chars (raw, unwrapped)
     std::string data(60, 'A');
     std::string raw = TransferEncoding::encode_base64_raw(data);
@@ -294,11 +299,13 @@ TEST_CASE("Transfer Encoding: Base64 encode wraps at 76 characters with CRLF", "
     }
 }
 
-TEST_CASE("Transfer Encoding: Base64 encode empty input produces empty output", "[encoding][base64][encode]") {
+TEST_CASE("Transfer Encoding: Base64 encode empty input produces empty output",
+          "[encoding][base64][encode]") {
     REQUIRE(TransferEncoding::encode_base64("") == "");
 }
 
-TEST_CASE("Transfer Encoding: Base64 round-trip identity for binary data", "[encoding][base64][encode][roundtrip]") {
+TEST_CASE("Transfer Encoding: Base64 round-trip identity for binary data",
+          "[encoding][base64][encode][roundtrip]") {
     std::string binary;
     for (int i = 0; i < 300; ++i) {
         binary.push_back(static_cast<char>(i % 256));
@@ -321,7 +328,8 @@ TEST_CASE("Transfer Encoding: Base64 round-trip identity for binary data", "[enc
 // Quoted-printable encode (RFC 2045)
 // ============================================================================
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode simple text unchanged", "[encoding][qp][encode]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable encode simple text unchanged",
+          "[encoding][qp][encode]") {
     REQUIRE(TransferEncoding::encode_quoted_printable("Hello World") == "Hello World");
 }
 
@@ -329,29 +337,38 @@ TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes '='", "[encoding][
     REQUIRE(TransferEncoding::encode_quoted_printable("a=b") == "a=3Db");
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes high bytes", "[encoding][qp][encode]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes high bytes",
+          "[encoding][qp][encode]") {
     // "Caf\xE9" (Latin-1 é) -> "Caf=E9"
     REQUIRE(TransferEncoding::encode_quoted_printable("Caf\xE9") == "Caf=E9");
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes control characters", "[encoding][qp][encode]") {
-    std::string data("a" "\x01" "\x1F" "b", 4);
+TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes control characters",
+          "[encoding][qp][encode]") {
+    std::string data("a"
+                     "\x01"
+                     "\x1F"
+                     "b",
+                     4);
     REQUIRE(TransferEncoding::encode_quoted_printable(data) == "a=01=1Fb");
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode preserves CRLF as hard breaks", "[encoding][qp][encode]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable encode preserves CRLF as hard breaks",
+          "[encoding][qp][encode]") {
     std::string data = "line one\r\nline two\r\n";
     REQUIRE(TransferEncoding::encode_quoted_printable(data) == data);
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes trailing space/tab", "[encoding][qp][encode]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable encode escapes trailing space/tab",
+          "[encoding][qp][encode]") {
     REQUIRE(TransferEncoding::encode_quoted_printable("end ") == "end=20");
     REQUIRE(TransferEncoding::encode_quoted_printable("end\t") == "end=09");
     REQUIRE(TransferEncoding::encode_quoted_printable("mid space kept") == "mid space kept");
     REQUIRE(TransferEncoding::encode_quoted_printable("trail \r\nnext") == "trail=20\r\nnext");
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode wraps long lines at 76 columns", "[encoding][qp][encode][wrap]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable encode wraps long lines at 76 columns",
+          "[encoding][qp][encode][wrap]") {
     std::string data(100, 'a');
     std::string encoded = TransferEncoding::encode_quoted_printable(data);
 
@@ -362,7 +379,8 @@ TEST_CASE("Transfer Encoding: Quoted-Printable encode wraps long lines at 76 col
     REQUIRE(decoded == data);
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable encode wrapping boundary 75/76/77", "[encoding][qp][encode][wrap]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable encode wrapping boundary 75/76/77",
+          "[encoding][qp][encode][wrap]") {
     // Exactly at the limit: no soft break needed.
     std::string at75(75, 'x');
     REQUIRE(TransferEncoding::encode_quoted_printable(at75) == at75);
@@ -378,14 +396,16 @@ TEST_CASE("Transfer Encoding: Quoted-Printable encode wrapping boundary 75/76/77
             std::string(75, 'x') + "=\r\n" + "xx");
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable round-trip identity for special characters", "[encoding][qp][encode][roundtrip]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable round-trip identity for special characters",
+          "[encoding][qp][encode][roundtrip]") {
     std::string data = "Caf\xE9 costs $5=10% \"quoted\"\ttabbed\r\nnext line, trailing \r\n";
     std::string encoded = TransferEncoding::encode_quoted_printable(data);
     std::string decoded = TransferEncoding::decode_quoted_printable(encoded);
     REQUIRE(decoded == data);
 }
 
-TEST_CASE("Transfer Encoding: Quoted-Printable round-trip identity for arbitrary bytes", "[encoding][qp][encode][roundtrip]") {
+TEST_CASE("Transfer Encoding: Quoted-Printable round-trip identity for arbitrary bytes",
+          "[encoding][qp][encode][roundtrip]") {
     std::string data;
     for (int i = 0; i < 256; ++i) {
         data.push_back(static_cast<char>(i));
@@ -400,43 +420,61 @@ TEST_CASE("Transfer Encoding: Quoted-Printable round-trip identity for arbitrary
 // ============================================================================
 
 TEST_CASE("Encoded-Word: encode_word produces base64 form", "[encoding][rfc2047][encode]") {
-    std::string word = EncodedWordDecoder::encode_word("Hello World", TransferEncoding::Encoding::Base64);
+    std::string word =
+        EncodedWordDecoder::encode_word("Hello World", TransferEncoding::Encoding::Base64);
     REQUIRE(word == "=?UTF-8?B?SGVsbG8gV29ybGQ=?=");
     REQUIRE(EncodedWordDecoder::decode(word) == "Hello World");
 }
 
-TEST_CASE("Encoded-Word: encode_word produces quoted-printable form", "[encoding][rfc2047][encode]") {
-    std::string word = EncodedWordDecoder::encode_word("Hello_World", TransferEncoding::Encoding::QuotedPrintable);
+TEST_CASE("Encoded-Word: encode_word produces quoted-printable form",
+          "[encoding][rfc2047][encode]") {
+    std::string word =
+        EncodedWordDecoder::encode_word("Hello_World", TransferEncoding::Encoding::QuotedPrintable);
     // The literal underscore in the source text must itself be escaped so
     // it isn't confused with an encoded space on decode.
     REQUIRE(word == "=?UTF-8?Q?Hello=5FWorld?=");
     REQUIRE(EncodedWordDecoder::decode(word) == "Hello_World");
 }
 
-TEST_CASE("Encoded-Word: encode_word QP encodes space as underscore", "[encoding][rfc2047][encode]") {
-    std::string word = EncodedWordDecoder::encode_word("Hello World", TransferEncoding::Encoding::QuotedPrintable);
+TEST_CASE("Encoded-Word: encode_word QP encodes space as underscore",
+          "[encoding][rfc2047][encode]") {
+    std::string word =
+        EncodedWordDecoder::encode_word("Hello World", TransferEncoding::Encoding::QuotedPrintable);
     REQUIRE(word == "=?UTF-8?Q?Hello_World?=");
     REQUIRE(EncodedWordDecoder::decode(word) == "Hello World");
 }
 
-TEST_CASE("Encoded-Word: encode_word round-trip for non-ASCII subject", "[encoding][rfc2047][encode][roundtrip]") {
-    std::string subject = "R" "\xC3\xA9" "sum" "\xC3\xA9" " caf" "\xC3\xA9" " " "\xE2\x82\xAC" "100";  // "Résumé café €100"
-    for (auto enc : {TransferEncoding::Encoding::Base64, TransferEncoding::Encoding::QuotedPrintable}) {
+TEST_CASE("Encoded-Word: encode_word round-trip for non-ASCII subject",
+          "[encoding][rfc2047][encode][roundtrip]") {
+    std::string subject = "R"
+                          "\xC3\xA9"
+                          "sum"
+                          "\xC3\xA9"
+                          " caf"
+                          "\xC3\xA9"
+                          " "
+                          "\xE2\x82\xAC"
+                          "100"; // "Résumé café €100"
+    for (auto enc :
+         {TransferEncoding::Encoding::Base64, TransferEncoding::Encoding::QuotedPrintable}) {
         std::string word = EncodedWordDecoder::encode_word(subject, enc);
         REQUIRE(EncodedWordDecoder::decode(word) == subject);
     }
 }
 
-TEST_CASE("Encoded-Word: encode_word on empty text yields empty string", "[encoding][rfc2047][encode]") {
+TEST_CASE("Encoded-Word: encode_word on empty text yields empty string",
+          "[encoding][rfc2047][encode]") {
     REQUIRE(EncodedWordDecoder::encode_word("", TransferEncoding::Encoding::Base64) == "");
     REQUIRE(EncodedWordDecoder::encode_word("", TransferEncoding::Encoding::QuotedPrintable) == "");
 }
 
-TEST_CASE("Encoded-Word: encode_word splits long text into multiple words within the 75-char limit", "[encoding][rfc2047][encode][wrap]") {
+TEST_CASE("Encoded-Word: encode_word splits long text into multiple words within the 75-char limit",
+          "[encoding][rfc2047][encode][wrap]") {
     // Long enough that a single base64 encoded-word would blow the 75-char
     // limit, forcing a split.
     std::string long_text(200, 'a');
-    std::string word = EncodedWordDecoder::encode_word(long_text, TransferEncoding::Encoding::Base64);
+    std::string word =
+        EncodedWordDecoder::encode_word(long_text, TransferEncoding::Encoding::Base64);
 
     // More than one "=?UTF-8?B?...?=" word was produced
     size_t count = 0;
@@ -463,23 +501,27 @@ TEST_CASE("Encoded-Word: encode_word splits long text into multiple words within
     REQUIRE(EncodedWordDecoder::decode(word) == long_text);
 }
 
-TEST_CASE("Encoded-Word: encode_word split never breaks a UTF-8 codepoint", "[encoding][rfc2047][encode][wrap][utf8]") {
+TEST_CASE("Encoded-Word: encode_word split never breaks a UTF-8 codepoint",
+          "[encoding][rfc2047][encode][wrap][utf8]") {
     // Repeated 4-byte emoji sequence, long enough to force a split for
     // both Base64 and Q encodings; every produced word must itself decode
     // to valid UTF-8 (i.e. the split landed on a codepoint boundary).
-    std::string emoji = "\xF0\x9F\x98\x80";  // U+1F600 GRINNING FACE
+    std::string emoji = "\xF0\x9F\x98\x80"; // U+1F600 GRINNING FACE
     std::string text;
-    for (int i = 0; i < 40; ++i) text += emoji;
+    for (int i = 0; i < 40; ++i)
+        text += emoji;
 
-    for (auto enc : {TransferEncoding::Encoding::Base64, TransferEncoding::Encoding::QuotedPrintable}) {
+    for (auto enc :
+         {TransferEncoding::Encoding::Base64, TransferEncoding::Encoding::QuotedPrintable}) {
         std::string word = EncodedWordDecoder::encode_word(text, enc);
         REQUIRE(EncodedWordDecoder::decode(word) == text);
 
         size_t pos = 0;
         while (pos < word.size()) {
             size_t start = word.find("=?UTF-8?", pos);
-            if (start == std::string::npos) break;
-            size_t text_start = word.find('?', start + 8) ; // after B or Q marker's '?'
+            if (start == std::string::npos)
+                break;
+            size_t text_start = word.find('?', start + 8); // after B or Q marker's '?'
             // Decode just this one word and confirm it's valid UTF-8 on its own
             size_t word_end = word.find("?=", start);
             REQUIRE(word_end != std::string::npos);

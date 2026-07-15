@@ -9,9 +9,9 @@
 //    hex/binary literals, and non-genuine boolean literals are left alone.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
 #include <libglot/sql/optimizer.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -58,10 +58,9 @@ TEST_CASE("Optimizer - integer constant folding", "[optimizer][fold]") {
     REQUIRE(optimize_sql("SELECT 1 - 2") == "SELECT -1");
     REQUIRE(optimize_sql("SELECT -2 + 3") == "SELECT 1");
     // Folding inside larger statements
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE x > 2 + 3")
-            == "SELECT \"a\" FROM \"t\" WHERE \"x\" > 5");
-    REQUIRE(optimize_sql("SELECT a FROM t LIMIT 5 * 2")
-            == "SELECT \"a\" FROM \"t\" LIMIT 10");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE x > 2 + 3") ==
+            "SELECT \"a\" FROM \"t\" WHERE \"x\" > 5");
+    REQUIRE(optimize_sql("SELECT a FROM t LIMIT 5 * 2") == "SELECT \"a\" FROM \"t\" LIMIT 10");
 }
 
 TEST_CASE("Optimizer - folding guards: division by zero", "[optimizer][fold][guard]") {
@@ -71,10 +70,8 @@ TEST_CASE("Optimizer - folding guards: division by zero", "[optimizer][fold][gua
 
 TEST_CASE("Optimizer - folding guards: overflow", "[optimizer][fold][guard]") {
     // LLONG_MAX + 1 must not fold
-    REQUIRE(optimize_sql("SELECT 9223372036854775807 + 1")
-            == "SELECT 9223372036854775807 + 1");
-    REQUIRE(optimize_sql("SELECT 9223372036854775807 * 2")
-            == "SELECT 9223372036854775807 * 2");
+    REQUIRE(optimize_sql("SELECT 9223372036854775807 + 1") == "SELECT 9223372036854775807 + 1");
+    REQUIRE(optimize_sql("SELECT 9223372036854775807 * 2") == "SELECT 9223372036854775807 * 2");
 }
 
 TEST_CASE("Optimizer - folding guards: non-integer literals", "[optimizer][fold][guard]") {
@@ -105,32 +102,29 @@ TEST_CASE("Optimizer - string literal concatenation", "[optimizer][fold][concat]
 // ============================================================================
 
 TEST_CASE("Optimizer - boolean simplification", "[optimizer][bool]") {
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND TRUE")
-            == "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1");
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE AND a = 1")
-            == "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1");
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND FALSE")
-            == "SELECT \"a\" FROM \"t\" WHERE FALSE");
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 OR FALSE")
-            == "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND TRUE") ==
+            "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE AND a = 1") ==
+            "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND FALSE") ==
+            "SELECT \"a\" FROM \"t\" WHERE FALSE");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 OR FALSE") ==
+            "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1");
     // x OR TRUE -> TRUE, then WHERE TRUE is pruned by pass 3
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 OR TRUE")
-            == "SELECT \"a\" FROM \"t\"");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 OR TRUE") == "SELECT \"a\" FROM \"t\"");
     REQUIRE(optimize_sql("SELECT NOT TRUE") == "SELECT FALSE");
     REQUIRE(optimize_sql("SELECT NOT FALSE") == "SELECT TRUE");
-    REQUIRE(optimize_sql("SELECT NOT NOT a = 1 FROM t")
-            == "SELECT \"a\" = 1 FROM \"t\"");
+    REQUIRE(optimize_sql("SELECT NOT NOT a = 1 FROM t") == "SELECT \"a\" = 1 FROM \"t\"");
     // Cascade: NOT (TRUE AND FALSE) -> NOT FALSE -> TRUE
     REQUIRE(optimize_sql("SELECT NOT (TRUE AND FALSE)") == "SELECT TRUE");
 }
 
 TEST_CASE("Optimizer - only genuine boolean literals simplify", "[optimizer][bool][guard]") {
     // String 'TRUE' is not a boolean literal
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND 'TRUE'")
-            == "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1 AND 'TRUE'");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND 'TRUE'") ==
+            "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1 AND 'TRUE'");
     // A column happens to survive: no simplification without a literal
-    REQUIRE(optimize_sql("SELECT a AND b FROM t")
-            == "SELECT \"a\" AND \"b\" FROM \"t\"");
+    REQUIRE(optimize_sql("SELECT a AND b FROM t") == "SELECT \"a\" AND \"b\" FROM \"t\"");
 }
 
 // ============================================================================
@@ -142,15 +136,12 @@ TEST_CASE("Optimizer - WHERE TRUE is removed", "[optimizer][where]") {
     REQUIRE(optimize_sql("UPDATE t SET a = 1 WHERE TRUE") == "UPDATE \"t\" SET \"a\" = 1");
     REQUIRE(optimize_sql("DELETE FROM t WHERE TRUE") == "DELETE FROM \"t\"");
     // Simplification feeding pruning: WHERE TRUE AND TRUE -> gone
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE AND TRUE")
-            == "SELECT \"a\" FROM \"t\"");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE AND TRUE") == "SELECT \"a\" FROM \"t\"");
 }
 
 TEST_CASE("Optimizer - WHERE FALSE is preserved, statement kept", "[optimizer][where]") {
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE FALSE")
-            == "SELECT \"a\" FROM \"t\" WHERE FALSE");
-    REQUIRE(optimize_sql("DELETE FROM t WHERE FALSE")
-            == "DELETE FROM \"t\" WHERE FALSE");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE FALSE") == "SELECT \"a\" FROM \"t\" WHERE FALSE");
+    REQUIRE(optimize_sql("DELETE FROM t WHERE FALSE") == "DELETE FROM \"t\" WHERE FALSE");
 }
 
 // ============================================================================
@@ -162,19 +153,18 @@ TEST_CASE("Optimizer - pass toggles are independent", "[optimizer][options]") {
     no_fold.fold_constants = false;
     REQUIRE(optimize_sql("SELECT 1 + 2", no_fold) == "SELECT 1 + 2");
     // The other passes still run
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE", no_fold)
-            == "SELECT \"a\" FROM \"t\"");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE", no_fold) == "SELECT \"a\" FROM \"t\"");
 
     SQLOptimizer::Options no_bool;
     no_bool.simplify_booleans = false;
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND TRUE", no_bool)
-            == "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1 AND TRUE");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE a = 1 AND TRUE", no_bool) ==
+            "SELECT \"a\" FROM \"t\" WHERE \"a\" = 1 AND TRUE");
     REQUIRE(optimize_sql("SELECT 1 + 2", no_bool) == "SELECT 3");
 
     SQLOptimizer::Options no_prune;
     no_prune.prune_where = false;
-    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE", no_prune)
-            == "SELECT \"a\" FROM \"t\" WHERE TRUE");
+    REQUIRE(optimize_sql("SELECT a FROM t WHERE TRUE", no_prune) ==
+            "SELECT \"a\" FROM \"t\" WHERE TRUE");
     REQUIRE(optimize_sql("SELECT 1 + 2", no_prune) == "SELECT 3");
 
     SQLOptimizer::Options all_off;

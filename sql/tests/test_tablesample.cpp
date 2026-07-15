@@ -9,8 +9,8 @@
 // it samples plus an optional REPEATABLE(seed).
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -31,31 +31,34 @@ std::string gen(const std::string& sql, SQLDialect d) {
 } // namespace
 
 TEST_CASE("TABLESAMPLE - exact string, table reference preserved", "[tablesample]") {
-    REQUIRE(gen("SELECT * FROM t TABLESAMPLE BERNOULLI(10)", SQLDialect::ANSI)
-            == "SELECT * FROM \"t\" TABLESAMPLE BERNOULLI(10)");
-    REQUIRE(gen("SELECT * FROM t TABLESAMPLE SYSTEM(20)", SQLDialect::PostgreSQL)
-            == "SELECT * FROM \"t\" TABLESAMPLE SYSTEM(20)");
+    REQUIRE(gen("SELECT * FROM t TABLESAMPLE BERNOULLI(10)", SQLDialect::ANSI) ==
+            "SELECT * FROM \"t\" TABLESAMPLE BERNOULLI(10)");
+    REQUIRE(gen("SELECT * FROM t TABLESAMPLE SYSTEM(20)", SQLDialect::PostgreSQL) ==
+            "SELECT * FROM \"t\" TABLESAMPLE SYSTEM(20)");
 }
 
 TEST_CASE("TABLESAMPLE - alias is preserved", "[tablesample]") {
-    REQUIRE(gen("SELECT * FROM t AS x TABLESAMPLE BERNOULLI(10)", SQLDialect::ANSI)
-            == "SELECT * FROM \"t\" AS \"x\" TABLESAMPLE BERNOULLI(10)");
-    REQUIRE(gen("SELECT * FROM t x TABLESAMPLE BERNOULLI(10)", SQLDialect::ANSI)
-            == "SELECT * FROM \"t\" AS \"x\" TABLESAMPLE BERNOULLI(10)");
+    REQUIRE(gen("SELECT * FROM t AS x TABLESAMPLE BERNOULLI(10)", SQLDialect::ANSI) ==
+            "SELECT * FROM \"t\" AS \"x\" TABLESAMPLE BERNOULLI(10)");
+    REQUIRE(gen("SELECT * FROM t x TABLESAMPLE BERNOULLI(10)", SQLDialect::ANSI) ==
+            "SELECT * FROM \"t\" AS \"x\" TABLESAMPLE BERNOULLI(10)");
 }
 
 TEST_CASE("TABLESAMPLE - REPEATABLE(seed)", "[tablesample]") {
-    REQUIRE(gen("SELECT * FROM t TABLESAMPLE BERNOULLI(10) REPEATABLE(42)", SQLDialect::PostgreSQL)
-            == "SELECT * FROM \"t\" TABLESAMPLE BERNOULLI(10) REPEATABLE(42)");
+    REQUIRE(
+        gen("SELECT * FROM t TABLESAMPLE BERNOULLI(10) REPEATABLE(42)", SQLDialect::PostgreSQL) ==
+        "SELECT * FROM \"t\" TABLESAMPLE BERNOULLI(10) REPEATABLE(42)");
 }
 
 TEST_CASE("TABLESAMPLE - usable in a join", "[tablesample]") {
-    REQUIRE(gen("SELECT * FROM a JOIN b TABLESAMPLE BERNOULLI(50) ON a.id = b.id", SQLDialect::ANSI)
-            == "SELECT * FROM \"a\" INNER JOIN \"b\" TABLESAMPLE BERNOULLI(50) ON \"a\".\"id\" = \"b\".\"id\"");
+    REQUIRE(gen("SELECT * FROM a JOIN b TABLESAMPLE BERNOULLI(50) ON a.id = b.id",
+                SQLDialect::ANSI) == "SELECT * FROM \"a\" INNER JOIN \"b\" TABLESAMPLE "
+                                     "BERNOULLI(50) ON \"a\".\"id\" = \"b\".\"id\"");
 }
 
 TEST_CASE("TABLESAMPLE throws for MySQL", "[tablesample][error]") {
-    REQUIRE_THROWS_AS(gen("SELECT * FROM t TABLESAMPLE BERNOULLI(10)", SQLDialect::MySQL), std::logic_error);
+    REQUIRE_THROWS_AS(gen("SELECT * FROM t TABLESAMPLE BERNOULLI(10)", SQLDialect::MySQL),
+                      std::logic_error);
 }
 
 TEST_CASE("TABLESAMPLE - malformed clause is a clean ParseError", "[tablesample][error]") {

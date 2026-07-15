@@ -92,9 +92,7 @@ concept TokenSpec = requires(char c, std::string_view sv) {
 // ============================================================================
 
 template<typename T>
-concept ValidTokenKind = requires {
-    requires std::is_enum_v<T>;
-};
+concept ValidTokenKind = requires { requires std::is_enum_v<T>; };
 
 // ============================================================================
 // Helper: Token struct template
@@ -103,18 +101,19 @@ concept ValidTokenKind = requires {
 template<ValidTokenKind Kind>
 struct Token {
     Kind type;
-    uint32_t start;           ///< Byte offset in source (0-indexed)
-    uint32_t end;             ///< Byte offset (exclusive)
-    uint32_t line;            ///< Line number (1-indexed)
-    uint32_t col;             ///< Column number (1-indexed)
-    std::string_view text;    ///< Token text (preserves length information)
+    uint32_t start;        ///< Byte offset in source (0-indexed)
+    uint32_t end;          ///< Byte offset (exclusive)
+    uint32_t line;         ///< Line number (1-indexed)
+    uint32_t col;          ///< Column number (1-indexed)
+    std::string_view text; ///< Token text (preserves length information)
 
     [[nodiscard]] constexpr size_t length() const noexcept {
         return end >= start ? end - start : 0;
     }
 
     [[nodiscard]] constexpr std::string_view view(std::string_view source) const noexcept {
-        if (start >= source.size()) return "";
+        if (start >= source.size())
+            return "";
         size_t len = std::min<size_t>(length(), source.size() - start);
         return source.substr(start, len);
     }

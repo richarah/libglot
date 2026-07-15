@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -158,7 +158,8 @@ TEST_CASE("Nested and complex scalar function usage", "[scalar][functions][compl
 
     SECTION("Function in GROUP BY") {
         libglot::Arena arena;
-        SQLParser parser(arena, "SELECT UPPER(category), COUNT(*) FROM products GROUP BY UPPER(category)");
+        SQLParser parser(arena,
+                         "SELECT UPPER(category), COUNT(*) FROM products GROUP BY UPPER(category)");
         auto stmt = parser.parse_top_level();
 
         REQUIRE(stmt != nullptr);

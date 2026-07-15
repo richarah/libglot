@@ -11,20 +11,20 @@ namespace libglot::sql {
 
 enum class SQLDialect : uint8_t {
     // Core SQL Standards & Major Databases
-    ANSI,         // ANSI SQL standard
-    PostgreSQL,   // PostgreSQL
-    MySQL,        // MySQL
-    SQLite,       // SQLite
-    SQLServer,    // Microsoft SQL Server (T-SQL)
-    Oracle,       // Oracle Database (PL/SQL)
+    ANSI,       // ANSI SQL standard
+    PostgreSQL, // PostgreSQL
+    MySQL,      // MySQL
+    SQLite,     // SQLite
+    SQLServer,  // Microsoft SQL Server (T-SQL)
+    Oracle,     // Oracle Database (PL/SQL)
 
     // Enterprise Databases
-    DB2,          // IBM DB2
-    Teradata,     // Teradata
-    MariaDB,      // MariaDB
-    Informix,     // IBM Informix
-    Firebird,     // Firebird
-    SAPHANA,      // SAP HANA
+    DB2,      // IBM DB2
+    Teradata, // Teradata
+    MariaDB,  // MariaDB
+    Informix, // IBM Informix
+    Firebird, // Firebird
+    SAPHANA,  // SAP HANA
 
     // Cloud Data Warehouses
     Snowflake,    // Snowflake
@@ -34,44 +34,44 @@ enum class SQLDialect : uint8_t {
     Athena,       // AWS Athena
 
     // Modern Analytics Databases
-    DuckDB,       // DuckDB
-    ClickHouse,   // ClickHouse
-    Presto,       // Presto
-    Trino,        // Trino (formerly PrestoSQL)
-    Hive,         // Apache Hive
-    Impala,       // Apache Impala
-    Drill,        // Apache Drill
-    SparkSQL,     // Apache Spark SQL
-    Databricks,   // Databricks SQL
-    Dremio,       // Dremio
+    DuckDB,     // DuckDB
+    ClickHouse, // ClickHouse
+    Presto,     // Presto
+    Trino,      // Trino (formerly PrestoSQL)
+    Hive,       // Apache Hive
+    Impala,     // Apache Impala
+    Drill,      // Apache Drill
+    SparkSQL,   // Apache Spark SQL
+    Databricks, // Databricks SQL
+    Dremio,     // Dremio
 
     // MPP & Columnar Databases
-    Vertica,      // Vertica
-    Greenplum,    // Greenplum
-    Netezza,      // IBM Netezza
-    Exasol,       // Exasol
-    MonetDB,      // MonetDB
+    Vertica,   // Vertica
+    Greenplum, // Greenplum
+    Netezza,   // IBM Netezza
+    Exasol,    // Exasol
+    MonetDB,   // MonetDB
 
     // Distributed SQL Databases
-    CockroachDB,  // CockroachDB
-    YugabyteDB,   // YugabyteDB
-    TiDB,         // TiDB
-    Spanner,      // Google Cloud Spanner
-    Citus,        // Citus (PostgreSQL extension)
+    CockroachDB, // CockroachDB
+    YugabyteDB,  // YugabyteDB
+    TiDB,        // TiDB
+    Spanner,     // Google Cloud Spanner
+    Citus,       // Citus (PostgreSQL extension)
 
     // Time-Series & Real-Time Databases
-    TimescaleDB,  // TimescaleDB (PostgreSQL extension)
-    QuestDB,      // QuestDB
-    SingleStore,  // SingleStore (formerly MemSQL)
+    TimescaleDB, // TimescaleDB (PostgreSQL extension)
+    QuestDB,     // QuestDB
+    SingleStore, // SingleStore (formerly MemSQL)
 
     // Streaming & Materialized Views
-    RisingWave,   // RisingWave
-    Materialize,  // Materialize
+    RisingWave,  // RisingWave
+    Materialize, // Materialize
 
     // Embedded & Lightweight
-    H2,           // H2 Database
-    HSQLDB,       // HSQLDB
-    Derby,        // Apache Derby
+    H2,     // H2 Database
+    HSQLDB, // HSQLDB
+    Derby,  // Apache Derby
 
     COUNT
 };
@@ -109,68 +109,293 @@ struct SQLDialectTraits {
 private:
     /// Compile-time lookup table, indexed by SQLDialect enum value.
     static constexpr Features kFeatures[] = {
-            // Core SQL Standards & Major Databases
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // ANSI
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // PostgreSQL
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "1", .false_literal = "0"},        // MySQL
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "1", .false_literal = "0"},        // SQLite
-            {.identifier_quote = '[', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "1", .false_literal = "0"},       // SQLServer
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"},// Oracle
+        // Core SQL Standards & Major Databases
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // ANSI
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // PostgreSQL
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "1",
+         .false_literal = "0"}, // MySQL
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "1",
+         .false_literal = "0"}, // SQLite
+        {.identifier_quote = '[',
+         .string_quote = '\'',
+         .supports_limit_offset = false,
+         .supports_ilike = false,
+         .true_literal = "1",
+         .false_literal = "0"}, // SQLServer
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = false,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Oracle
 
-            // Enterprise Databases
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"},// DB2
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Teradata
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "1", .false_literal = "0"},        // MariaDB
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"},// Informix
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Firebird
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // SAPHANA
+        // Enterprise Databases
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = false,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // DB2
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Teradata
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "1",
+         .false_literal = "0"}, // MariaDB
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = false,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Informix
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Firebird
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // SAPHANA
 
-            // Cloud Data Warehouses
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // Snowflake
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // Redshift
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // BigQuery
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "1", .false_literal = "0"},       // AzureSynapse
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Athena
+        // Cloud Data Warehouses
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Snowflake
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Redshift
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // BigQuery
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = false,
+         .supports_ilike = false,
+         .true_literal = "1",
+         .false_literal = "0"}, // AzureSynapse
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Athena
 
-            // Modern Analytics Databases
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // DuckDB
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "1", .false_literal = "0"},         // ClickHouse
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Presto
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Trino
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Hive
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Impala
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Drill
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // SparkSQL
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Databricks
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Dremio
+        // Modern Analytics Databases
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // DuckDB
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "1",
+         .false_literal = "0"}, // ClickHouse
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Presto
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Trino
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Hive
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Impala
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Drill
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // SparkSQL
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Databricks
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Dremio
 
-            // MPP & Columnar Databases
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // Vertica
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // Greenplum
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Netezza
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Exasol
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // MonetDB
+        // MPP & Columnar Databases
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Vertica
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Greenplum
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Netezza
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Exasol
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // MonetDB
 
-            // Distributed SQL Databases
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // CockroachDB
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // YugabyteDB
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // TiDB
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // Spanner
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // Citus
+        // Distributed SQL Databases
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // CockroachDB
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // YugabyteDB
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // TiDB
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Spanner
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Citus
 
-            // Time-Series & Real-Time Databases
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // TimescaleDB
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // QuestDB
-            {.identifier_quote = '`', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // SingleStore
+        // Time-Series & Real-Time Databases
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // TimescaleDB
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // QuestDB
+        {.identifier_quote = '`',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // SingleStore
 
-            // Streaming & Materialized Views
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // RisingWave
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = true, .true_literal = "TRUE", .false_literal = "FALSE"},  // Materialize
+        // Streaming & Materialized Views
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // RisingWave
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = true,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // Materialize
 
-            // Embedded & Lightweight
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // H2
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = true, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"}, // HSQLDB
-            {.identifier_quote = '"', .string_quote = '\'', .supports_limit_offset = false, .supports_ilike = false, .true_literal = "TRUE", .false_literal = "FALSE"} // Derby
+        // Embedded & Lightweight
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // H2
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = true,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"}, // HSQLDB
+        {.identifier_quote = '"',
+         .string_quote = '\'',
+         .supports_limit_offset = false,
+         .supports_ilike = false,
+         .true_literal = "TRUE",
+         .false_literal = "FALSE"} // Derby
     };
 
 public:
@@ -189,7 +414,8 @@ public:
             // Cloud Data Warehouses
             "Snowflake", "Redshift", "BigQuery", "Azure Synapse", "Athena",
             // Modern Analytics Databases
-            "DuckDB", "ClickHouse", "Presto", "Trino", "Hive", "Impala", "Drill", "Spark SQL", "Databricks", "Dremio",
+            "DuckDB", "ClickHouse", "Presto", "Trino", "Hive", "Impala", "Drill", "Spark SQL",
+            "Databricks", "Dremio",
             // MPP & Columnar Databases
             "Vertica", "Greenplum", "Netezza", "Exasol", "MonetDB",
             // Distributed SQL Databases
@@ -199,8 +425,7 @@ public:
             // Streaming & Materialized Views
             "RisingWave", "Materialize",
             // Embedded & Lightweight
-            "H2", "HSQLDB", "Derby"
-        };
+            "H2", "HSQLDB", "Derby"};
         return names[static_cast<size_t>(id)];
     }
 };
@@ -210,6 +435,6 @@ public:
 /// ============================================================================
 
 static_assert(libglot::DialectTraits<SQLDialectTraits>,
-    "SQLDialectTraits must satisfy libglot::DialectTraits concept");
+              "SQLDialectTraits must satisfy libglot::DialectTraits concept");
 
 } // namespace libglot::sql

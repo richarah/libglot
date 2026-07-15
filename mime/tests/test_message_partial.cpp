@@ -10,9 +10,9 @@
 /// with sibling fragments is required. Reassembly itself is out of scope.
 /// ============================================================================
 
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/mime/mime.h"
 #include "../../core/include/libglot/util/arena.h"
+#include "../include/libglot/mime/mime.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -58,7 +58,8 @@ TEST_CASE("Message/Partial: empty parameters yield a zeroed reference", "[mime][
     REQUIRE(ref.total == 0);
 }
 
-TEST_CASE("Message/Partial: non-numeric number/total do not throw and default to 0", "[mime][message_partial][security]") {
+TEST_CASE("Message/Partial: non-numeric number/total do not throw and default to 0",
+          "[mime][message_partial][security]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"id", "abc"},
         {"number", "abc"},
@@ -71,13 +72,15 @@ TEST_CASE("Message/Partial: non-numeric number/total do not throw and default to
     REQUIRE(ref.total == 0);
 }
 
-TEST_CASE("Message/Partial: negative, zero, trailing-garbage, and out-of-range numbers are ignored", "[mime][message_partial][security]") {
+TEST_CASE("Message/Partial: negative, zero, trailing-garbage, and out-of-range numbers are ignored",
+          "[mime][message_partial][security]") {
     {
         std::vector<std::pair<std::string_view, std::string_view>> params = {
-            {"number", "-1"}, {"total", "3"},
+            {"number", "-1"},
+            {"total", "3"},
         };
         auto ref = MessagePartialParser::parse(params);
-        REQUIRE(ref.number == 0);  // negative rejected
+        REQUIRE(ref.number == 0); // negative rejected
         REQUIRE(ref.total == 3);
     }
     {
@@ -85,14 +88,14 @@ TEST_CASE("Message/Partial: negative, zero, trailing-garbage, and out-of-range n
             {"number", "0"},
         };
         auto ref = MessagePartialParser::parse(params);
-        REQUIRE(ref.number == 0);  // zero is not a valid 1-based fragment number
+        REQUIRE(ref.number == 0); // zero is not a valid 1-based fragment number
     }
     {
         std::vector<std::pair<std::string_view, std::string_view>> params = {
             {"number", "2abc"},
         };
         auto ref = MessagePartialParser::parse(params);
-        REQUIRE(ref.number == 0);  // trailing garbage after digits rejected
+        REQUIRE(ref.number == 0); // trailing garbage after digits rejected
     }
     {
         std::vector<std::pair<std::string_view, std::string_view>> params = {
@@ -100,7 +103,7 @@ TEST_CASE("Message/Partial: negative, zero, trailing-garbage, and out-of-range n
         };
         MessagePartialRef ref;
         REQUIRE_NOTHROW(ref = MessagePartialParser::parse(params));
-        REQUIRE(ref.total == 0);  // overflow rejected, never throws
+        REQUIRE(ref.total == 0); // overflow rejected, never throws
     }
 }
 
@@ -108,7 +111,8 @@ TEST_CASE("Message/Partial: negative, zero, trailing-garbage, and out-of-range n
 // Pipeline wiring: detection, parameters, anomaly
 // ============================================================================
 
-TEST_CASE("Pipeline: message/partial is detected and parameters attached", "[mime][pipeline][message_partial]") {
+TEST_CASE("Pipeline: message/partial is detected and parameters attached",
+          "[mime][pipeline][message_partial]") {
     libglot::Arena arena;
     std::string_view source =
         "Content-Type: message/partial; id=\"frag-1@example.com\"; number=1; total=3\n"
@@ -124,7 +128,8 @@ TEST_CASE("Pipeline: message/partial is detected and parameters attached", "[mim
     REQUIRE(result.message->message_partial->total == 3);
 }
 
-TEST_CASE("Pipeline: message/partial records the MessagePartialDetected anomaly", "[mime][pipeline][message_partial][anomalies]") {
+TEST_CASE("Pipeline: message/partial records the MessagePartialDetected anomaly",
+          "[mime][pipeline][message_partial][anomalies]") {
     libglot::Arena arena;
     std::string_view source =
         "Content-Type: message/partial; id=\"frag-2@example.com\"; number=2; total=3\n"
@@ -139,12 +144,12 @@ TEST_CASE("Pipeline: message/partial records the MessagePartialDetected anomaly"
     REQUIRE(!result.rejected);
 }
 
-TEST_CASE("Pipeline: message/partial is detected case-insensitively and with extra parameters", "[mime][pipeline][message_partial]") {
+TEST_CASE("Pipeline: message/partial is detected case-insensitively and with extra parameters",
+          "[mime][pipeline][message_partial]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: Message/Partial; id=xyz; number=3; total=3\n"
-        "\n"
-        "Last fragment.\n";
+    std::string_view source = "Content-Type: Message/Partial; id=xyz; number=3; total=3\n"
+                              "\n"
+                              "Last fragment.\n";
 
     auto result = parse_message(arena, source);
 
@@ -156,13 +161,13 @@ TEST_CASE("Pipeline: message/partial is detected case-insensitively and with ext
     REQUIRE(result.has_anomaly(AnomalyKind::MessagePartialDetected));
 }
 
-TEST_CASE("Pipeline: normal (non-partial) messages have no message_partial and no anomaly", "[mime][pipeline][message_partial]") {
+TEST_CASE("Pipeline: normal (non-partial) messages have no message_partial and no anomaly",
+          "[mime][pipeline][message_partial]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: text/plain; charset=utf-8\n"
-        "Subject: not a fragment\n"
-        "\n"
-        "Ordinary body.\n";
+    std::string_view source = "Content-Type: text/plain; charset=utf-8\n"
+                              "Subject: not a fragment\n"
+                              "\n"
+                              "Ordinary body.\n";
 
     auto result = parse_message(arena, source);
 
@@ -171,12 +176,13 @@ TEST_CASE("Pipeline: normal (non-partial) messages have no message_partial and n
     REQUIRE(!result.has_anomaly(AnomalyKind::MessagePartialDetected));
 }
 
-TEST_CASE("Pipeline: message/external-body is unaffected by message/partial wiring", "[mime][pipeline][message_partial]") {
+TEST_CASE("Pipeline: message/external-body is unaffected by message/partial wiring",
+          "[mime][pipeline][message_partial]") {
     libglot::Arena arena;
-    std::string_view source =
-        "Content-Type: message/external-body; access-type=ftp; name=file.txt; site=ftp.example.com\n"
-        "\n"
-        "\n";
+    std::string_view source = "Content-Type: message/external-body; access-type=ftp; "
+                              "name=file.txt; site=ftp.example.com\n"
+                              "\n"
+                              "\n";
 
     auto result = parse_message(arena, source);
 
@@ -186,10 +192,13 @@ TEST_CASE("Pipeline: message/external-body is unaffected by message/partial wiri
     REQUIRE(!result.has_anomaly(AnomalyKind::MessagePartialDetected));
 }
 
-TEST_CASE("Message/Partial: severity is Structural, not Security/DoS", "[mime][message_partial][anomalies]") {
-    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::MessagePartialDetected) == AnomalySeverity::Structural);
+TEST_CASE("Message/Partial: severity is Structural, not Security/DoS",
+          "[mime][message_partial][anomalies]") {
+    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::MessagePartialDetected) ==
+            AnomalySeverity::Structural);
 }
 
-TEST_CASE("Message/Partial: anomaly kind name is registered", "[mime][message_partial][anomalies]") {
+TEST_CASE("Message/Partial: anomaly kind name is registered",
+          "[mime][message_partial][anomalies]") {
     REQUIRE(anomaly_kind_name(AnomalyKind::MessagePartialDetected) == "MessagePartialDetected");
 }

@@ -12,8 +12,8 @@
 // std::logic_error with an explanatory message instead of guessing.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -46,31 +46,31 @@ std::string mysql(const std::string& sql) {
 // ============================================================================
 
 TEST_CASE("ON CONFLICT DO NOTHING - exact string", "[upsert][postgresql]") {
-    REQUIRE(pg("INSERT INTO t (id, name) VALUES (1, 'a') ON CONFLICT (id) DO NOTHING")
-            == "INSERT INTO \"t\" (\"id\", \"name\") VALUES (1, 'a') ON CONFLICT (\"id\") DO NOTHING");
-    REQUIRE(pg("INSERT INTO t (id) VALUES (1) ON CONFLICT DO NOTHING")
-            == "INSERT INTO \"t\" (\"id\") VALUES (1) ON CONFLICT DO NOTHING");
+    REQUIRE(pg("INSERT INTO t (id, name) VALUES (1, 'a') ON CONFLICT (id) DO NOTHING") ==
+            "INSERT INTO \"t\" (\"id\", \"name\") VALUES (1, 'a') ON CONFLICT (\"id\") DO NOTHING");
+    REQUIRE(pg("INSERT INTO t (id) VALUES (1) ON CONFLICT DO NOTHING") ==
+            "INSERT INTO \"t\" (\"id\") VALUES (1) ON CONFLICT DO NOTHING");
 }
 
 TEST_CASE("ON CONFLICT DO UPDATE SET ... EXCLUDED - exact string", "[upsert][postgresql]") {
     REQUIRE(pg("INSERT INTO t (id, qty) VALUES (1, 1) "
-               "ON CONFLICT (id) DO UPDATE SET qty = EXCLUDED.qty")
-            == "INSERT INTO \"t\" (\"id\", \"qty\") VALUES (1, 1) "
-               "ON CONFLICT (\"id\") DO UPDATE SET \"qty\" = EXCLUDED.\"qty\"");
+               "ON CONFLICT (id) DO UPDATE SET qty = EXCLUDED.qty") ==
+            "INSERT INTO \"t\" (\"id\", \"qty\") VALUES (1, 1) "
+            "ON CONFLICT (\"id\") DO UPDATE SET \"qty\" = EXCLUDED.\"qty\"");
 }
 
 TEST_CASE("ON CONFLICT DO UPDATE SET ... WHERE - exact string", "[upsert][postgresql]") {
     REQUIRE(pg("INSERT INTO t (id, qty) VALUES (1, 1) "
-               "ON CONFLICT (id) DO UPDATE SET qty = EXCLUDED.qty WHERE t.active")
-            == "INSERT INTO \"t\" (\"id\", \"qty\") VALUES (1, 1) "
-               "ON CONFLICT (\"id\") DO UPDATE SET \"qty\" = EXCLUDED.\"qty\" WHERE \"t\".\"active\"");
+               "ON CONFLICT (id) DO UPDATE SET qty = EXCLUDED.qty WHERE t.active") ==
+            "INSERT INTO \"t\" (\"id\", \"qty\") VALUES (1, 1) "
+            "ON CONFLICT (\"id\") DO UPDATE SET \"qty\" = EXCLUDED.\"qty\" WHERE \"t\".\"active\"");
 }
 
 TEST_CASE("ON CONFLICT with multiple conflict columns and RETURNING", "[upsert][postgresql]") {
     REQUIRE(pg("INSERT INTO t (a, b) VALUES (1, 2) "
-               "ON CONFLICT (a, b) DO UPDATE SET a = EXCLUDED.a RETURNING id")
-            == "INSERT INTO \"t\" (\"a\", \"b\") VALUES (1, 2) "
-               "ON CONFLICT (\"a\", \"b\") DO UPDATE SET \"a\" = EXCLUDED.\"a\" RETURNING \"id\"");
+               "ON CONFLICT (a, b) DO UPDATE SET a = EXCLUDED.a RETURNING id") ==
+            "INSERT INTO \"t\" (\"a\", \"b\") VALUES (1, 2) "
+            "ON CONFLICT (\"a\", \"b\") DO UPDATE SET \"a\" = EXCLUDED.\"a\" RETURNING \"id\"");
 }
 
 // ============================================================================
@@ -79,16 +79,16 @@ TEST_CASE("ON CONFLICT with multiple conflict columns and RETURNING", "[upsert][
 
 TEST_CASE("ON DUPLICATE KEY UPDATE ... VALUES(c) - exact string", "[upsert][mysql]") {
     REQUIRE(mysql("INSERT INTO t (id, qty) VALUES (1, 1) "
-                  "ON DUPLICATE KEY UPDATE qty = VALUES(qty)")
-            == "INSERT INTO `t` (`id`, `qty`) VALUES (1, 1) "
-               "ON DUPLICATE KEY UPDATE `qty` = VALUES(`qty`)");
+                  "ON DUPLICATE KEY UPDATE qty = VALUES(qty)") ==
+            "INSERT INTO `t` (`id`, `qty`) VALUES (1, 1) "
+            "ON DUPLICATE KEY UPDATE `qty` = VALUES(`qty`)");
 }
 
 TEST_CASE("ON DUPLICATE KEY UPDATE with multiple assignments", "[upsert][mysql]") {
     REQUIRE(mysql("INSERT INTO t (id, a, b) VALUES (1, 2, 3) "
-                  "ON DUPLICATE KEY UPDATE a = VALUES(a), b = b + 1")
-            == "INSERT INTO `t` (`id`, `a`, `b`) VALUES (1, 2, 3) "
-               "ON DUPLICATE KEY UPDATE `a` = VALUES(`a`), `b` = `b` + 1");
+                  "ON DUPLICATE KEY UPDATE a = VALUES(a), b = b + 1") ==
+            "INSERT INTO `t` (`id`, `a`, `b`) VALUES (1, 2, 3) "
+            "ON DUPLICATE KEY UPDATE `a` = VALUES(`a`), `b` = `b` + 1");
 }
 
 // ============================================================================
@@ -99,7 +99,8 @@ TEST_CASE("Upsert forms are a fixed point in their own dialect", "[upsert][fixpo
     const std::string pg_queries[] = {
         "INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
         "INSERT INTO t (id, c) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET c = EXCLUDED.c",
-        "INSERT INTO t (id, c) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET c = EXCLUDED.c WHERE t.active",
+        "INSERT INTO t (id, c) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET c = EXCLUDED.c WHERE "
+        "t.active",
     };
     for (const auto& q : pg_queries) {
         const std::string g1 = pg(q);
@@ -121,9 +122,9 @@ TEST_CASE("Upsert forms are a fixed point in their own dialect", "[upsert][fixpo
 
 TEST_CASE("ON CONFLICT throws for non-PostgreSQL targets", "[upsert][error]") {
     for (auto d : {SQLDialect::MySQL, SQLDialect::ANSI, SQLDialect::SQLServer}) {
-        REQUIRE_THROWS_AS(
-            gen("INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING", SQLDialect::PostgreSQL, d),
-            std::logic_error);
+        REQUIRE_THROWS_AS(gen("INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+                              SQLDialect::PostgreSQL, d),
+                          std::logic_error);
     }
 }
 

@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -110,8 +110,8 @@ TEST_CASE("Set operations - EXCEPT ALL", "[advanced][set_operations]") {
 
 TEST_CASE("CASE - Simple CASE expression", "[advanced][case]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT CASE status WHEN 1 THEN 'active' WHEN 2 THEN 'inactive' ELSE 'unknown' END FROM users");
+    SQLParser parser(arena, "SELECT CASE status WHEN 1 THEN 'active' WHEN 2 THEN 'inactive' ELSE "
+                            "'unknown' END FROM users");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -130,8 +130,8 @@ TEST_CASE("CASE - Simple CASE expression", "[advanced][case]") {
 
 TEST_CASE("CASE - Searched CASE expression", "[advanced][case]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END FROM users");
+    SQLParser parser(arena, "SELECT CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' "
+                            "ELSE 'senior' END FROM users");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -147,8 +147,7 @@ TEST_CASE("CASE - Searched CASE expression", "[advanced][case]") {
 
 TEST_CASE("CASE - Without ELSE clause", "[advanced][case]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT CASE WHEN premium = 1 THEN 'Premium' END FROM users");
+    SQLParser parser(arena, "SELECT CASE WHEN premium = 1 THEN 'Premium' END FROM users");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -166,7 +165,8 @@ TEST_CASE("CASE - Without ELSE clause", "[advanced][case]") {
 
 TEST_CASE("Predicates - EXISTS", "[advanced][predicates]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT * FROM users WHERE EXISTS (SELECT 1 FROM orders WHERE user_id = users.id)");
+    SQLParser parser(
+        arena, "SELECT * FROM users WHERE EXISTS (SELECT 1 FROM orders WHERE user_id = users.id)");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -258,8 +258,7 @@ TEST_CASE("Utility - DESCRIBE table", "[advanced][utility]") {
 
 TEST_CASE("Set operations - EXCEPT chains are left-associative", "[advanced][set_operations]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT id FROM a EXCEPT SELECT id FROM b EXCEPT SELECT id FROM c");
+    SQLParser parser(arena, "SELECT id FROM a EXCEPT SELECT id FROM b EXCEPT SELECT id FROM c");
 
     auto stmt = parser.parse_top_level();
 
@@ -287,8 +286,7 @@ TEST_CASE("Set operations - EXCEPT chains are left-associative", "[advanced][set
 
 TEST_CASE("Set operations - mixed chain is left-associative", "[advanced][set_operations]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT id FROM a UNION SELECT id FROM b INTERSECT SELECT id FROM c");
+    SQLParser parser(arena, "SELECT id FROM a UNION SELECT id FROM b INTERSECT SELECT id FROM c");
 
     auto stmt = parser.parse_top_level();
 

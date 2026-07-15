@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string_view>
-#include <string>
 #include <cctype>
+#include <string>
+#include <string_view>
 
 namespace libglot::mime {
 
@@ -37,11 +37,12 @@ public:
             if (c == '\r' || c == '\n') {
                 // Check if next char is newline (for CRLF)
                 if (c == '\r' && i + 1 < header_value.size() && header_value[i + 1] == '\n') {
-                    ++i;  // Skip the LF in CRLF
+                    ++i; // Skip the LF in CRLF
                 }
 
                 // Check if this is a folding point (followed by whitespace)
-                if (i + 1 < header_value.size() && (header_value[i + 1] == ' ' || header_value[i + 1] == '\t')) {
+                if (i + 1 < header_value.size() &&
+                    (header_value[i + 1] == ' ' || header_value[i + 1] == '\t')) {
                     // This is a folding point - replace with single space
                     if (!result.empty() && !in_whitespace_run) {
                         result.push_back(' ');
@@ -107,15 +108,13 @@ public:
 
                 // Folding point: line break followed by SP/HTAB.
                 // Drop the break, keep the whitespace (RFC 5322 unfolding).
-                if (after < message.size() &&
-                    (message[after] == ' ' || message[after] == '\t')) {
+                if (after < message.size() && (message[after] == ' ' || message[after] == '\t')) {
                     i = after;
                     continue;
                 }
 
                 // Blank line: end of header section; copy the rest verbatim.
-                if (after < message.size() &&
-                    (message[after] == '\r' || message[after] == '\n')) {
+                if (after < message.size() && (message[after] == '\r' || message[after] == '\n')) {
                     result.append(message.substr(i));
                     return result;
                 }

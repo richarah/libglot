@@ -1,5 +1,5 @@
-#include <libglot/util/intern.h>
 #include <catch2/catch_test_macros.hpp>
+#include <libglot/util/intern.h>
 #include <thread>
 #include <vector>
 
@@ -17,7 +17,7 @@ TEST_CASE("StringPool - Basic interning", "[intern]") {
     SECTION("Intern same string twice returns same pointer") {
         const char* s1 = pool.intern("world");
         const char* s2 = pool.intern("world");
-        REQUIRE(s1 == s2);  // Pointer equality!
+        REQUIRE(s1 == s2); // Pointer equality!
     }
 
     SECTION("Different strings have different pointers") {
@@ -50,7 +50,7 @@ TEST_CASE("StringPool - Size tracking", "[intern]") {
     REQUIRE(pool.size() == 2);
 
     (void)pool.intern("one");  // Duplicate
-    REQUIRE(pool.size() == 2);  // Size unchanged
+    REQUIRE(pool.size() == 2); // Size unchanged
 }
 
 TEST_CASE("StringPool - Clear", "[intern]") {
@@ -97,7 +97,7 @@ TEST_CASE("StringPool - Global singleton", "[intern]") {
     auto& pool1 = StringPool::instance();
     auto& pool2 = StringPool::instance();
 
-    REQUIRE(&pool1 == &pool2);  // Same instance
+    REQUIRE(&pool1 == &pool2); // Same instance
 }
 
 TEST_CASE("LocalStringPool - Basic interning", "[intern][local]") {

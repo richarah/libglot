@@ -1,8 +1,8 @@
 #pragma once
 
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <stdexcept>
 
 namespace libglot {
 
@@ -12,9 +12,10 @@ struct ParseErrorDetail {
     size_t position;
     size_t line;
     size_t column;
-    std::string context;  // Surrounding source code snippet
+    std::string context; // Surrounding source code snippet
 
-    ParseErrorDetail(std::string msg, size_t pos, size_t ln = 0, size_t col = 0, std::string ctx = "")
+    ParseErrorDetail(std::string msg, size_t pos, size_t ln = 0, size_t col = 0,
+                     std::string ctx = "")
         : message(std::move(msg)), position(pos), line(ln), column(col), context(std::move(ctx)) {}
 
     std::string format() const {
@@ -47,11 +48,13 @@ public:
         : mode_(mode), max_errors_(100) {}
 
     /// Add an error to the collection
-    void add_error(std::string message, size_t position, size_t line = 0, size_t column = 0, std::string context = "") {
+    void add_error(std::string message, size_t position, size_t line = 0, size_t column = 0,
+                   std::string context = "") {
         if (errors_.size() >= max_errors_) {
             // Already at max, don't add more
             if (errors_.size() == max_errors_) {
-                errors_.push_back(ParseErrorDetail("Too many errors, stopping error collection", position, line, column));
+                errors_.push_back(ParseErrorDetail("Too many errors, stopping error collection",
+                                                   position, line, column));
             }
             return;
         }
@@ -59,19 +62,13 @@ public:
     }
 
     /// Check if any errors were collected
-    bool has_errors() const {
-        return !errors_.empty();
-    }
+    bool has_errors() const { return !errors_.empty(); }
 
     /// Get number of errors
-    size_t error_count() const {
-        return errors_.size();
-    }
+    size_t error_count() const { return errors_.size(); }
 
     /// Get all errors
-    const std::vector<ParseErrorDetail>& get_errors() const {
-        return errors_;
-    }
+    const std::vector<ParseErrorDetail>& get_errors() const { return errors_; }
 
     /// Get formatted error report
     std::string format_errors() const {
@@ -87,19 +84,13 @@ public:
     }
 
     /// Clear all errors
-    void clear() {
-        errors_.clear();
-    }
+    void clear() { errors_.clear(); }
 
     /// Get error recovery mode
-    ErrorRecoveryMode get_mode() const {
-        return mode_;
-    }
+    ErrorRecoveryMode get_mode() const { return mode_; }
 
     /// Set maximum number of errors to collect
-    void set_max_errors(size_t max) {
-        max_errors_ = max;
-    }
+    void set_max_errors(size_t max) { max_errors_ = max; }
 
 private:
     ErrorRecoveryMode mode_;
@@ -111,12 +102,9 @@ private:
 class MultipleParseErrors : public std::runtime_error {
 public:
     explicit MultipleParseErrors(const ErrorCollector& collector)
-        : std::runtime_error(collector.format_errors())
-        , errors_(collector.get_errors()) {}
+        : std::runtime_error(collector.format_errors()), errors_(collector.get_errors()) {}
 
-    const std::vector<ParseErrorDetail>& get_errors() const {
-        return errors_;
-    }
+    const std::vector<ParseErrorDetail>& get_errors() const { return errors_; }
 
 private:
     std::vector<ParseErrorDetail> errors_;
@@ -126,9 +114,8 @@ private:
 class ErrorRecoveryGuard {
 public:
     ErrorRecoveryGuard(ErrorCollector& collector, const char* context_name)
-        : collector_(collector)
-        , context_name_(context_name)
-        , start_error_count_(collector.error_count()) {}
+        : collector_(collector), context_name_(context_name),
+          start_error_count_(collector.error_count()) {}
 
     ~ErrorRecoveryGuard() {
         // Could log recovery information if errors were added
@@ -138,9 +125,7 @@ public:
     }
 
     /// Check if this context added errors
-    bool added_errors() const {
-        return collector_.error_count() > start_error_count_;
-    }
+    bool added_errors() const { return collector_.error_count() > start_error_count_; }
 
 private:
     ErrorCollector& collector_;

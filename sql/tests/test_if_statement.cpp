@@ -1,8 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
-#include <libglot/util/arena.h>
 #include <libglot/sql/parser.h>
+#include <libglot/util/arena.h>
 
 using namespace libglot::sql;
 
@@ -73,8 +72,8 @@ TEST_CASE("IF THEN ELSEIF END IF", "[parser][if]") {
     REQUIRE(if_stmt->else_stmts.size() == 0);
 
     const auto& elseif = if_stmt->elseif_branches[0];
-    REQUIRE(elseif.first != nullptr);  // condition
-    REQUIRE(elseif.second.size() == 1);  // statements
+    REQUIRE(elseif.first != nullptr);   // condition
+    REQUIRE(elseif.second.size() == 1); // statements
 
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
@@ -84,7 +83,8 @@ TEST_CASE("IF THEN ELSEIF END IF", "[parser][if]") {
 
 TEST_CASE("IF with multiple ELSEIF and ELSE", "[parser][if]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "IF x > 10 THEN RETURN 1 ELSEIF x > 5 THEN RETURN 2 ELSEIF x > 0 THEN RETURN 3 ELSE RETURN 0 END IF");
+    SQLParser parser(arena, "IF x > 10 THEN RETURN 1 ELSEIF x > 5 THEN RETURN 2 ELSEIF x > 0 THEN "
+                            "RETURN 3 ELSE RETURN 0 END IF");
 
     auto expr = parser.parse_top_level();
     REQUIRE(expr != nullptr);
@@ -101,7 +101,8 @@ TEST_CASE("IF with multiple ELSEIF and ELSE", "[parser][if]") {
     // Test generation
     SQLGenerator gen(SQLDialect::ANSI);
     std::string sql = gen.generate(expr);
-    REQUIRE(sql == "IF \"x\" > 10 THEN RETURN 1; ELSEIF \"x\" > 5 THEN RETURN 2; ELSEIF \"x\" > 0 THEN RETURN 3; ELSE RETURN 0; END IF");
+    REQUIRE(sql == "IF \"x\" > 10 THEN RETURN 1; ELSEIF \"x\" > 5 THEN RETURN 2; ELSEIF \"x\" > 0 "
+                   "THEN RETURN 3; ELSE RETURN 0; END IF");
 }
 
 TEST_CASE("IF with ENDIF (single token)", "[parser][if]") {

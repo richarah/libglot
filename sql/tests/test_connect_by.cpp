@@ -7,8 +7,8 @@
 // fixpoint-clean recursive-CTE transpilation is not attempted here.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <stdexcept>
@@ -18,9 +18,7 @@ using namespace libglot::sql;
 
 namespace {
 
-std::string transpile(const std::string& sql,
-                      SQLDialect parse_dialect,
-                      SQLDialect gen_dialect) {
+std::string transpile(const std::string& sql, SQLDialect parse_dialect, SQLDialect gen_dialect) {
     libglot::Arena arena;
     SQLParser parser(arena, sql, parse_dialect);
     auto ast = parser.parse_top_level();
@@ -41,17 +39,16 @@ std::string oracle(const std::string& sql) {
 TEST_CASE("CONNECT BY - basic hierarchy with PRIOR", "[connect-by][oracle]") {
     REQUIRE(oracle("SELECT employee_id FROM employees "
                    "START WITH manager_id IS NULL "
-                   "CONNECT BY PRIOR employee_id = manager_id")
-            == "SELECT \"employee_id\" FROM \"employees\" "
-               "START WITH \"manager_id\" IS NULL "
-               "CONNECT BY PRIOR \"employee_id\" = \"manager_id\"");
+                   "CONNECT BY PRIOR employee_id = manager_id") ==
+            "SELECT \"employee_id\" FROM \"employees\" "
+            "START WITH \"manager_id\" IS NULL "
+            "CONNECT BY PRIOR \"employee_id\" = \"manager_id\"");
 }
 
 TEST_CASE("CONNECT BY - both clause orders parse to the canonical form", "[connect-by][oracle]") {
-    const std::string canonical =
-        "SELECT \"id\" FROM \"t\" "
-        "START WITH \"parent_id\" IS NULL "
-        "CONNECT BY PRIOR \"id\" = \"parent_id\"";
+    const std::string canonical = "SELECT \"id\" FROM \"t\" "
+                                  "START WITH \"parent_id\" IS NULL "
+                                  "CONNECT BY PRIOR \"id\" = \"parent_id\"";
 
     // START WITH first (canonical Oracle order)
     REQUIRE(oracle("SELECT id FROM t START WITH parent_id IS NULL "
@@ -63,13 +60,13 @@ TEST_CASE("CONNECT BY - both clause orders parse to the canonical form", "[conne
 }
 
 TEST_CASE("CONNECT BY - without START WITH", "[connect-by][oracle]") {
-    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id")
-            == "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\"");
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\"");
 }
 
 TEST_CASE("CONNECT BY - NOCYCLE", "[connect-by][oracle][nocycle]") {
-    REQUIRE(oracle("SELECT id FROM t CONNECT BY NOCYCLE PRIOR id = parent_id")
-            == "SELECT \"id\" FROM \"t\" CONNECT BY NOCYCLE PRIOR \"id\" = \"parent_id\"");
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY NOCYCLE PRIOR id = parent_id") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY NOCYCLE PRIOR \"id\" = \"parent_id\"");
 }
 
 // ============================================================================
@@ -77,15 +74,15 @@ TEST_CASE("CONNECT BY - NOCYCLE", "[connect-by][oracle][nocycle]") {
 // ============================================================================
 
 TEST_CASE("PRIOR - on the right side of the comparison", "[connect-by][prior]") {
-    REQUIRE(oracle("SELECT id FROM t CONNECT BY id = PRIOR parent_id")
-            == "SELECT \"id\" FROM \"t\" CONNECT BY \"id\" = PRIOR \"parent_id\"");
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY id = PRIOR parent_id") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY \"id\" = PRIOR \"parent_id\"");
 }
 
 TEST_CASE("PRIOR - inside a compound CONNECT BY condition", "[connect-by][prior]") {
     REQUIRE(oracle("SELECT id FROM t "
-                   "CONNECT BY PRIOR id = parent_id AND status = 'active'")
-            == "SELECT \"id\" FROM \"t\" "
-               "CONNECT BY PRIOR \"id\" = \"parent_id\" AND \"status\" = 'active'");
+                   "CONNECT BY PRIOR id = parent_id AND status = 'active'") ==
+            "SELECT \"id\" FROM \"t\" "
+            "CONNECT BY PRIOR \"id\" = \"parent_id\" AND \"status\" = 'active'");
 }
 
 // ============================================================================
@@ -93,18 +90,18 @@ TEST_CASE("PRIOR - inside a compound CONNECT BY condition", "[connect-by][prior]
 // ============================================================================
 
 TEST_CASE("LEVEL pseudo-column parses as an identifier", "[connect-by][level]") {
-    REQUIRE(oracle("SELECT LEVEL, id FROM t CONNECT BY PRIOR id = parent_id")
-            == "SELECT \"LEVEL\", \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\"");
+    REQUIRE(oracle("SELECT LEVEL, id FROM t CONNECT BY PRIOR id = parent_id") ==
+            "SELECT \"LEVEL\", \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\"");
     // LEVEL usable in conditions too
-    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id AND LEVEL < 5")
-            == "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\" AND \"LEVEL\" < 5");
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id AND LEVEL < 5") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\" AND \"LEVEL\" < 5");
 }
 
 TEST_CASE("CONNECT BY - after a WHERE clause", "[connect-by][oracle]") {
     REQUIRE(oracle("SELECT id FROM t WHERE active = 1 "
-                   "START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id")
-            == "SELECT \"id\" FROM \"t\" WHERE \"active\" = 1 "
-               "START WITH \"parent_id\" IS NULL CONNECT BY PRIOR \"id\" = \"parent_id\"");
+                   "START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id") ==
+            "SELECT \"id\" FROM \"t\" WHERE \"active\" = 1 "
+            "START WITH \"parent_id\" IS NULL CONNECT BY PRIOR \"id\" = \"parent_id\"");
 }
 
 // ============================================================================
@@ -115,21 +112,19 @@ TEST_CASE("ORDER SIBLINGS BY", "[connect-by][siblings]") {
     REQUIRE(oracle("SELECT id, name FROM t "
                    "START WITH parent_id IS NULL "
                    "CONNECT BY PRIOR id = parent_id "
-                   "ORDER SIBLINGS BY name")
-            == "SELECT \"id\", \"name\" FROM \"t\" "
-               "START WITH \"parent_id\" IS NULL "
-               "CONNECT BY PRIOR \"id\" = \"parent_id\" "
-               "ORDER SIBLINGS BY \"name\"");
+                   "ORDER SIBLINGS BY name") == "SELECT \"id\", \"name\" FROM \"t\" "
+                                                "START WITH \"parent_id\" IS NULL "
+                                                "CONNECT BY PRIOR \"id\" = \"parent_id\" "
+                                                "ORDER SIBLINGS BY \"name\"");
 
     REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id "
-                   "ORDER SIBLINGS BY name DESC")
-            == "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\" "
-               "ORDER SIBLINGS BY \"name\" DESC");
+                   "ORDER SIBLINGS BY name DESC") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\" "
+            "ORDER SIBLINGS BY \"name\" DESC");
 }
 
 TEST_CASE("Plain ORDER BY is unaffected", "[connect-by][siblings]") {
-    REQUIRE(oracle("SELECT id FROM t ORDER BY id")
-            == "SELECT \"id\" FROM \"t\" ORDER BY \"id\"");
+    REQUIRE(oracle("SELECT id FROM t ORDER BY id") == "SELECT \"id\" FROM \"t\" ORDER BY \"id\"");
 }
 
 // ============================================================================
@@ -155,9 +150,9 @@ TEST_CASE("CONNECT BY - generated Oracle SQL is a fixed point", "[connect-by][fi
 TEST_CASE("CONNECT BY - Snowflake generation", "[connect-by][snowflake]") {
     REQUIRE(transpile("SELECT id FROM t START WITH parent_id IS NULL "
                       "CONNECT BY PRIOR id = parent_id",
-                      SQLDialect::Snowflake, SQLDialect::Snowflake)
-            == "SELECT \"id\" FROM \"t\" START WITH \"parent_id\" IS NULL "
-               "CONNECT BY PRIOR \"id\" = \"parent_id\"");
+                      SQLDialect::Snowflake, SQLDialect::Snowflake) ==
+            "SELECT \"id\" FROM \"t\" START WITH \"parent_id\" IS NULL "
+            "CONNECT BY PRIOR \"id\" = \"parent_id\"");
 }
 
 // ============================================================================
@@ -167,8 +162,8 @@ TEST_CASE("CONNECT BY - Snowflake generation", "[connect-by][snowflake]") {
 TEST_CASE("CONNECT BY - unsupported dialects throw std::logic_error", "[connect-by][error]") {
     const std::string sql =
         "SELECT id FROM t START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id";
-    for (auto d : {SQLDialect::PostgreSQL, SQLDialect::MySQL,
-                   SQLDialect::SQLServer, SQLDialect::ANSI}) {
+    for (auto d :
+         {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::SQLServer, SQLDialect::ANSI}) {
         libglot::Arena arena;
         SQLParser parser(arena, sql, SQLDialect::Oracle);
         auto ast = parser.parse_top_level();

@@ -9,8 +9,8 @@
 // subscript functions and STRUCT(...) are BigQuery-only at generation time.
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -34,12 +34,13 @@ std::string transpile(const std::string& sql, SQLDialect dialect) {
 // ============================================================================
 
 TEST_CASE("STRUCT literal - round-trips for BigQuery", "[struct][bigquery]") {
-    REQUIRE(transpile("SELECT STRUCT(1 AS a, 'x' AS b)", SQLDialect::BigQuery)
-            == "SELECT STRUCT(1 AS `a`, 'x' AS `b`)");
+    REQUIRE(transpile("SELECT STRUCT(1 AS a, 'x' AS b)", SQLDialect::BigQuery) ==
+            "SELECT STRUCT(1 AS `a`, 'x' AS `b`)");
 }
 
 TEST_CASE("STRUCT literal - throws for non-BigQuery dialects", "[struct][error]") {
-    for (auto d : {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::ANSI, SQLDialect::Snowflake}) {
+    for (auto d :
+         {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::ANSI, SQLDialect::Snowflake}) {
         REQUIRE_THROWS_AS(transpile("SELECT STRUCT(1 AS a, 'x' AS b)", d), std::logic_error);
     }
 }
@@ -49,18 +50,18 @@ TEST_CASE("STRUCT literal - throws for non-BigQuery dialects", "[struct][error]"
 // ============================================================================
 
 TEST_CASE("Array subscript - OFFSET round-trips for BigQuery", "[array][bigquery]") {
-    REQUIRE(transpile("SELECT arr[OFFSET(0)] FROM t", SQLDialect::BigQuery)
-            == "SELECT `arr`[OFFSET(0)] FROM `t`");
+    REQUIRE(transpile("SELECT arr[OFFSET(0)] FROM t", SQLDialect::BigQuery) ==
+            "SELECT `arr`[OFFSET(0)] FROM `t`");
 }
 
 TEST_CASE("Array subscript - ORDINAL round-trips for BigQuery", "[array][bigquery]") {
-    REQUIRE(transpile("SELECT arr[ORDINAL(1)] FROM t", SQLDialect::BigQuery)
-            == "SELECT `arr`[ORDINAL(1)] FROM `t`");
+    REQUIRE(transpile("SELECT arr[ORDINAL(1)] FROM t", SQLDialect::BigQuery) ==
+            "SELECT `arr`[ORDINAL(1)] FROM `t`");
 }
 
 TEST_CASE("Array subscript - SAFE_OFFSET round-trips for BigQuery", "[array][bigquery]") {
-    REQUIRE(transpile("SELECT arr[SAFE_OFFSET(0)] FROM t", SQLDialect::BigQuery)
-            == "SELECT `arr`[SAFE_OFFSET(0)] FROM `t`");
+    REQUIRE(transpile("SELECT arr[SAFE_OFFSET(0)] FROM t", SQLDialect::BigQuery) ==
+            "SELECT `arr`[SAFE_OFFSET(0)] FROM `t`");
 }
 
 TEST_CASE("Array subscript - AST shape", "[array][bigquery]") {
@@ -83,7 +84,10 @@ TEST_CASE("Array subscript - AST shape", "[array][bigquery]") {
 // identifier is only exercised here for the dialects that actually lex it.
 TEST_CASE("Array subscript - plain arr[0] is unrestricted in every dialect that lexes it",
           "[array]") {
-    struct Case { SQLDialect dialect; const char* expected; };
+    struct Case {
+        SQLDialect dialect;
+        const char* expected;
+    };
     const Case cases[] = {
         {SQLDialect::BigQuery, "SELECT `arr`[0]"},
         {SQLDialect::Snowflake, "SELECT \"arr\"[0]"},
@@ -103,8 +107,10 @@ TEST_CASE("Array subscript - OFFSET/ORDINAL throw for non-BigQuery dialects", "[
     // Snowflake lexes the subscript-function form fine (bracket_identifiers
     // == false there too) but BigQuery is the only dialect this generates
     // for.
-    REQUIRE_THROWS_AS(transpile("SELECT arr[OFFSET(0)] FROM t", SQLDialect::Snowflake), std::logic_error);
-    REQUIRE_THROWS_AS(transpile("SELECT arr[ORDINAL(1)] FROM t", SQLDialect::Snowflake), std::logic_error);
+    REQUIRE_THROWS_AS(transpile("SELECT arr[OFFSET(0)] FROM t", SQLDialect::Snowflake),
+                      std::logic_error);
+    REQUIRE_THROWS_AS(transpile("SELECT arr[ORDINAL(1)] FROM t", SQLDialect::Snowflake),
+                      std::logic_error);
 }
 
 TEST_CASE("Array subscript - fixed point (BigQuery)", "[array][roundtrip]") {

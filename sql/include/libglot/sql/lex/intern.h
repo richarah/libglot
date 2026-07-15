@@ -1,12 +1,12 @@
 #pragma once
 
 #include "fwd.h"
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_set>
-#include <shared_mutex>
-#include <mutex>
-#include <memory>
 
 namespace libglot::sql::lex {
 
@@ -53,9 +53,7 @@ public:
     }
 
     /// Check if two interned strings are equal (pointer comparison)
-    [[nodiscard]] static bool equals(const char* a, const char* b) {
-        return a == b;
-    }
+    [[nodiscard]] static bool equals(const char* a, const char* b) { return a == b; }
 
     /// Number of unique strings in pool
     [[nodiscard]] size_t size() const {
@@ -80,34 +78,22 @@ private:
     struct StringViewHash {
         using is_transparent = void;
 
-        size_t operator()(std::string_view sv) const {
-            return std::hash<std::string_view>{}(sv);
-        }
+        size_t operator()(std::string_view sv) const { return std::hash<std::string_view>{}(sv); }
 
-        size_t operator()(const std::string& s) const {
-            return std::hash<std::string>{}(s);
-        }
+        size_t operator()(const std::string& s) const { return std::hash<std::string>{}(s); }
     };
 
     // Custom equality
     struct StringViewEqual {
         using is_transparent = void;
 
-        bool operator()(const std::string& a, const std::string& b) const {
-            return a == b;
-        }
+        bool operator()(const std::string& a, const std::string& b) const { return a == b; }
 
-        bool operator()(const std::string& a, std::string_view b) const {
-            return a == b;
-        }
+        bool operator()(const std::string& a, std::string_view b) const { return a == b; }
 
-        bool operator()(std::string_view a, const std::string& b) const {
-            return a == b;
-        }
+        bool operator()(std::string_view a, const std::string& b) const { return a == b; }
 
-        bool operator()(std::string_view a, std::string_view b) const {
-            return a == b;
-        }
+        bool operator()(std::string_view a, std::string_view b) const { return a == b; }
     };
 
     mutable std::shared_mutex mutex_;
@@ -138,24 +124,16 @@ public:
     }
 
     /// Number of unique strings
-    [[nodiscard]] size_t size() const {
-        return pool_.size();
-    }
+    [[nodiscard]] size_t size() const { return pool_.size(); }
 
     /// Clear the pool
-    void clear() {
-        pool_.clear();
-    }
+    void clear() { pool_.clear(); }
 
 private:
     struct StringViewHash {
         using is_transparent = void;
-        size_t operator()(std::string_view sv) const {
-            return std::hash<std::string_view>{}(sv);
-        }
-        size_t operator()(const std::string& s) const {
-            return std::hash<std::string>{}(s);
-        }
+        size_t operator()(std::string_view sv) const { return std::hash<std::string_view>{}(sv); }
+        size_t operator()(const std::string& s) const { return std::hash<std::string>{}(s); }
     };
 
     struct StringViewEqual {

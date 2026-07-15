@@ -22,8 +22,8 @@
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 #include <string>
@@ -50,14 +50,22 @@ const SQLDialect kDialects[] = {
 
 const char* dialect_label(SQLDialect d) {
     switch (d) {
-        case SQLDialect::ANSI: return "ANSI";
-        case SQLDialect::PostgreSQL: return "PostgreSQL";
-        case SQLDialect::MySQL: return "MySQL";
-        case SQLDialect::SQLServer: return "SQLServer";
-        case SQLDialect::Oracle: return "Oracle";
-        case SQLDialect::DB2: return "DB2";
-        case SQLDialect::BigQuery: return "BigQuery";
-        default: return "?";
+    case SQLDialect::ANSI:
+        return "ANSI";
+    case SQLDialect::PostgreSQL:
+        return "PostgreSQL";
+    case SQLDialect::MySQL:
+        return "MySQL";
+    case SQLDialect::SQLServer:
+        return "SQLServer";
+    case SQLDialect::Oracle:
+        return "Oracle";
+    case SQLDialect::DB2:
+        return "DB2";
+    case SQLDialect::BigQuery:
+        return "BigQuery";
+    default:
+        return "?";
     }
 }
 
@@ -260,31 +268,36 @@ const std::vector<std::string>& fixpoint_corpus() {
 
 } // namespace
 
-TEST_CASE("Roundtrip property - generated SQL is a fixed point (ANSI)", "[roundtrip-property][ansi]") {
+TEST_CASE("Roundtrip property - generated SQL is a fixed point (ANSI)",
+          "[roundtrip-property][ansi]") {
     for (const auto& q : fixpoint_corpus()) {
         require_fixpoint(q, SQLDialect::ANSI);
     }
 }
 
-TEST_CASE("Roundtrip property - generated SQL is a fixed point (PostgreSQL)", "[roundtrip-property][postgresql]") {
+TEST_CASE("Roundtrip property - generated SQL is a fixed point (PostgreSQL)",
+          "[roundtrip-property][postgresql]") {
     for (const auto& q : fixpoint_corpus()) {
         require_fixpoint(q, SQLDialect::PostgreSQL);
     }
 }
 
-TEST_CASE("Roundtrip property - generated SQL is a fixed point (MySQL)", "[roundtrip-property][mysql]") {
+TEST_CASE("Roundtrip property - generated SQL is a fixed point (MySQL)",
+          "[roundtrip-property][mysql]") {
     for (const auto& q : fixpoint_corpus()) {
         require_fixpoint(q, SQLDialect::MySQL);
     }
 }
 
-TEST_CASE("Roundtrip property - generated SQL is a fixed point (SQLServer)", "[roundtrip-property][sqlserver]") {
+TEST_CASE("Roundtrip property - generated SQL is a fixed point (SQLServer)",
+          "[roundtrip-property][sqlserver]") {
     for (const auto& q : fixpoint_corpus()) {
         require_fixpoint(q, SQLDialect::SQLServer);
     }
 }
 
-TEST_CASE("Roundtrip property - FOR loop is a fixed point in every dialect", "[roundtrip-property][for]") {
+TEST_CASE("Roundtrip property - FOR loop is a fixed point in every dialect",
+          "[roundtrip-property][for]") {
     // Includes SQL Server: the FOR -> DECLARE/WHILE lowering is wrapped in
     // BEGIN..END and re-parses to the identical form.
     const std::string q = "FOR i IN 1..10 LOOP SELECT 1; END LOOP";
@@ -322,7 +335,8 @@ TEST_CASE("Roundtrip property - Oracle hierarchical queries", "[roundtrip-proper
     }
 }
 
-TEST_CASE("Roundtrip property - mixed INSERTED/DELETED OUTPUT (SQL Server only)", "[roundtrip-property][output]") {
+TEST_CASE("Roundtrip property - mixed INSERTED/DELETED OUTPUT (SQL Server only)",
+          "[roundtrip-property][output]") {
     // Mixing row images is only expressible in T-SQL; other dialects throw.
     require_fixpoint("UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2",
                      SQLDialect::SQLServer);
@@ -330,7 +344,8 @@ TEST_CASE("Roundtrip property - mixed INSERTED/DELETED OUTPUT (SQL Server only)"
                      SQLDialect::SQLServer);
 }
 
-TEST_CASE("Roundtrip property - FETCH FIRST dialects (Oracle, DB2)", "[roundtrip-property][fetch-first]") {
+TEST_CASE("Roundtrip property - FETCH FIRST dialects (Oracle, DB2)",
+          "[roundtrip-property][fetch-first]") {
     // supports_limit_offset=false without TOP: FETCH FIRST / OFFSET..FETCH
     for (auto d : {SQLDialect::Oracle, SQLDialect::DB2}) {
         require_fixpoint("SELECT * FROM users LIMIT 10", d);
@@ -343,16 +358,17 @@ TEST_CASE("Roundtrip property - FETCH FIRST dialects (Oracle, DB2)", "[roundtrip
 TEST_CASE("Roundtrip property - ILIKE polyfill dialects", "[roundtrip-property][ilike]") {
     // Dialects without native ILIKE route through the LOWER() polyfill,
     // which is itself a fixed point.
-    for (auto d : {SQLDialect::BigQuery, SQLDialect::MySQL, SQLDialect::SQLServer,
-                   SQLDialect::ANSI, SQLDialect::Oracle}) {
+    for (auto d : {SQLDialect::BigQuery, SQLDialect::MySQL, SQLDialect::SQLServer, SQLDialect::ANSI,
+                   SQLDialect::Oracle}) {
         require_fixpoint("SELECT * FROM t WHERE name ILIKE 'a%'", d);
     }
     // Native ILIKE stays ILIKE
-    REQUIRE(gen_once("SELECT * FROM t WHERE name ILIKE 'a%'", SQLDialect::PostgreSQL)
-            == "SELECT * FROM \"t\" WHERE \"name\" ILIKE 'a%'");
+    REQUIRE(gen_once("SELECT * FROM t WHERE name ILIKE 'a%'", SQLDialect::PostgreSQL) ==
+            "SELECT * FROM \"t\" WHERE \"name\" ILIKE 'a%'");
 }
 
-TEST_CASE("Roundtrip property - positional '?' parameters (non-PostgreSQL)", "[roundtrip-property][params]") {
+TEST_CASE("Roundtrip property - positional '?' parameters (non-PostgreSQL)",
+          "[roundtrip-property][params]") {
     // Sole remaining exclusion: under PostgreSQL '?' lexes as the jsonb
     // QUESTION operator (question_is_operator), so this form is only a
     // fixed point in the other dialects.
@@ -361,7 +377,8 @@ TEST_CASE("Roundtrip property - positional '?' parameters (non-PostgreSQL)", "[r
     }
 }
 
-TEST_CASE("Roundtrip property - trailing input is rejected, not dropped", "[roundtrip-property][trailing]") {
+TEST_CASE("Roundtrip property - trailing input is rejected, not dropped",
+          "[roundtrip-property][trailing]") {
     // These used to parse "successfully" by silently discarding the tail.
     for (auto d : kDialects) {
         INFO("dialect: " << dialect_label(d));
@@ -385,25 +402,30 @@ TEST_CASE("Roundtrip property - trailing input is rejected, not dropped", "[roun
 TEST_CASE("Roundtrip property - ORDER BY NULLS FIRST/LAST", "[roundtrip-property][nulls]") {
     // No native syntax in MySQL/MariaDB or T-SQL (see test_order_by_nulls.cpp),
     // so this only runs where it is a fixed point.
-    for (auto d : {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::Snowflake, SQLDialect::SQLite}) {
+    for (auto d :
+         {SQLDialect::ANSI, SQLDialect::PostgreSQL, SQLDialect::Snowflake, SQLDialect::SQLite}) {
         require_fixpoint("SELECT a FROM t ORDER BY a NULLS FIRST", d);
         require_fixpoint("SELECT a FROM t ORDER BY a DESC NULLS LAST", d);
     }
 }
 
-TEST_CASE("Roundtrip property - DISTINCT ON (PostgreSQL only)", "[roundtrip-property][distinct-on]") {
+TEST_CASE("Roundtrip property - DISTINCT ON (PostgreSQL only)",
+          "[roundtrip-property][distinct-on]") {
     require_fixpoint("SELECT DISTINCT ON (a) a, b FROM t", SQLDialect::PostgreSQL);
-    require_fixpoint("SELECT DISTINCT ON (a, b) a, b, c FROM t ORDER BY a, b", SQLDialect::PostgreSQL);
+    require_fixpoint("SELECT DISTINCT ON (a, b) a, b, c FROM t ORDER BY a, b",
+                     SQLDialect::PostgreSQL);
 }
 
-TEST_CASE("Roundtrip property - TABLESAMPLE (PG/ANSI; MySQL throws)", "[roundtrip-property][tablesample]") {
+TEST_CASE("Roundtrip property - TABLESAMPLE (PG/ANSI; MySQL throws)",
+          "[roundtrip-property][tablesample]") {
     for (auto d : {SQLDialect::ANSI, SQLDialect::PostgreSQL}) {
         require_fixpoint("SELECT * FROM t TABLESAMPLE BERNOULLI(10)", d);
         require_fixpoint("SELECT * FROM t AS x TABLESAMPLE SYSTEM(20) REPEATABLE(7)", d);
     }
 }
 
-TEST_CASE("Roundtrip property - QUALIFY (Snowflake/BigQuery/DuckDB)", "[roundtrip-property][qualify]") {
+TEST_CASE("Roundtrip property - QUALIFY (Snowflake/BigQuery/DuckDB)",
+          "[roundtrip-property][qualify]") {
     for (auto d : {SQLDialect::Snowflake, SQLDialect::BigQuery, SQLDialect::DuckDB}) {
         require_fixpoint("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1", d);
     }
@@ -411,9 +433,11 @@ TEST_CASE("Roundtrip property - QUALIFY (Snowflake/BigQuery/DuckDB)", "[roundtri
 
 TEST_CASE("Roundtrip property - upsert forms (each dialect's own syntax only)",
           "[roundtrip-property][upsert]") {
-    require_fixpoint("INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING", SQLDialect::PostgreSQL);
-    require_fixpoint("INSERT INTO t (id, c) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET c = EXCLUDED.c",
+    require_fixpoint("INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
                      SQLDialect::PostgreSQL);
+    require_fixpoint(
+        "INSERT INTO t (id, c) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET c = EXCLUDED.c",
+        SQLDialect::PostgreSQL);
     require_fixpoint("INSERT INTO t (id, c) VALUES (1, 1) ON DUPLICATE KEY UPDATE c = VALUES(c)",
                      SQLDialect::MySQL);
 }
@@ -427,7 +451,8 @@ TEST_CASE("Roundtrip property - sequences (CREATE/DROP/ALTER SEQUENCE, NEXTVAL/C
     require_fixpoint("CREATE SEQUENCE seq_a START WITH 1 INCREMENT BY 1 MINVALUE 1 MAXVALUE 1000 "
                      "CYCLE CACHE 20",
                      SQLDialect::PostgreSQL);
-    require_fixpoint("CREATE SEQUENCE seq_a NO MINVALUE NO MAXVALUE NO CYCLE", SQLDialect::PostgreSQL);
+    require_fixpoint("CREATE SEQUENCE seq_a NO MINVALUE NO MAXVALUE NO CYCLE",
+                     SQLDialect::PostgreSQL);
     require_fixpoint("DROP SEQUENCE IF EXISTS seq_a", SQLDialect::PostgreSQL);
     require_fixpoint("ALTER SEQUENCE seq_a RESTART WITH 5", SQLDialect::PostgreSQL);
     require_fixpoint("SELECT NEXTVAL('seq_a')", SQLDialect::PostgreSQL);
@@ -442,15 +467,17 @@ TEST_CASE("Roundtrip property - temporal tables (T-SQL / MariaDB FOR SYSTEM_TIME
     }
 }
 
-TEST_CASE("Roundtrip property - MySQL fulltext MATCH ... AGAINST", "[roundtrip-property][fulltext]") {
+TEST_CASE("Roundtrip property - MySQL fulltext MATCH ... AGAINST",
+          "[roundtrip-property][fulltext]") {
     for (auto d : {SQLDialect::MySQL, SQLDialect::MariaDB}) {
         require_fixpoint("SELECT * FROM t WHERE MATCH (a) AGAINST ('x' IN BOOLEAN MODE)", d);
     }
 }
 
 TEST_CASE("Roundtrip property - Snowflake LATERAL FLATTEN", "[roundtrip-property][flatten]") {
-    require_fixpoint("SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col, PATH => 'a.b', OUTER => TRUE) f",
-                     SQLDialect::Snowflake);
+    require_fixpoint(
+        "SELECT * FROM t, LATERAL FLATTEN(INPUT => t.col, PATH => 'a.b', OUTER => TRUE) f",
+        SQLDialect::Snowflake);
 }
 
 TEST_CASE("Roundtrip property - BigQuery STRUCT literal and array subscript functions",
@@ -464,15 +491,20 @@ TEST_CASE("Roundtrip property - FOR record/REVERSE loop forms", "[roundtrip-prop
     require_fixpoint("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::PostgreSQL);
     require_fixpoint("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::Oracle);
     require_fixpoint("FOR i IN REVERSE 10..1 LOOP SELECT 1; END LOOP", SQLDialect::SQLServer);
-    require_fixpoint("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP", SQLDialect::PostgreSQL);
-    require_fixpoint("FOR rec IN (SELECT id FROM users) LOOP SELECT 1; END LOOP", SQLDialect::Oracle);
+    require_fixpoint("FOR rec IN SELECT id FROM users LOOP SELECT 1; END LOOP",
+                     SQLDialect::PostgreSQL);
+    require_fixpoint("FOR rec IN (SELECT id FROM users) LOOP SELECT 1; END LOOP",
+                     SQLDialect::Oracle);
 }
 
-TEST_CASE("Roundtrip property - CREATE TABLE trailing table options", "[roundtrip-property][table-options]") {
-    require_fixpoint("CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 "
-                     "COMMENT='hi'",
-                     SQLDialect::MySQL);
-    require_fixpoint("CREATE TABLE t (id INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)", SQLDialect::Redshift);
+TEST_CASE("Roundtrip property - CREATE TABLE trailing table options",
+          "[roundtrip-property][table-options]") {
+    require_fixpoint(
+        "CREATE TABLE t (id INT) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 "
+        "COMMENT='hi'",
+        SQLDialect::MySQL);
+    require_fixpoint("CREATE TABLE t (id INT) DISTSTYLE KEY DISTKEY(id) SORTKEY(ts)",
+                     SQLDialect::Redshift);
 }
 
 TEST_CASE("Roundtrip property - MERGE WHEN NOT MATCHED BY SOURCE (T-SQL)",

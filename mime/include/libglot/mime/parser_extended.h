@@ -1,12 +1,12 @@
 #pragma once
 
-#include "parser.h"
 #include "anomalies.h"
 #include "boundary.h"
 #include "charset.h"
 #include "complete_features.h"
 #include "limits.h"
 #include "mime_type_validator.h"
+#include "parser.h"
 #include <algorithm>
 #include <cctype>
 #include <string>
@@ -62,9 +62,8 @@ inline std::string ascii_lower(std::string_view text) {
 /// Media type of a Content-Type value: text up to the first ';', trimmed
 inline std::string_view media_type_of(std::string_view content_type_value) {
     size_t semi = content_type_value.find(';');
-    std::string_view media = (semi == std::string_view::npos)
-        ? content_type_value
-        : content_type_value.substr(0, semi);
+    std::string_view media =
+        (semi == std::string_view::npos) ? content_type_value : content_type_value.substr(0, semi);
     while (!media.empty() && (media.front() == ' ' || media.front() == '\t')) {
         media.remove_prefix(1);
     }
@@ -81,24 +80,17 @@ public:
     explicit MimeParserExtended(libglot::Arena& arena, std::string_view source,
                                 ParserLimits limits = ParserLimits::standard(),
                                 AnomalyConfig config = AnomalyConfig::standard())
-        : MimeParser(arena, source)
-        , limits_(limits)
-        , config_(config)
-    {
+        : MimeParser(arena, source), limits_(limits), config_(config) {
         tracker_.start_parse();
     }
 
     /// Anomalies recorded while parsing (limits exceeded, missing final
     /// boundary, invalid Content-Type, structural issues, ...).
-    [[nodiscard]] const AnomalyReport& anomalies() const noexcept {
-        return report_;
-    }
+    [[nodiscard]] const AnomalyReport& anomalies() const noexcept { return report_; }
 
     /// True when a Reject-policy anomaly of Security/DoS severity was hit;
     /// the returned message tree is then partial and should not be trusted.
-    [[nodiscard]] bool rejected() const noexcept {
-        return rejected_;
-    }
+    [[nodiscard]] bool rejected() const noexcept { return rejected_; }
 
     /// Parse message through the full pipeline: headers (with parameters),
     /// header enhancement, multipart splitting, structural anomaly detection.
@@ -178,9 +170,20 @@ private:
     /// Header fields where RFC 5322 comments "(...)" are syntax, not content
     static bool is_structured_field(std::string_view field) {
         static constexpr std::string_view kStructured[] = {
-            "Content-Type", "Content-Disposition", "Content-Transfer-Encoding",
-            "MIME-Version", "Date", "From", "To", "Cc", "Bcc", "Sender",
-            "Reply-To", "Message-ID", "In-Reply-To", "References",
+            "Content-Type",
+            "Content-Disposition",
+            "Content-Transfer-Encoding",
+            "MIME-Version",
+            "Date",
+            "From",
+            "To",
+            "Cc",
+            "Bcc",
+            "Sender",
+            "Reply-To",
+            "Message-ID",
+            "In-Reply-To",
+            "References",
         };
         for (auto name : kStructured) {
             if (detail::ascii_ieq(field, name)) {
@@ -227,9 +230,8 @@ private:
             }
         }
 
-        const bool parameterized =
-            detail::ascii_ieq(header->field, "Content-Type") ||
-            detail::ascii_ieq(header->field, "Content-Disposition");
+        const bool parameterized = detail::ascii_ieq(header->field, "Content-Type") ||
+                                   detail::ascii_ieq(header->field, "Content-Disposition");
 
         // RFC 2231 parameter continuations: reassemble name*0/name*1/... into
         // a single percent-decoded (and charset-converted) parameter.
@@ -267,8 +269,7 @@ private:
         }
 
         // RFC 5322 address group syntax ("Team: a@x, b@y;") on address headers
-        if (header->value.find(':') != std::string_view::npos &&
-            is_address_field(header->field)) {
+        if (header->value.find(':') != std::string_view::npos && is_address_field(header->field)) {
             auto groups = AddressGroupParser::parse(header->value);
             if (!groups.empty()) {
                 header->address_groups =
@@ -324,13 +325,14 @@ private:
     }
 
     /// Parse parameters from header value (e.g., "text/plain; charset=utf-8")
-    std::vector<std::pair<std::string_view, std::string_view>> parse_parameters(std::string_view value) {
+    std::vector<std::pair<std::string_view, std::string_view>>
+    parse_parameters(std::string_view value) {
         std::vector<std::pair<std::string_view, std::string_view>> params;
 
         // Find semicolon that starts parameters
         size_t semi_pos = value.find(';');
         if (semi_pos == std::string_view::npos) {
-            return params;  // No parameters
+            return params; // No parameters
         }
 
         // Parse each parameter
@@ -340,14 +342,16 @@ private:
             while (pos < value.size() && std::isspace(static_cast<unsigned char>(value[pos]))) {
                 ++pos;
             }
-            if (pos >= value.size()) break;
+            if (pos >= value.size())
+                break;
 
             // Find parameter name
             size_t name_start = pos;
             while (pos < value.size() && value[pos] != '=' && value[pos] != ';') {
                 ++pos;
             }
-            if (pos >= value.size() || value[pos] != '=') break;
+            if (pos >= value.size() || value[pos] != '=')
+                break;
 
             std::string_view param_name = value.substr(name_start, pos - name_start);
             // Trim trailing whitespace from name
@@ -356,7 +360,7 @@ private:
                 param_name.remove_suffix(1);
             }
 
-            ++pos;  // Skip '='
+            ++pos; // Skip '='
 
             // Skip whitespace after =
             while (pos < value.size() && std::isspace(static_cast<unsigned char>(value[pos]))) {
@@ -367,13 +371,14 @@ private:
             std::string_view param_value;
             if (pos < value.size() && value[pos] == '"') {
                 // Quoted value
-                ++pos;  // Skip opening quote
+                ++pos; // Skip opening quote
                 size_t value_start = pos;
                 while (pos < value.size() && value[pos] != '"') {
                     ++pos;
                 }
                 param_value = value.substr(value_start, pos - value_start);
-                if (pos < value.size()) ++pos;  // Skip closing quote
+                if (pos < value.size())
+                    ++pos; // Skip closing quote
             } else {
                 // Unquoted value (until semicolon or end)
                 size_t value_start = pos;
@@ -446,8 +451,7 @@ private:
             // not the part content. If no further delimiter exists, the final
             // close delimiter is missing: recover by taking the rest of the
             // body as the last part.
-            size_t content_end = next.found ? std::max(next.content_end, part_start)
-                                            : body.size();
+            size_t content_end = next.found ? std::max(next.content_end, part_start) : body.size();
 
             tracker_.add_part();
             Part* part = parse_part(body.substr(part_start, content_end - part_start));
@@ -555,7 +559,7 @@ private:
         while (line_start < content.size()) {
             size_t eol = content.find_first_of("\r\n", line_start);
             if (eol == std::string_view::npos) {
-                break;  // Last line has no terminator: no blank line found
+                break; // Last line has no terminator: no blank line found
             }
 
             size_t next = eol + 1;
