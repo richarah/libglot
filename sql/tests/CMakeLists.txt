@@ -20,6 +20,7 @@ set(SQL_TESTS
     test_dialect_coverage
     test_dialect_db2
     test_dialect_duckdb
+    test_dialect_families
     test_dialect_feature_combinations
     test_dialect_oracle
     test_dialect_transpilation

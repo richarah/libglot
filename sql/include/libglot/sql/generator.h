@@ -834,6 +834,14 @@ private:
     /// SQL:2011 system-versioned temporal table clause: only T-SQL (SQL
     /// Server / Azure Synapse) and MariaDB (which adopted the same syntax)
     /// support it; every other dialect throws.
+    ///
+    /// Deliberately left as an explicit dialect list rather than a family
+    /// query: MariaDB is a member of the MySQL family (not TSQL), and it is
+    /// the *only* MySQL-family member with this T-SQL-borrowed syntax -
+    /// plain MySQL does not support it. `is_family(d, TSQL)` would miss
+    /// MariaDB; `is_family(d, TSQL) || is_family(d, MySQL)` would wrongly
+    /// admit MySQL itself. This is a single-dialect cross-family borrow,
+    /// not a family-wide feature, so it stays explicit.
     void write_temporal_clause(TableRef* tbl) {
         const auto d = this->dialect();
         if (d != SQLDialect::SQLServer && d != SQLDialect::AzureSynapse &&
@@ -891,14 +899,22 @@ private:
         }
     }
 
-    /// Dialects with no NULLS FIRST/LAST syntax at all (MySQL family and
-    /// T-SQL). Rather than silently reordering nulls differently than the
-    /// source query intended, an explicit NULLS FIRST/LAST is a hard
-    /// error here - the caller must rewrite it by hand (e.g. an
+    /// Dialects with no NULLS FIRST/LAST syntax at all (MySQL, MariaDB, and
+    /// the T-SQL family). Rather than silently reordering nulls differently
+    /// than the source query intended, an explicit NULLS FIRST/LAST is a
+    /// hard error here - the caller must rewrite it by hand (e.g. an
     /// `ORDER BY (col IS NULL), col` / `ISNULL()` prefix expression).
+    ///
+    /// T-SQL family is exactly {SQLServer, AzureSynapse} today, so that
+    /// half is a genuine family query. The MySQL half is deliberately left
+    /// as an explicit MySQL/MariaDB check rather than is_family(d, MySQL):
+    /// the MySQL family also includes TiDB and SingleStore (see
+    /// dialect_traits.h / docs/ROADMAP.md stage 2), and whether they too
+    /// lack NULLS FIRST/LAST was never verified - is_family() would
+    /// silently extend this restriction to them with no test backing it.
     static bool lacks_nulls_ordering(SQLDialect d) noexcept {
-        return d == SQLDialect::MySQL || d == SQLDialect::MariaDB || d == SQLDialect::SQLServer ||
-               d == SQLDialect::AzureSynapse;
+        return d == SQLDialect::MySQL || d == SQLDialect::MariaDB ||
+               SQLDialectTraits::is_family(d, SQLDialectFamily::TSQL);
     }
 
     void visit_order_by_item(OrderByItem* item) {
@@ -933,6 +949,10 @@ private:
         // ahead of the lowered statement's own WITH RECURSIVE preamble.
         if (stmt->start_with || stmt->connect_by) {
             const auto hier_dialect = this->dialect();
+            // Oracle family and Snowflake family are each a family of one
+            // today (no promoted members), so this is left as an explicit
+            // two-dialect check rather than an is_family() query - there is
+            // no multi-member family to collapse here yet.
             if (hier_dialect != SQLDialect::Oracle && hier_dialect != SQLDialect::Snowflake) {
                 if (transform_arena_) {
                     visit(lower_connect_by(*transform_arena_, stmt));
@@ -973,8 +993,12 @@ private:
         //    [OFFSET m ROWS] FETCH FIRST/NEXT n ROWS ONLY.
         //  - Everything else: LIMIT n [OFFSET m].
         const auto select_dialect = this->dialect();
-        const bool tsql_limit =
-            (select_dialect == SQLDialect::SQLServer || select_dialect == SQLDialect::AzureSynapse);
+        const bool tsql_limit = is_tsql_dialect(select_dialect);
+        // Firebird and Informix share FIRST n [SKIP m] syntax, but they are
+        // not a family - Firebird descends from InterBase and Informix is
+        // an unrelated IBM product; this is a coincidental syntax match
+        // between two otherwise unrelated engines, not a lineage the family
+        // mechanism should model. Left as an explicit two-dialect list.
         const bool first_skip_limit =
             (select_dialect == SQLDialect::Firebird || select_dialect == SQLDialect::Informix);
         const bool tsql_offset_fetch = tsql_limit && stmt->offset && !stmt->order_by.empty();
@@ -1088,6 +1112,9 @@ private:
         // QUALIFY clause (Snowflake, BigQuery, DuckDB - a post-window-
         // function filter with no ANSI equivalent; other dialects would
         // need it rewritten as a wrapping subquery, so fail loudly).
+        // Snowflake/BigQuery/DuckDB are each a family of one today, so this
+        // stays an explicit three-dialect check rather than three
+        // is_family() calls - no multi-member family to collapse.
         if (stmt->qualify) {
             if (select_dialect != SQLDialect::Snowflake && select_dialect != SQLDialect::BigQuery &&
                 select_dialect != SQLDialect::DuckDB) {
@@ -1228,6 +1255,9 @@ private:
         this->write('*');
 
         const auto d = this->dialect();
+        // BigQuery and DuckDB are each a family of one today (see the
+        // QUALIFY clause above for the same reasoning), so the two-dialect
+        // checks below stay explicit rather than is_family() calls.
         if (!star->except_columns.empty()) {
             if (d != SQLDialect::BigQuery && d != SQLDialect::DuckDB) {
                 throw std::logic_error("SELECT * EXCEPT (...) is BigQuery/DuckDB-specific; it has "
@@ -1814,6 +1844,12 @@ private:
     /// not attempted - MySQL has no conflict-target column list to infer
     /// a unique constraint from - so any dialect other than MySQL/MariaDB
     /// throws.
+    ///
+    /// Not is_family(d, MySQL): the MySQL family also includes TiDB and
+    /// SingleStore (dialect_traits.h / docs/ROADMAP.md stage 2), and
+    /// whether they support this exact syntax was never verified here -
+    /// left as an explicit MySQL/MariaDB check to avoid silently changing
+    /// their behavior.
     void visit_on_duplicate_key_clause(OnDuplicateKeyClause* clause) {
         if (this->dialect() != SQLDialect::MySQL && this->dialect() != SQLDialect::MariaDB) {
             throw std::logic_error("ON DUPLICATE KEY UPDATE is MySQL-specific (PostgreSQL uses ON "
@@ -1927,8 +1963,7 @@ private:
 
         const auto d = this->dialect();
         for (const auto& clause : stmt->when_clauses) {
-            if (clause.match_kind == MergeMatchKind::NOT_MATCHED_BY_SOURCE &&
-                d != SQLDialect::SQLServer && d != SQLDialect::AzureSynapse) {
+            if (clause.match_kind == MergeMatchKind::NOT_MATCHED_BY_SOURCE && !is_tsql_dialect(d)) {
                 throw std::logic_error(
                     "MERGE ... WHEN NOT MATCHED BY SOURCE has no equivalent outside T-SQL in " +
                     std::string(SQLDialectTraits::name(d)));
@@ -2418,6 +2453,13 @@ private:
             // SQL:2003 sequence expression: NEXT VALUE FOR seq / DB2's
             // PREVIOUS VALUE FOR seq (CURRVAL equivalent). SQL Server has
             // no session-scoped "current value" syntax at all.
+            //
+            // Deliberately not is_family(d, TSQL): Azure Synapse is a TSQL
+            // family member but is conspicuously absent from this check
+            // (and from the CURRVAL-throws check just below) in the
+            // pre-family code this was lifted from - presumably an
+            // oversight, but reproducing existing behavior exactly means
+            // not silently pulling Azure Synapse in here.
             if (!seq->is_next && d == SQLDialect::SQLServer) {
                 throw std::logic_error(
                     "CURRVAL has no equivalent in SQL Server (no session-scoped current "
@@ -2437,6 +2479,9 @@ private:
 
     void visit_match_against(MatchAgainst* m) {
         const auto d = this->dialect();
+        // Not is_family(d, MySQL): see visit_on_duplicate_key_clause() -
+        // the MySQL family also includes TiDB/SingleStore, whose MATCH
+        // AGAINST support is unverified; left explicit.
         if (d != SQLDialect::MySQL && d != SQLDialect::MariaDB) {
             throw std::logic_error(
                 "MATCH ... AGAINST (fulltext search) has no equivalent outside MySQL/MariaDB in " +
@@ -2550,6 +2595,9 @@ private:
     }
 
     void visit_tablesample(Tablesample* sample) {
+        // Not is_family(d, MySQL): see visit_on_duplicate_key_clause() -
+        // TiDB/SingleStore's TABLESAMPLE support is unverified; left
+        // explicit.
         if (this->dialect() == SQLDialect::MySQL || this->dialect() == SQLDialect::MariaDB) {
             throw std::logic_error("TABLESAMPLE has no equivalent in " +
                                    std::string(SQLDialectTraits::name(this->dialect())));
@@ -3391,7 +3439,7 @@ private:
         if (stmt->default_value) {
             this->space();
             // T-SQL uses the initializer form: DECLARE @x INT = 5
-            if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+            if (is_tsql_dialect(dialect)) {
                 this->write('=');
             } else {
                 this->write("DEFAULT");
@@ -3418,7 +3466,14 @@ private:
     }
 
     void visit_assignment_stmt(AssignmentStmt* stmt) {
-        // Dialect-specific assignment syntax
+        // Dialect-specific assignment syntax.
+        //
+        // Deliberately not family queries: this checks bare MySQL and bare
+        // SQLServer only, excluding both MariaDB/TiDB/SingleStore (MySQL
+        // family) and AzureSynapse (TSQL family). Whether those members use
+        // the same "SET x = 10" form was never verified here, so widening
+        // this to is_family() would be an unverified behavior change for
+        // four dialects - left as the original two explicit checks.
         const auto dialect = this->dialect();
         if (dialect == SQLDialect::MySQL || dialect == SQLDialect::SQLServer) {
             // MySQL and SQL Server use SET x = 10
@@ -3490,13 +3545,22 @@ private:
             visit(loop->condition);
         this->space();
 
-        if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+        if (is_tsql_dialect(dialect)) {
             // T-SQL: WHILE condition BEGIN ... END
             this->write("BEGIN");
             write_statement_body(loop->body);
             this->space();
             this->write("END");
         } else if (dialect == SQLDialect::PostgreSQL || dialect == SQLDialect::Oracle) {
+            // Deliberately dialect-specific, not is_family(d, PostgreSQL):
+            // the PostgreSQL family already has real members (Redshift,
+            // Greenplum, CockroachDB, ...), but whether they support
+            // PL/pgSQL procedural blocks (as opposed to just PostgreSQL's
+            // own query syntax) is untested here - is_family() would
+            // silently switch their WHILE-loop form from "DO ... END
+            // WHILE" to "LOOP ... END LOOP" with no test coverage backing
+            // it. Oracle family is a family of one today, so no such risk
+            // there. Left explicit for both, to keep the two symmetric.
             // PL/pgSQL and PL/SQL: WHILE condition LOOP ... END LOOP
             this->write("LOOP");
             write_statement_body(loop->body);
@@ -3520,7 +3584,7 @@ private:
         // equivalent short of a real cursor - throw rather than silently
         // mis-lowering it.
         if (loop->query) {
-            if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+            if (is_tsql_dialect(dialect)) {
                 throw std::logic_error("FOR record IN SELECT loops have no direct T-SQL equivalent "
                                        "(rewrite using a DECLARE CURSOR / FETCH loop)");
             }
@@ -3550,7 +3614,7 @@ private:
         // it stays a single re-parseable statement, and the exact shape
         // matches what re-parsing + re-generating the lowered form produces
         // (fixed-point property).
-        if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+        if (is_tsql_dialect(dialect)) {
             // BEGIN DECLARE @variable INT = start_value;
             this->write("BEGIN DECLARE @");
             this->write(loop->variable);
@@ -3676,7 +3740,7 @@ private:
         const auto dialect = this->dialect();
 
         // T-SQL has no RAISE/SIGNAL - use RAISERROR('msg', severity, state)
-        if (dialect == SQLDialect::SQLServer || dialect == SQLDialect::AzureSynapse) {
+        if (is_tsql_dialect(dialect)) {
             this->write("RAISERROR(");
             if (!stmt->message.empty()) {
                 this->write(stmt->message);
@@ -4028,9 +4092,12 @@ private:
     // OUTPUT / RETURNING Clause
     // ========================================================================
 
-    /// Is this a T-SQL dialect (native OUTPUT clause)?
+    /// Is this a T-SQL dialect (native OUTPUT clause)? TSQL family = SQL
+    /// Server + Azure Synapse today (see dialect_traits.h); expressed as a
+    /// family query so a future promoted T-SQL family member picks this up
+    /// automatically.
     static bool is_tsql_dialect(SQLDialect d) noexcept {
-        return d == SQLDialect::SQLServer || d == SQLDialect::AzureSynapse;
+        return SQLDialectTraits::is_family(d, SQLDialectFamily::TSQL);
     }
 
     /// Emit an OUTPUT/RETURNING clause. `default_qualifier` is the row
