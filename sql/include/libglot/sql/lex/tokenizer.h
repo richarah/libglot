@@ -64,6 +64,18 @@ struct TokenizerConfig {
                 .question_is_operator = false,
                 .bracket_identifiers = false};
     }
+    /// DuckDB quotes identifiers with double quotes only and uses '[' for
+    /// array/list literals and subscripting (arr[1], [1, 2, 3]) - never for
+    /// bracket-quoted identifiers, so bracket_identifiers must be off (the
+    /// default_config() fallback used before this existed mis-tokenized
+    /// every "[...]" as a single bracket-quoted identifier).
+    static constexpr TokenizerConfig duckdb() noexcept {
+        return {.hash_line_comment = false,
+                .hash_identifier_start = false,
+                .colon_parameters = true,
+                .question_is_operator = false,
+                .bracket_identifiers = false};
+    }
 };
 
 /// Tokenizer - converts SQL source text into tokens
@@ -104,6 +116,17 @@ public:
         }
 
         char c = peek();
+
+        // Embedded NUL bytes are invalid in SQL source. They also alias the
+        // out-of-bounds sentinel returned by peek(), and interned token text
+        // is later exposed as a NUL-terminated string_view, so a NUL inside a
+        // literal would silently truncate it and let malformed SQL round-trip.
+        // Reject it as a lexical error instead.
+        if (c == '\0') {
+            uint32_t p = pos_;
+            (void)advance();
+            return make_token(TokenType::ERROR, p, pos_, line_, col_);
+        }
 
         // Identifiers and keywords (including quoted identifiers)
         if (is_identifier_start(c) || c == '"' || c == '`' ||
@@ -291,7 +314,8 @@ private:
                 advance();
             }
             uint32_t content_end = pos_; // End of actual identifier (before closing quote)
-            if (!is_eof())
+            const bool terminated = !is_eof();
+            if (terminated)
                 advance(); // Skip closing quote
 
             // Store identifier WITHOUT quotes (and with escapes collapsed)
@@ -299,8 +323,10 @@ private:
                 has_escape
                     ? pool_->intern(unescaped)
                     : pool_->intern(source_.substr(content_start, content_end - content_start));
-            return make_token(TokenType::IDENTIFIER, start_pos, pos_, start_line, start_col,
-                              interned);
+            // An unterminated quoted identifier is a lexical error (same
+            // round-trip hazard as unterminated strings).
+            return make_token(terminated ? TokenType::IDENTIFIER : TokenType::ERROR, start_pos,
+                              pos_, start_line, start_col, interned);
         }
 
         // Temp-table prefix (SQL Server): #local or ##global
@@ -388,8 +414,17 @@ private:
 
         advance(); // Opening quote
 
+        bool terminated = false;
+        bool has_nul = false;
         while (!is_eof()) {
             char c = peek();
+
+            // In-bounds NUL: invalid, and would truncate the interned text.
+            if (c == '\0') {
+                has_nul = true;
+                advance();
+                continue;
+            }
 
             if (c == quote) {
                 // Check for escaped quote (doubled)
@@ -399,6 +434,7 @@ private:
                     continue;
                 }
                 advance(); // Closing quote
+                terminated = true;
                 break;
             }
 
@@ -413,8 +449,11 @@ private:
         }
 
         std::string_view text = source_.substr(start_pos, pos_ - start_pos);
-        return make_token(TokenType::STRING, start_pos, pos_, start_line, start_col,
-                          pool_->intern(text));
+        // An unterminated string literal, or one containing an embedded NUL,
+        // is a lexical error, not a STRING token: emitting one lets the
+        // generator round-trip malformed SQL (found by fuzz_sql_roundtrip).
+        return make_token((terminated && !has_nul) ? TokenType::STRING : TokenType::ERROR,
+                          start_pos, pos_, start_line, start_col, pool_->intern(text));
     }
 
     Token tokenize_dollar_string() {

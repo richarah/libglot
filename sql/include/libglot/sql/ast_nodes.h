@@ -413,6 +413,18 @@ struct Column : SQLNode {
 struct Star : SQLNode {
     std::string_view table; // Optional table qualifier (for table.*)
 
+    /// SELECT * EXCEPT (a, b) - BigQuery, DuckDB: drop these columns from
+    /// the expanded star.
+    std::vector<std::string_view> except_columns;
+
+    /// SELECT * EXCLUDE (a, b) - DuckDB spelling of the same idea.
+    std::vector<std::string_view> exclude_columns;
+
+    /// SELECT * REPLACE (expr AS col, ...) - BigQuery, DuckDB: substitute
+    /// the expansion of `col` with `expr AS col`. Each entry is an Alias
+    /// node (expr, replacement column name).
+    std::vector<SQLNode*> replace_items;
+
     Star() : SQLNode(SQLNodeKind::STAR) {}
     explicit Star(std::string_view tbl) : SQLNode(SQLNodeKind::STAR), table(tbl) {}
 };
@@ -482,8 +494,14 @@ struct CastExpr : SQLNode {
     SQLNode* expr;
     std::string_view target_type;
 
-    CastExpr(SQLNode* e, std::string_view type)
-        : SQLNode(SQLNodeKind::CAST_EXPR), expr(e), target_type(type) {}
+    /// True for BigQuery's SAFE_CAST(expr AS type), which returns NULL on
+    /// conversion failure instead of raising an error like plain CAST. Kept
+    /// distinct from CAST so the generator can round-trip the surface form
+    /// instead of silently downgrading SAFE_CAST to CAST.
+    bool is_safe = false;
+
+    CastExpr(SQLNode* e, std::string_view type, bool safe = false)
+        : SQLNode(SQLNodeKind::CAST_EXPR), expr(e), target_type(type), is_safe(safe) {}
 };
 
 struct CoalesceExpr : SQLNode {

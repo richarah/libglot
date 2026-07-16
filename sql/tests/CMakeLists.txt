@@ -16,8 +16,12 @@ set(SQL_TESTS
     test_date_trunc
     test_declare_keyword
     test_delimiter
+    test_dialect_bigquery
     test_dialect_coverage
+    test_dialect_db2
+    test_dialect_duckdb
     test_dialect_feature_combinations
+    test_dialect_oracle
     test_dialect_transpilation
     test_distinct_on
     test_dml_statements

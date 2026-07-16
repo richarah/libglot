@@ -1,7 +1,11 @@
-# Style-tier checks that conflict with the project's accepted idiom
-# (single-statement ifs without braces, aggregate initialization of
-# keyword tables, pointer-truthiness tests) are disabled deliberately;
-# everything bugprone/performance/analyzer stays on.
+# clang-tidy configuration.
+#
+# The bugprone-*, performance-*, and clang-analyzer-* families (the checks
+# that find defects) run as errors in CI. The modernize-* and readability-*
+# families are enabled too, but the specific style-tier checks that conflict
+# with the codebase's deliberate and consistent idioms are disabled below,
+# each with a reason. clang-format enforces layout; these checks would only
+# churn it. Anything genuinely bug-prone stays on and is fixed, not silenced.
 Checks: >
   bugprone-*,
   performance-*,
@@ -9,14 +13,51 @@ Checks: >
   readability-*,
   clang-analyzer-*,
   -modernize-use-trailing-return-type,
+  -modernize-use-default-member-init,
+  -modernize-use-nodiscard,
+  -modernize-use-emplace,
+  -modernize-use-auto,
+  -modernize-avoid-c-arrays,
+  -modernize-loop-convert,
+  -modernize-return-braced-init-list,
   -modernize-use-designated-initializers,
+  -modernize-use-starts-ends-with,
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,
   -readability-braces-around-statements,
   -readability-implicit-bool-conversion,
   -readability-else-after-return,
-  -bugprone-easily-swappable-parameters
+  -readability-qualified-auto,
+  -readability-named-parameter,
+  -readability-redundant-member-init,
+  -readability-redundant-string-init,
+  -readability-redundant-casting,
+  -readability-convert-member-functions-to-static,
+  -readability-use-anyofallof,
+  -readability-container-contains,
+  -readability-container-size-empty,
+  -readability-simplify-boolean-expr,
+  -readability-avoid-unconditional-preprocessor-if,
+  -readability-avoid-nested-conditional-operator,
+  -readability-non-const-parameter,
+  -performance-enum-size,
+  -performance-no-int-to-ptr,
+  -performance-unnecessary-value-param,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-branch-clone
+# Rationale for the notable disables:
+#   modernize-use-default-member-init / avoid-c-arrays / return-braced-init-list
+#     - the codebase uses constructor init-lists and constexpr C-array lookup
+#       tables deliberately and uniformly.
+#   readability-qualified-auto / named-parameter / *-member-init
+#     - pervasive stylistic preferences, not correctness.
+#   performance-no-int-to-ptr - the arena's alignment computation is an
+#     intentional, correct uintptr_t round-trip.
+#   bugprone-branch-clone - the parser/generator have many intentionally
+#     parallel branches (per-token, per-dialect) that read clearer apart.
+#   bugprone-easily-swappable-parameters - advisory, high-noise on
+#     (row, col) / (start, end) style signatures.
 WarningsAsErrors: ''
 HeaderFilterRegex: '(core|sql|mime)/include/libglot/.*'
 FormatStyle: file

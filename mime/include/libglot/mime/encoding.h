@@ -282,7 +282,7 @@ public:
         std::string lower;
         lower.reserve(header_value.size());
         for (char c : header_value) {
-            lower.push_back(std::tolower(c));
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
         }
 
         std::string_view lv = lower;

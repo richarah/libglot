@@ -168,6 +168,8 @@ public:
         } else if (check(TK::IDENTIFIER) &&
                    (current().text == "CACHE" || current().text == "cache")) {
             return parse_cache_table();
+        } else if (check(TK::VALUES)) {
+            return parse_values_statement();
         }
 
         error("Expected SQL statement (SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.)");
@@ -305,6 +307,28 @@ public:
             return this->template create_node<Literal>("CURRENT_TIME");
         }
 
+        // DB2's two-word special registers: CURRENT DATE / CURRENT TIME /
+        // CURRENT TIMESTAMP, spelled as two tokens rather than the
+        // single-token CURRENT_DATE/CURRENT_TIME/CURRENT_TIMESTAMP forms
+        // checked above (also valid, and more portable, DB2 syntax).
+        // Canonicalized onto the same Literal so the generator always
+        // emits the single-token spelling.
+        if (check(TK::CURRENT) && peek(1).type == TK::TIMESTAMP) {
+            (void)advance(); // CURRENT
+            (void)advance(); // TIMESTAMP
+            return this->template create_node<Literal>("CURRENT_TIMESTAMP");
+        }
+        if (check(TK::CURRENT) && peek(1).type == TK::DATE) {
+            (void)advance(); // CURRENT
+            (void)advance(); // DATE
+            return this->template create_node<Literal>("CURRENT_DATE");
+        }
+        if (check(TK::CURRENT) && peek(1).type == TK::TIME) {
+            (void)advance(); // CURRENT
+            (void)advance(); // TIME
+            return this->template create_node<Literal>("CURRENT_TIME");
+        }
+
         // Literals
         if (check(TK::NUMBER)) {
             auto tok = advance();
@@ -416,7 +440,10 @@ public:
             expect(TK::AS);
             std::string_view type_str = parse_cast_type_name();
             expect(TK::RPAREN);
-            return this->template create_node<CastExpr>(expr, type_str);
+            // is_safe=true: distinguishes SAFE_CAST from plain CAST so the
+            // generator can round-trip it (BigQuery-only; see
+            // visit_cast_expr).
+            return this->template create_node<CastExpr>(expr, type_str, true);
         }
 
         if (check(TK::STRUCT_KW)) {
@@ -525,6 +552,34 @@ public:
             return this->template create_node<SequenceRefExpr>(raw, is_next);
         }
 
+        // SQL:2003 sequence expression: NEXT VALUE FOR seq (DB2, SQL
+        // Server) / PREVIOUS VALUE FOR seq (DB2's CURRVAL equivalent; SQL
+        // Server has no session-scoped "current value" syntax at all).
+        // NEXT is a reserved keyword token; VALUE and PREVIOUS are not, so
+        // this needs a 3-token lookahead.
+        if (check(TK::NEXT) && peek(1).type == TK::IDENTIFIER && ieq(peek(1).text, "VALUE") &&
+            peek(2).type == TK::FOR) {
+            (void)advance(); // NEXT
+            (void)advance(); // VALUE
+            (void)advance(); // FOR
+            if (!check(TK::IDENTIFIER)) {
+                error("Expected sequence name after NEXT VALUE FOR");
+            }
+            std::string_view seq_name = advance().text;
+            return this->template create_node<SequenceRefExpr>(seq_name, true);
+        }
+        if (check_soft_keyword("PREVIOUS", "previous") && peek(1).type == TK::IDENTIFIER &&
+            ieq(peek(1).text, "VALUE") && peek(2).type == TK::FOR) {
+            (void)advance(); // PREVIOUS
+            (void)advance(); // VALUE
+            (void)advance(); // FOR
+            if (!check(TK::IDENTIFIER)) {
+                error("Expected sequence name after PREVIOUS VALUE FOR");
+            }
+            std::string_view seq_name = advance().text;
+            return this->template create_node<SequenceRefExpr>(seq_name, false);
+        }
+
         // MySQL/MariaDB fulltext search: MATCH (col, ...) AGAINST ('expr' [modifier])
         // MATCH/AGAINST are not reserved keywords (soft keywords).
         if (check(TK::IDENTIFIER) && ieq(current().text, "MATCH") && peek(1).type == TK::LPAREN) {
@@ -611,7 +666,15 @@ public:
             check(TK::SPLIT) || check(TK::ROUND) || check(TK::FLOOR) || check(TK::CEIL) ||
             check(TK::ABS) || check(TK::POWER) || check(TK::SQRT) || check(TK::TIMESTAMP) ||
             check(TK::DATE) || check(TK::TIME) || check(TK::DATE_TRUNC) ||
-            check(TK::GENERATE_SERIES) || check(TK::UNNEST)) {
+            check(TK::GENERATE_SERIES) || check(TK::UNNEST) ||
+            // Oracle ROWNUM pseudo-column, referenced as a bare identifier
+            // (SELECT ROWNUM FROM t / WHERE ROWNUM <= 10).
+            check(TK::ROWNUM) ||
+            // Oracle NVL(a, b) - NVL is a reserved keyword token (unlike
+            // NVL2/DECODE, which are plain identifiers already covered by
+            // the TK::IDENTIFIER branch above), so it needs an explicit
+            // function-call entry point here.
+            check(TK::NVL)) {
             auto first = advance();
             std::string_view name = first.text;
 
@@ -625,7 +688,9 @@ public:
                 (void)advance(); // consume DOT
                 if (check(TK::STAR)) {
                     (void)advance(); // Acknowledge nodiscard warning
-                    return this->template create_node<Star>(name);
+                    auto* star = this->template create_node<Star>(name);
+                    parse_star_modifiers(star);
+                    return star;
                 }
                 // Allow keywords as column names (SQL permits this)
                 if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
@@ -1103,12 +1168,95 @@ public:
         return items;
     }
 
+    /// Parse a standalone VALUES statement: VALUES (1, 2), (3, 4) or the
+    /// bare single-row form VALUES 1, 2 (DB2, PostgreSQL, SQL Server,
+    /// ANSI SQL:1999 <table value constructor> used as a top-level query).
+    /// Reuses ValuesClause, whose generator already emits a bare
+    /// "VALUES (...), (...)" list when no alias is set (the FROM-clause
+    /// table-source form sets one).
+    SQLNode* parse_values_statement() {
+        expect(TK::VALUES);
+        auto* values = this->template create_node<ValuesClause>();
+        if (check(TK::LPAREN)) {
+            do {
+                expect(TK::LPAREN);
+                std::vector<SQLNode*> row;
+                do {
+                    row.push_back(parse_expression());
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+                values->rows.push_back(std::move(row));
+            } while (match(TK::COMMA));
+        } else {
+            // Bare form: VALUES 1, 2 (single row, no parens)
+            std::vector<SQLNode*> row;
+            do {
+                row.push_back(parse_expression());
+            } while (match(TK::COMMA));
+            values->rows.push_back(std::move(row));
+        }
+        return values;
+    }
+
+    /// Parse the BigQuery/DuckDB star modifiers that may follow a bare `*`
+    /// or qualified `t.*` in a SELECT list:
+    ///   * EXCEPT (col, ...)           - BigQuery, DuckDB
+    ///   * EXCLUDE (col, ...)          - DuckDB spelling of the same idea
+    ///   * REPLACE (expr AS col, ...)  - BigQuery, DuckDB
+    /// Parsed unconditionally (regardless of dialect); the generator gates
+    /// on dialect and throws std::logic_error outside BigQuery/DuckDB,
+    /// matching the STRUCT(...)/array-subscript pattern used elsewhere.
+    void parse_star_modifiers(Star* star) {
+        for (;;) {
+            if (check(TK::EXCEPT) && peek(1).type == TK::LPAREN) {
+                (void)advance(); // EXCEPT
+                (void)advance(); // (
+                do {
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name in EXCEPT (...)");
+                    }
+                    star->except_columns.push_back(advance().text);
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+            } else if (check(TK::EXCLUDE) && peek(1).type == TK::LPAREN) {
+                (void)advance(); // EXCLUDE
+                (void)advance(); // (
+                do {
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name in EXCLUDE (...)");
+                    }
+                    star->exclude_columns.push_back(advance().text);
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+            } else if ((check(TK::REPLACE) || check(TK::REPLACE_KW) || check(TK::REPLACE_DDB)) &&
+                       peek(1).type == TK::LPAREN) {
+                (void)advance(); // REPLACE
+                (void)advance(); // (
+                do {
+                    auto expr = parse_expression();
+                    expect(TK::AS);
+                    if (!check(TK::IDENTIFIER)) {
+                        error("Expected column name after AS in REPLACE (...)");
+                    }
+                    auto alias_tok = advance();
+                    star->replace_items.push_back(
+                        this->template create_node<Alias>(expr, alias_tok.text));
+                } while (match(TK::COMMA));
+                expect(TK::RPAREN);
+            } else {
+                break;
+            }
+        }
+    }
+
     /// Parse single SELECT item (expression or expression AS alias)
     SQLNode* parse_select_item() {
         // Handle SELECT *
         if (this->check(TK::STAR)) {
             (void)this->advance();
-            return this->template create_node<Star>();
+            auto* star = this->template create_node<Star>();
+            parse_star_modifiers(star);
+            return star;
         }
 
         auto expr = this->parse_expression();
@@ -5109,6 +5257,8 @@ private:
             return libglot::sql::lex::TokenizerConfig::snowflake();
         case SQLDialect::BigQuery:
             return libglot::sql::lex::TokenizerConfig::bigquery();
+        case SQLDialect::DuckDB:
+            return libglot::sql::lex::TokenizerConfig::duckdb();
         default:
             // Most dialects support # comments (MySQL-style)
             // SQL Server is the exception

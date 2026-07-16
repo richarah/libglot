@@ -52,8 +52,8 @@ parser must fail cleanly, never silently mis-parse).
 | BigQuery STRUCT literal / ARRAY subscript edge cases | DONE | test_struct_array_subscript, test_roundtrip_property ("BigQuery STRUCT ... array subscript"); `STRUCT(...)` (already parsed generically as a FunctionCall) now throws std::logic_error for every dialect but BigQuery at generation time; `ArrayIndex` gained a `subscript` field (NONE/OFFSET/ORDINAL/SAFE_OFFSET) so `arr[OFFSET(0)]`/`arr[ORDINAL(1)]`/`arr[SAFE_OFFSET(0)]` generate only for BigQuery while plain `arr[index]` is untouched everywhere. Required adding a BigQuery `TokenizerConfig` (bracket_identifiers=false) - BigQuery previously inherited the ANSI default bracket-quoted-identifier lexing, which made `identifier[...]` unparseable as a subscript at all; PostgreSQL/MySQL/ANSI still can't lex bare `ident[...]` subscripting (pre-existing, asserted in test_tokenizer.cpp) and are out of scope here |
 | Snowflake `FLATTEN` table function | DONE | test_flatten, test_roundtrip_property ("Snowflake LATERAL FLATTEN"); `LATERAL FLATTEN(INPUT => expr [, PATH => '...'] [, OUTER => bool])` parses onto a dedicated `FlattenClause` wrapped in the existing `LateralJoin` node; required a new `=>` token (FAT_ARROW) in the tokenizer. Snowflake only; every other dialect throws std::logic_error |
 | PG `?` key-exists fixpoint (lexes as operator) | DONE (documented exclusion) | test_roundtrip_property header |
-| First-class set: ANSI, PG, MySQL, SQLite, MSSQL, Snowflake | DONE | matrix tests |
-| Promote Oracle, DB2, BigQuery, DuckDB | GAP (issue #3) | |
+| First-class set: ANSI, PG, MySQL, SQLite, MSSQL, Snowflake, Oracle, DB2, BigQuery, DuckDB | DONE | test_dialect_feature_combinations, test_dialect_{oracle,db2,bigquery,duckdb}, test_roundtrip_property |
+| Promote Oracle, DB2, BigQuery, DuckDB | DONE (issue #3) | one conformance suite per dialect with exact-string roundtrips and fixpoints: test_dialect_oracle, test_dialect_db2, test_dialect_bigquery, test_dialect_duckdb. Remaining dialects in the 45-entry enum are still quoting/traits only and are documented as such |
 
 ## SQL — optimizer
 
@@ -78,7 +78,7 @@ parser must fail cleanly, never silently mis-parse).
 | UTF-16 (BE/LE, BOM) → UTF-8 | DONE | test_charset_utf16; `CharsetConverter::utf16_to_utf8` (RFC 2781) - FEFF/FFFE BOM detection (consumed, overrides the passed-in default), big-endian default per RFC 2781 when no BOM, surrogate-pair combination (emoji), unpaired high/low surrogates and a truncated trailing byte replaced with U+FFFD (never throws, output re-validated with `is_valid_utf8`); wired into `Charset::UTF16`/`UTF16BE`/`UTF16LE` (`to_utf8`) and `decoded_body_utf8()` so `charset=UTF-16`/`UTF-16BE`/`UTF-16LE` parts decode through the normal pipeline |
 | Asian charsets (Shift-JIS, EUC-KR, GB2312) | OOS | reported as unknown-charset, never mislabeled |
 | message/partial detection | DONE | test_message_partial; `Content-Type: message/partial` detected in `finish_message` (parser_extended.h), `id`/`number`/`total` parsed onto a new `MessagePartialRef` (complete_features.h, `Message::message_partial`) with `std::from_chars`-based defensive numeric parsing (malformed/negative/overflowing values default to 0, never throws); records the new `AnomalyKind::MessagePartialDetected` (Structural severity) so callers know reassembly with sibling fragments is required; absent for normal messages and for `message/external-body`; reassembly itself is out of scope |
-| Corpus benchmark (SpamAssassin/Enron) | GAP (issue #4) | |
+| Corpus benchmark (SpamAssassin/Enron) | DONE (issue #4) | tools/mime_corpus runs any message directory through the pipeline and reports parse success, policy rejections, text-decode rate and an anomaly histogram; exits non-zero below --min-success. CI: committed corpus (tests/corpus/mime) gated at 100%, SpamAssassin public corpus run best-effort and reported |
 
 ## Engineering standards
 
@@ -89,6 +89,6 @@ parser must fail cleanly, never silently mis-parse).
 | Coverage report in CI | DONE | ci.yml coverage job |
 | Benchmarks re-run with current code, numbers recorded | DONE | bench/RESULTS_2026-07.md |
 | Repo-wide clang-format + .git-blame-ignore-revs | DONE | style commit listed in .git-blame-ignore-revs; `git config blame.ignoreRevsFile .git-blame-ignore-revs` |
-| clang-tidy | DONE (scoped) | config validated over the full public API surface (example TUs); substantive finding fixed (int-widening in mime/limits.h size constants); style-tier checks conflicting with project idiom disabled in .clang-tidy with rationale; full-codebase CI job left as follow-up |
+| clang-tidy | DONE | blocking CI job (clang-tidy-18, warnings-as-errors) over every first-party TU, which transitively covers the whole public header surface. Correctness findings fixed: int-widening in mime/limits.h and core/util/arena.h size constants, char-narrowing in mime/encoding.h and sql/lex/keywords.h, vestigial cross-namespace forward declarations in sql/lex/fwd.h, exception escaping from an example's main. Style-tier checks that conflict with the project's deliberate idiom (constexpr C-arrays, constructor init lists, single-statement ifs) are disabled in .clang-tidy with rationale; fuzz/.clang-tidy scopes off bugprone-empty-catch, since swallowing expected parse errors is the point of a fuzz target |
 | SECURITY.md (reporting, threat model) | DONE | SECURITY.md |
 | Doxygen config for public headers | DONE | Doxyfile (output docs/api/) |

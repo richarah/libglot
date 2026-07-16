@@ -18,7 +18,7 @@ namespace libglot {
 /// for hot-path nodes) carry no bookkeeping at all.
 class Arena {
 public:
-    static constexpr size_t kDefaultChunkSize = 64 * 1024; // 64KB chunks
+    static constexpr size_t kDefaultChunkSize = size_t{64} * 1024; // 64KB chunks
     static constexpr size_t kAlignment = alignof(std::max_align_t);
     /// Chunks are over-allocated and aligned to this boundary; it is also the
     /// maximum alignment allocate() supports.
@@ -75,7 +75,7 @@ public:
 
         // Check for integer overflow BEFORE doing arithmetic
         // Max reasonable allocation: 1GB
-        constexpr size_t kMaxAllocation = 1024 * 1024 * 1024;
+        constexpr size_t kMaxAllocation = size_t{1024} * 1024 * 1024;
         if (size > kMaxAllocation || align > kMaxAlignment) {
             throw std::bad_alloc();
         }

@@ -1,0 +1,5 @@
+# Fuzz harnesses deliberately swallow the parser's expected exceptions for
+# malformed input (that is the whole point of a fuzz target), so the
+# empty-catch check does not apply here. Everything else is inherited.
+InheritParentConfig: true
+Checks: '-bugprone-empty-catch'

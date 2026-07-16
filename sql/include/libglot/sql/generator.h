@@ -1226,6 +1226,49 @@ private:
             this->write('.');
         }
         this->write('*');
+
+        const auto d = this->dialect();
+        if (!star->except_columns.empty()) {
+            if (d != SQLDialect::BigQuery && d != SQLDialect::DuckDB) {
+                throw std::logic_error("SELECT * EXCEPT (...) is BigQuery/DuckDB-specific; it has "
+                                        "no equivalent in " +
+                                        std::string(SQLDialectTraits::name(d)));
+            }
+            this->space();
+            this->write("EXCEPT");
+            this->space();
+            this->write('(');
+            this->write_list(star->except_columns,
+                              [this](std::string_view col) { write_identifier(col); });
+            this->write(')');
+        }
+        if (!star->exclude_columns.empty()) {
+            if (d != SQLDialect::DuckDB) {
+                throw std::logic_error(
+                    "SELECT * EXCLUDE (...) is DuckDB-specific; it has no equivalent in " +
+                    std::string(SQLDialectTraits::name(d)));
+            }
+            this->space();
+            this->write("EXCLUDE");
+            this->space();
+            this->write('(');
+            this->write_list(star->exclude_columns,
+                              [this](std::string_view col) { write_identifier(col); });
+            this->write(')');
+        }
+        if (!star->replace_items.empty()) {
+            if (d != SQLDialect::BigQuery && d != SQLDialect::DuckDB) {
+                throw std::logic_error("SELECT * REPLACE (...) is BigQuery/DuckDB-specific; it has "
+                                        "no equivalent in " +
+                                        std::string(SQLDialectTraits::name(d)));
+            }
+            this->space();
+            this->write("REPLACE");
+            this->space();
+            this->write('(');
+            this->write_list(star->replace_items, [this](SQLNode* item) { visit(item); });
+            this->write(')');
+        }
     }
 
     void visit_parameter(Parameter* param) { this->write(param->name); }
@@ -1320,7 +1363,20 @@ private:
     }
 
     void visit_cast_expr(CastExpr* cast) {
-        this->write("CAST");
+        if (cast->is_safe) {
+            // SAFE_CAST returns NULL on conversion failure instead of
+            // raising an error; that's not the same operation as CAST, so
+            // silently downgrading it outside BigQuery would change query
+            // semantics. No other modeled dialect has an exact equivalent.
+            if (this->dialect() != SQLDialect::BigQuery) {
+                throw std::logic_error(
+                    "SAFE_CAST has no error-suppressing equivalent outside BigQuery in " +
+                    std::string(SQLDialectTraits::name(this->dialect())));
+            }
+            this->write("SAFE_CAST");
+        } else {
+            this->write("CAST");
+        }
         this->write('(');
         visit(cast->expr);
         this->space();
@@ -2358,6 +2414,18 @@ private:
             write_identifier(seq->sequence_name);
             this->write('.');
             this->write(seq->is_next ? "NEXTVAL" : "CURRVAL");
+        } else if (d == SQLDialect::DB2 || d == SQLDialect::SQLServer) {
+            // SQL:2003 sequence expression: NEXT VALUE FOR seq / DB2's
+            // PREVIOUS VALUE FOR seq (CURRVAL equivalent). SQL Server has
+            // no session-scoped "current value" syntax at all.
+            if (!seq->is_next && d == SQLDialect::SQLServer) {
+                throw std::logic_error(
+                    "CURRVAL has no equivalent in SQL Server (no session-scoped current "
+                    "sequence value; use NEXT VALUE FOR, or read the value back separately)");
+            }
+            this->write(seq->is_next ? "NEXT VALUE FOR" : "PREVIOUS VALUE FOR");
+            this->space();
+            write_identifier(seq->sequence_name);
         } else {
             // Function-style: nextval('seq') / currval('seq')
             this->write(seq->is_next ? "NEXTVAL" : "CURRVAL");

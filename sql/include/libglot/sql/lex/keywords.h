@@ -119,7 +119,7 @@ public:
             char c = text[i];
             // Branchless: subtract 32 if lowercase (avoids branch misprediction)
             // (c >= 'a') & (c <= 'z') evaluates to 0 or 1, shift left 5 bits = 0 or 32
-            upper[i] = c - (((c >= 'a') & (c <= 'z')) << 5);
+            upper[i] = static_cast<char>(c - (((c >= 'a') & (c <= 'z')) << 5));
         }
         upper[len] = '\0';
 

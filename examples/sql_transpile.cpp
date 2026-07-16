@@ -38,15 +38,15 @@ SQLDialect dialect_from_name(std::string_view name) {
 } // namespace
 
 int main(int argc, char** argv) {
-    std::string sql;
-    if (argc > 1) {
-        sql = argv[1];
-    } else {
-        std::getline(std::cin, sql);
-    }
-    const SQLDialect target = argc > 2 ? dialect_from_name(argv[2]) : SQLDialect::PostgreSQL;
-
     try {
+        std::string sql;
+        if (argc > 1) {
+            sql = argv[1];
+        } else {
+            std::getline(std::cin, sql);
+        }
+        const SQLDialect target = argc > 2 ? dialect_from_name(argv[2]) : SQLDialect::PostgreSQL;
+
         libglot::Arena arena;
         libglot::sql::SQLParser parser(arena, sql);
         auto* ast = parser.parse_top_level();

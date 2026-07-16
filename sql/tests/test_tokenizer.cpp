@@ -6,10 +6,8 @@
 // per-dialect TokenizerConfig variants (sqlserver / postgresql / snowflake /
 // default).
 //
-// KNOWN LIMITATION (not asserted here): quoted identifiers with embedded
-// doubled quotes ("emb""edded") are NOT unescaped by the tokenizer - it stops
-// at the first closing quote, so "emb""edded" lexes as two identifiers.
-// Asserting that would enshrine the bug; it is reported instead.
+// Unterminated literals and embedded NUL bytes are lexical errors (ERROR
+// tokens): both let the generator re-emit SQL that would not re-lex.
 
 #include <catch2/catch_test_macros.hpp>
 #include <libglot/sql/lex/tokenizer.h>
@@ -93,13 +91,14 @@ TEST_CASE("Tokenizer - quoted identifier can contain keywords and symbols",
     REQUIRE(text_of(toks[0]) == "select * from");
 }
 
-TEST_CASE("Tokenizer - unterminated quoted identifier consumes to EOF",
+TEST_CASE("Tokenizer - unterminated quoted identifier is a lexical error",
           "[tokenizer][identifiers]") {
+    // Previously this yielded an IDENTIFIER token, which let the generator
+    // re-emit malformed SQL that would not re-lex (fuzz_sql_roundtrip).
     auto toks = lex("\"unterminated");
 
     REQUIRE(toks.size() == 2);
-    REQUIRE(toks[0].type == TokenType::IDENTIFIER);
-    REQUIRE(text_of(toks[0]) == "unterminated");
+    REQUIRE(toks[0].type == TokenType::ERROR);
     REQUIRE(toks[1].type == TokenType::EOF_TOKEN);
 }
 
@@ -127,12 +126,26 @@ TEST_CASE("Tokenizer - backslash escape does not end a string", "[tokenizer][str
     REQUIRE(text_of(toks[0]) == "'back\\'slash'");
 }
 
-TEST_CASE("Tokenizer - unterminated string consumes to EOF as one STRING", "[tokenizer][strings]") {
+TEST_CASE("Tokenizer - unterminated string is a lexical error", "[tokenizer][strings]") {
+    // Previously this yielded a STRING token spanning to EOF; the generator
+    // then re-emitted the unbalanced literal and the result did not re-lex
+    // (fuzz_sql_roundtrip). An unterminated literal is now an ERROR token.
     auto toks = lex("'unterminated");
 
     REQUIRE(toks.size() == 2);
-    REQUIRE(toks[0].type == TokenType::STRING);
-    REQUIRE(text_of(toks[0]) == "'unterminated");
+    REQUIRE(toks[0].type == TokenType::ERROR);
+    REQUIRE(toks[1].type == TokenType::EOF_TOKEN);
+}
+
+TEST_CASE("Tokenizer - embedded NUL is a lexical error", "[tokenizer][strings]") {
+    // A NUL byte aliases the out-of-bounds sentinel and truncates interned
+    // token text, so it cannot be carried through a literal safely.
+    using namespace std::string_view_literals;
+    auto toks = lex("'has\0nul'"sv);
+
+    REQUIRE(toks.size() == 2);
+    REQUIRE(toks[0].type == TokenType::ERROR);
+    REQUIRE(toks[1].type == TokenType::EOF_TOKEN);
 }
 
 // ============================================================================
@@ -420,4 +433,14 @@ TEST_CASE("Tokenizer - start/end offsets slice the source exactly", "[tokenizer]
     REQUIRE(toks[1].view(src) == "abc");
     REQUIRE(toks[1].start == 7);
     REQUIRE(toks[1].end == 10);
+}
+
+TEST_CASE("Tokenizer - quoted identifier with doubled quotes unescapes",
+          "[tokenizer][identifiers]") {
+    auto toks = lex("\"emb\"\"edded\"");
+
+    REQUIRE(toks.size() == 2);
+    REQUIRE(toks[0].type == TokenType::IDENTIFIER);
+    REQUIRE(text_of(toks[0]) == "emb\"edded");
+    REQUIRE(toks[1].type == TokenType::EOF_TOKEN);
 }
