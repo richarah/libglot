@@ -1,0 +1,15 @@
+From: Sender <s@example.com>
+Subject: With attachment
+Content-Type: multipart/mixed; boundary="MIX"
+
+--MIX
+Content-Type: text/plain
+
+See attached.
+--MIX
+Content-Type: application/octet-stream; name="data.bin"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="data.bin"
+
+aGVsbG8gYXR0YWNobWVudA==
+--MIX--

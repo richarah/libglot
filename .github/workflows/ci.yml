@@ -99,6 +99,53 @@ jobs:
           name: coverage-xml
           path: coverage.xml
 
+  mime-corpus:
+    name: MIME corpus gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14
+      - name: Build corpus runner
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_TESTING=OFF \
+            -DLIBGLOT_BUILD_EXAMPLES=OFF -DLIBGLOT_BUILD_SQL=OFF
+          cmake --build build -j"$(nproc)" --target mime_corpus
+      - name: Committed sample corpus (must be 100%)
+        run: ./build/tools/mime_corpus --min-success 1.0 tests/corpus/mime
+      - name: SpamAssassin public corpus (best effort, reported not gated)
+        continue-on-error: true
+        run: |
+          mkdir -p sa && cd sa
+          for f in 20021010_easy_ham 20030228_hard_ham 20050311_spam_2; do
+            curl -fsSL "https://spamassassin.apache.org/old/publiccorpus/${f}.tar.bz2" -o "$f.tar.bz2" \
+              && tar xjf "$f.tar.bz2" || echo "skip $f (download failed)"
+          done
+          cd ..
+          ./build/tools/mime_corpus --min-success 0.0 --quiet sa || true
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy-18
+      - name: Run clang-tidy over first-party TUs
+        run: |
+          # Each example/tool/fuzz TU transitively includes the whole public
+          # header surface; HeaderFilterRegex in .clang-tidy scopes the checks
+          # to first-party headers, and any warning fails the job.
+          INC="-std=c++20 -Icore/include -Isql/include -Imime/include"
+          status=0
+          for f in $(git ls-files 'examples/*.cpp' 'tools/*.cpp' 'fuzz/*.cpp'); do
+            echo "::group::clang-tidy $f"
+            clang-tidy-18 --warnings-as-errors='*' "$f" -- $INC || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
   install-package:
     name: install + find_package smoke test
     runs-on: ubuntu-24.04

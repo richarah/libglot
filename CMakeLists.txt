@@ -124,6 +124,11 @@ if(LIBGLOT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
+option(LIBGLOT_BUILD_TOOLS "Build command-line tools" ON)
+if(LIBGLOT_BUILD_TOOLS AND LIBGLOT_BUILD_MIME)
+    add_subdirectory(tools)
+endif()
+
 # ============================================================================
 # Installation
 # ============================================================================
