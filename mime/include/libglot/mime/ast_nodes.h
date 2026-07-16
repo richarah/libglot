@@ -25,6 +25,9 @@ struct Header;
 struct AddressGroup;
 struct ExternalBodyRef;
 struct MessagePartialRef;
+struct DeliveryStatusRef;
+struct MessageId;
+struct ParsedDateTime;
 
 /// ============================================================================
 /// Base Node
@@ -77,6 +80,49 @@ struct Message : MimeNode {
     /// id/number/total reference; nullptr otherwise. Reassembly of the
     /// fragments is out of scope -- see MessagePartialParser.
     MessagePartialRef* message_partial = nullptr;
+
+    /// For message/rfc822 parts (RFC 2046 §5.2.1): the recursively parsed
+    /// encapsulated message (its own headers + body, run through the same
+    /// pipeline); nullptr for every other content type. The same
+    /// nesting-depth/part-count limits as multipart apply -- see
+    /// MimeParserExtended::parse_encapsulated_message.
+    Message* encapsulated = nullptr;
+
+    /// Parsed Date header (RFC 5322 §3.3), when present and syntactically
+    /// valid; nullptr when the header is absent or fails to parse (see
+    /// AnomalyKind::InvalidDateFormat).
+    ParsedDateTime* date = nullptr;
+
+    /// Message-ID (RFC 5322 §3.6.4); nullptr when the header is absent.
+    MessageId* message_id = nullptr;
+
+    /// In-Reply-To (RFC 5322 §3.6.4); nullptr when the header is absent
+    /// (an empty, non-null vector means the header was present but carried
+    /// no recognizable msg-id).
+    std::vector<MessageId>* in_reply_to = nullptr;
+
+    /// References (RFC 5322 §3.6.4); nullptr when the header is absent.
+    std::vector<MessageId>* references = nullptr;
+
+    /// For message/delivery-status parts (RFC 3464, transported inside a
+    /// multipart/report per RFC 6522): the parsed per-message and
+    /// per-recipient field groups; nullptr otherwise.
+    DeliveryStatusRef* delivery_status = nullptr;
+
+    /// For multipart/related (RFC 2387 §3.4): the part resolved from the
+    /// "start" Content-ID parameter, or the first part when "start" is
+    /// absent or does not resolve; nullptr when this message has no parts.
+    Message* related_root = nullptr;
+
+    /// The exact bytes of this part (headers + body) as they appeared
+    /// between multipart boundary delimiters -- before header unfolding,
+    /// transfer-decoding, or charset conversion. Populated for every
+    /// multipart child part (see MimeParserExtended::parse_part); empty for
+    /// the top-level message. This is the byte-exact view a multipart/signed
+    /// (RFC 1847) signature would be computed over; libglot does not verify
+    /// signatures (no crypto dependency -- out of scope), it only guarantees
+    /// this span is never normalized, unfolded, or re-encoded.
+    std::string_view raw_source;
 
     explicit Message() : MimeNode(MimeNodeKind::MESSAGE), headers(), body(), parts() {}
 

@@ -343,6 +343,34 @@ enum class AnomalyKind : uint16_t {
     /// the other fragments sharing the same id/number/total parameters.
     MessagePartialDetected,
 
+    // ========================================================================
+    // multipart/report (RFC 6522), multipart/signed and multipart/encrypted
+    // (RFC 1847), multipart/related (RFC 2387), msg-id syntax (RFC 5322
+    // §3.6.4), internationalized headers (RFC 6532)
+    // ========================================================================
+
+    /// Content-Type: multipart/report lacks the required report-type
+    /// parameter (RFC 6522 §4)
+    MissingReportTypeParameter,
+
+    /// Content-Type: multipart/signed or multipart/encrypted lacks the
+    /// required protocol parameter (RFC 1847 §2)
+    MissingProtocolParameter,
+
+    /// multipart/related "start" parameter does not resolve (by Content-ID)
+    /// to any part; the first part is used instead (RFC 2387 §3.4)
+    InvalidRelatedStart,
+
+    /// Message-ID / In-Reply-To / References contains a malformed msg-id
+    /// (missing angle brackets, missing '@', empty local-part/domain, or
+    /// disallowed characters) (RFC 5322 §3.6.4)
+    InvalidMessageIdSyntax,
+
+    /// A header value contains bytes >= 0x80 that do not form valid UTF-8
+    /// (RFC 6532 permits raw UTF-8 in headers, but it must actually be
+    /// valid UTF-8); the raw bytes are preserved unchanged, never corrupted
+    InvalidUtf8Header,
+
     /// ========================================================================
     /// Sentinel (for iteration)
     /// ========================================================================
@@ -515,6 +543,10 @@ struct AnomalyConfig {
         case AnomalyKind::InvalidMediaType:
         case AnomalyKind::MissingMediaSubtype:
         case AnomalyKind::MessagePartialDetected:
+        case AnomalyKind::MissingReportTypeParameter:
+        case AnomalyKind::MissingProtocolParameter:
+        case AnomalyKind::InvalidRelatedStart:
+        case AnomalyKind::InvalidMessageIdSyntax:
             return AnomalySeverity::Structural;
 
         // Security
@@ -531,6 +563,7 @@ struct AnomalyConfig {
         case AnomalyKind::InvalidFilenameChars:
         case AnomalyKind::BoundaryWithinQuotedString:
         case AnomalyKind::FaultyContentTransferEncoding:
+        case AnomalyKind::InvalidUtf8Header:
             return AnomalySeverity::Security;
 
         // DoS
@@ -704,6 +737,16 @@ struct AnomalyConfig {
         return "MalformedBoundaryDelimiter";
     case AnomalyKind::MessagePartialDetected:
         return "MessagePartialDetected";
+    case AnomalyKind::MissingReportTypeParameter:
+        return "MissingReportTypeParameter";
+    case AnomalyKind::MissingProtocolParameter:
+        return "MissingProtocolParameter";
+    case AnomalyKind::InvalidRelatedStart:
+        return "InvalidRelatedStart";
+    case AnomalyKind::InvalidMessageIdSyntax:
+        return "InvalidMessageIdSyntax";
+    case AnomalyKind::InvalidUtf8Header:
+        return "InvalidUtf8Header";
     default:
         return "Unknown";
     }

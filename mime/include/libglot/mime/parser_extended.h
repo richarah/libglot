@@ -184,6 +184,10 @@ private:
             "Message-ID",
             "In-Reply-To",
             "References",
+            "Content-ID",
+            "Content-Location",
+            "Content-Description",
+            "Content-Language",
         };
         for (auto name : kStructured) {
             if (detail::ascii_ieq(field, name)) {
@@ -220,6 +224,21 @@ private:
     /// comment stripping, RFC 2231 continuations, Content-Type validation,
     /// address-group parsing.
     void enhance_header(Header* header) {
+        // RFC 6532: headers may carry raw UTF-8 directly, not just RFC 2047
+        // encoded-words. Bytes >= 0x80 are legal here; the header value is
+        // never modified either way (it is always a plain slice of the
+        // arena-owned source) -- only genuinely invalid UTF-8 is flagged.
+        for (unsigned char c : header->value) {
+            if (c >= 0x80) {
+                if (!CharsetConverter::is_valid_utf8(header->value)) {
+                    record_anomaly(AnomalyKind::InvalidUtf8Header,
+                                   "header value contains bytes >= 0x80 that are not valid "
+                                   "UTF-8 (RFC 6532)");
+                }
+                break;
+            }
+        }
+
         // RFC 5322 comments in structured fields are not part of the value
         if (header->value.find('(') != std::string_view::npos &&
             is_structured_field(header->field)) {
@@ -289,6 +308,14 @@ private:
             return;
         }
 
+        // Structured values that apply regardless of Content-Type (e.g. a
+        // plain RFC 5322 message with no MIME headers at all still has a
+        // Date / Message-ID / References worth parsing -- this matters for
+        // message/rfc822 encapsulated messages in particular, which are
+        // routinely non-MIME).
+        parse_date_header(msg);
+        parse_threading_headers(msg);
+
         // The first Content-Type header drives the message structure
         Header* content_type = nullptr;
         for (auto* header : msg->headers) {
@@ -301,7 +328,38 @@ private:
             return;
         }
 
+        std::string_view media = detail::media_type_of(content_type->value);
+
         if (is_multipart(content_type->value)) {
+            if (detail::ascii_ieq(media, "multipart/report")) {
+                bool has_report_type = false;
+                for (const auto& param : content_type->parameters) {
+                    if (detail::ascii_ieq(param.first, "report-type")) {
+                        has_report_type = true;
+                        break;
+                    }
+                }
+                if (!has_report_type) {
+                    record_anomaly(AnomalyKind::MissingReportTypeParameter,
+                                   "multipart/report Content-Type lacks the required "
+                                   "report-type parameter (RFC 6522 §4)");
+                }
+            } else if (detail::ascii_ieq(media, "multipart/signed") ||
+                       detail::ascii_ieq(media, "multipart/encrypted")) {
+                bool has_protocol = false;
+                for (const auto& param : content_type->parameters) {
+                    if (detail::ascii_ieq(param.first, "protocol")) {
+                        has_protocol = true;
+                        break;
+                    }
+                }
+                if (!has_protocol) {
+                    record_anomaly(AnomalyKind::MissingProtocolParameter,
+                                   "multipart/signed or multipart/encrypted Content-Type "
+                                   "lacks the required protocol parameter (RFC 1847 §2)");
+                }
+            }
+
             for (const auto& param : content_type->parameters) {
                 if (param.first == "boundary") {
                     if (!param.second.empty()) {
@@ -310,18 +368,182 @@ private:
                     break;
                 }
             }
-        } else if (detail::ascii_ieq(detail::media_type_of(content_type->value),
-                                     "message/external-body")) {
+
+            if (detail::ascii_ieq(media, "multipart/related")) {
+                resolve_related_start(msg, content_type);
+            }
+        } else if (detail::ascii_ieq(media, "message/external-body")) {
             msg->external_body = this->arena().create<ExternalBodyRef>(
                 ExternalBodyParser::parse(content_type->parameters));
-        } else if (detail::ascii_ieq(detail::media_type_of(content_type->value),
-                                     "message/partial")) {
+        } else if (detail::ascii_ieq(media, "message/partial")) {
             msg->message_partial = this->arena().create<MessagePartialRef>(
                 MessagePartialParser::parse(content_type->parameters));
             record_anomaly(AnomalyKind::MessagePartialDetected,
                            "message/partial part detected; reassembly with sibling "
                            "fragments (matching id, ordered by number/total) is required");
+        } else if (detail::ascii_ieq(media, "message/rfc822")) {
+            msg->encapsulated = parse_encapsulated_message(msg->body);
+        } else if (detail::ascii_ieq(media, "message/delivery-status")) {
+            msg->delivery_status =
+                this->arena().create<DeliveryStatusRef>(DeliveryStatusParser::parse(msg->body));
         }
+    }
+
+    /// Parse the Date header (RFC 5322 §3.3) into a structured value,
+    /// attached to msg->date. A syntactically invalid Date is never
+    /// thrown -- it is recorded as AnomalyKind::InvalidDateFormat and left
+    /// unparsed (msg->date stays nullptr).
+    void parse_date_header(Message* msg) {
+        for (auto* header : msg->headers) {
+            if (!detail::ascii_ieq(header->field, "Date")) {
+                continue;
+            }
+            auto parsed = DateTimeParser::parse(header->value);
+            if (parsed.valid) {
+                msg->date = this->arena().create<ParsedDateTime>(parsed);
+            } else {
+                record_anomaly(AnomalyKind::InvalidDateFormat,
+                               "Date header could not be parsed as an RFC 5322 date-time");
+            }
+            break; // Only the first Date header is meaningful
+        }
+    }
+
+    /// Parse Message-ID / In-Reply-To / References (RFC 5322 §3.6.4) into
+    /// the AST. Malformed msg-ids are recorded as anomalies rather than
+    /// thrown or silently dropped.
+    void parse_threading_headers(Message* msg) {
+        for (auto* header : msg->headers) {
+            if (detail::ascii_ieq(header->field, "Message-ID") && !msg->message_id) {
+                auto ids = MessageIdParser::parse_list(header->value);
+                if (!ids.empty()) {
+                    if (!ids.front().valid) {
+                        record_anomaly(AnomalyKind::InvalidMessageIdSyntax,
+                                       "Message-ID does not contain a well-formed msg-id "
+                                       "(RFC 5322 §3.6.4)");
+                    }
+                    msg->message_id = this->arena().create<MessageId>(ids.front());
+                }
+            } else if (detail::ascii_ieq(header->field, "In-Reply-To") && !msg->in_reply_to) {
+                auto ids = MessageIdParser::parse_list(header->value);
+                for (const auto& id : ids) {
+                    if (!id.valid) {
+                        record_anomaly(AnomalyKind::InvalidMessageIdSyntax,
+                                       "In-Reply-To contains a malformed msg-id "
+                                       "(RFC 5322 §3.6.4)");
+                    }
+                }
+                msg->in_reply_to = this->arena().create<std::vector<MessageId>>(std::move(ids));
+            } else if (detail::ascii_ieq(header->field, "References") && !msg->references) {
+                auto ids = MessageIdParser::parse_list(header->value);
+                for (const auto& id : ids) {
+                    if (!id.valid) {
+                        record_anomaly(AnomalyKind::InvalidMessageIdSyntax,
+                                       "References contains a malformed msg-id "
+                                       "(RFC 5322 §3.6.4)");
+                    }
+                }
+                msg->references = this->arena().create<std::vector<MessageId>>(std::move(ids));
+            }
+        }
+    }
+
+    /// Recursively parse the body of a message/rfc822 part as a full
+    /// encapsulated RFC 5322 message (RFC 2046 §5.2.1), reusing the same
+    /// header+body pipeline as multipart parts (parse_part). Enforces the
+    /// SAME nesting-depth/part-count DoS limits as multipart: a chain of
+    /// nested message/rfc822 parts must not recurse unbounded.
+    Message* parse_encapsulated_message(std::string_view body) {
+        if (tracker_.current_nesting_depth >= limits_.max_nesting_depth) {
+            record_anomaly(AnomalyKind::ExcessiveNestingDepth,
+                           "message/rfc822 nesting depth limit reached; not descending further");
+            return nullptr;
+        }
+        if (tracker_.total_parts >= limits_.max_total_parts) {
+            record_anomaly(AnomalyKind::ExcessivePartCount,
+                           "message/rfc822 part count limit reached; not descending further");
+            return nullptr;
+        }
+        if (rejected_) {
+            return nullptr;
+        }
+
+        tracker_.enter_level();
+        tracker_.add_part();
+        Message* nested = parse_part(body);
+        tracker_.exit_level();
+        return nested;
+    }
+
+    /// Resolve multipart/related's "start" parameter (RFC 2387 §3.4) to the
+    /// root part by matching it against each part's Content-ID header. When
+    /// "start" is absent, or present but unresolved, the root part falls
+    /// back to the first part (RFC 2387 §3.4: "the 'start' parameter... In
+    /// its absence the first body part is the root").
+    void resolve_related_start(Message* msg, Header* content_type) {
+        if (msg->parts.empty()) {
+            return;
+        }
+
+        std::string_view start;
+        bool has_start = false;
+        for (const auto& param : content_type->parameters) {
+            if (detail::ascii_ieq(param.first, "start")) {
+                start = param.second;
+                has_start = true;
+                break;
+            }
+        }
+
+        if (!has_start || start.empty()) {
+            msg->related_root = msg->parts.front();
+            return;
+        }
+
+        std::string_view start_id = strip_angle_brackets(start);
+        for (auto* part : msg->parts) {
+            const Header* cid = find_header(*part, "Content-ID");
+            if (cid && strip_angle_brackets(cid->value) == start_id) {
+                msg->related_root = part;
+                return;
+            }
+        }
+
+        record_anomaly(AnomalyKind::InvalidRelatedStart,
+                       "multipart/related start parameter does not match any part's "
+                       "Content-ID; falling back to the first part (RFC 2387 §3.4)");
+        msg->related_root = msg->parts.front();
+    }
+
+    /// Find a header by (case-insensitive) field name within a single part.
+    static const Header* find_header(const Message& part, std::string_view field) {
+        for (const auto* header : part.headers) {
+            if (header && detail::ascii_ieq(header->field, field)) {
+                return header;
+            }
+        }
+        return nullptr;
+    }
+
+    /// Trim whitespace and one layer of angle brackets / surrounding quotes.
+    static std::string_view strip_angle_brackets(std::string_view value) {
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+            value.remove_prefix(1);
+        }
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+            value.remove_suffix(1);
+        }
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+            value.remove_prefix(1);
+            value.remove_suffix(1);
+        }
+        if (!value.empty() && value.front() == '<') {
+            value.remove_prefix(1);
+        }
+        if (!value.empty() && value.back() == '>') {
+            value.remove_suffix(1);
+        }
+        return value;
     }
 
     /// Parse parameters from header value (e.g., "text/plain; charset=utf-8")
@@ -476,6 +698,12 @@ private:
 
     /// Parse a single MIME part (headers + body)
     Part* parse_part(std::string_view content) {
+        // The exact bytes as transmitted between boundary delimiters,
+        // before header unfolding or any decoding -- preserved verbatim on
+        // the resulting part as raw_source (see Message::raw_source; this
+        // is what a multipart/signed (RFC 1847) signature would cover).
+        std::string_view raw = content;
+
         std::vector<Header*> headers;
 
         // Split headers from body at the first empty line (CRLF, LF, or
@@ -545,6 +773,7 @@ private:
 
         // Create part and run it through the same pipeline as the message
         auto* part = this->template create_node<Part>(headers, body_text);
+        part->raw_source = raw;
         finish_message(part);
         return part;
     }
