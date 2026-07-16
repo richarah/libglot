@@ -3,6 +3,7 @@
 #include "ast_nodes.h"
 #include "dialect_traits.h"
 #include "grammar.h"
+#include "transforms.h"
 #include <libglot/gen/generator.h>
 #include <sstream>
 #include <stdexcept>
@@ -40,10 +41,15 @@ public:
     using Base::generate;
     using Base::reset;
 
-    // Explicit constructor (CRTP doesn't always play nice with using Base::Base)
-    explicit SQLGenerator(SQLDialect dialect,
-                          const typename Base::Options& opts = typename Base::Options{})
-        : Base(dialect, opts) {}
+    // Explicit constructor (CRTP doesn't always play nice with using Base::Base).
+    // `transform_arena`, when non-null, opts the generator into lowering
+    // constructs with no native syntax in the target dialect (currently:
+    // Oracle/Snowflake CONNECT BY hierarchical queries) into an equivalent
+    // rewrite instead of throwing std::logic_error. The arena is owned by
+    // the caller and must outlive this generator; nothing is allocated from
+    // it unless a lowering is actually triggered.
+    explicit SQLGenerator(SQLDialect dialect, libglot::Arena* transform_arena = nullptr)
+        : Base(dialect), transform_arena_(transform_arena) {}
 
     // ========================================================================
     // Main Visitor Dispatch (Required by GeneratorBase)
@@ -578,6 +584,10 @@ public:
     // ========================================================================
 
 private:
+    /// Set from the constructor's `transform_arena` parameter; see the
+    /// constructor's doc comment. Null means "no lowering: throw instead".
+    libglot::Arena* transform_arena_ = nullptr;
+
     /// PostgreSQL's ON CONFLICT DO UPDATE pseudo-relation "excluded" is a
     /// case-folded bare identifier, not a real table: quoting it (e.g.
     /// "EXCLUDED") would make PostgreSQL look for a literal table named
@@ -911,6 +921,32 @@ private:
     }
 
     void visit_select_stmt(SelectStmt* stmt) {
+        // Oracle hierarchical queries (START WITH / CONNECT BY) only have
+        // native syntax in Oracle and Snowflake. For every other dialect,
+        // either lower to an equivalent WITH RECURSIVE CTE (when a
+        // transform arena was supplied to the constructor) or fail loudly
+        // rather than emit silently broken SQL. This dispatch has to run
+        // before any output is written for `stmt` below: visiting the
+        // lowered statement writes its own output from scratch, and if we
+        // let the ordinary path below start writing first (WITH/SELECT/
+        // columns/FROM/...) that partial output would be left dangling
+        // ahead of the lowered statement's own WITH RECURSIVE preamble.
+        if (stmt->start_with || stmt->connect_by) {
+            const auto hier_dialect = this->dialect();
+            if (hier_dialect != SQLDialect::Oracle && hier_dialect != SQLDialect::Snowflake) {
+                if (transform_arena_) {
+                    visit(lower_connect_by(*transform_arena_, stmt));
+                    return;
+                }
+                throw std::logic_error(
+                    "CONNECT BY requires the Oracle or Snowflake dialect; rewrite the "
+                    "hierarchical query as a recursive CTE for " +
+                    std::string(SQLDialectTraits::name(hier_dialect)) +
+                    ", or construct SQLGenerator with a transform arena to lower "
+                    "automatically");
+            }
+        }
+
         // WITH clause (CTEs)
         if (stmt->with && !stmt->with->ctes.empty()) {
             this->write("WITH");
@@ -1021,23 +1057,16 @@ private:
 
         // Oracle hierarchical clauses. Canonical emission order is
         // START WITH before CONNECT BY regardless of the parsed order.
-        // Only Oracle and Snowflake understand this syntax; emitting it
-        // as-is for other dialects would produce silently broken SQL, so
-        // fail loudly instead (rewrite as a recursive CTE by hand).
-        if (stmt->start_with || stmt->connect_by) {
-            if (select_dialect != SQLDialect::Oracle && select_dialect != SQLDialect::Snowflake) {
-                throw std::logic_error("CONNECT BY requires the Oracle or Snowflake dialect; "
-                                       "rewrite the hierarchical query as a recursive CTE for " +
-                                       std::string(SQLDialectTraits::name(select_dialect)));
-            }
-            if (stmt->start_with) {
-                this->space();
-                visit_start_with_clause(stmt->start_with);
-            }
-            if (stmt->connect_by) {
-                this->space();
-                visit_connect_by_clause(stmt->connect_by);
-            }
+        // Dialect support (Oracle/Snowflake only) and the lowering fallback
+        // were already handled at the very top of this function, before any
+        // output was written - reaching here means it's safe to emit as-is.
+        if (stmt->start_with) {
+            this->space();
+            visit_start_with_clause(stmt->start_with);
+        }
+        if (stmt->connect_by) {
+            this->space();
+            visit_connect_by_clause(stmt->connect_by);
         }
 
         // GROUP BY clause
@@ -3649,7 +3678,7 @@ private:
                 this->write("RAISE");
                 if (!stmt->level.empty() && stmt->level != "SIGNAL") {
                     this->space();
-                    this->write(stmt->level);
+                    write_raise_level(stmt->level);
                 }
                 if (!stmt->message.empty()) {
                     this->space();
@@ -3667,6 +3696,36 @@ private:
                 }
             }
         }
+    }
+
+    /// Emit a RAISE level. Real level keywords (EXCEPTION, NOTICE, ...) are
+    /// written bare; anything else - e.g. a level that was parsed from a
+    /// quoted identifier - is written through write_identifier so it stays
+    /// re-lexable (a bare token with special characters would not round-trip).
+    void write_raise_level(std::string_view level) {
+        static constexpr std::string_view kLevels[] = {"EXCEPTION", "NOTICE", "WARNING",
+                                                        "INFO",      "LOG",    "DEBUG",
+                                                        "ASSERT"};
+        for (std::string_view kw : kLevels) {
+            if (level.size() == kw.size()) {
+                bool eq = true;
+                for (size_t i = 0; i < level.size(); ++i) {
+                    if (ascii_upper(level[i]) != kw[i]) {
+                        eq = false;
+                        break;
+                    }
+                }
+                if (eq) {
+                    this->write(level);
+                    return;
+                }
+            }
+        }
+        write_identifier(level);
+    }
+
+    static constexpr char ascii_upper(char c) noexcept {
+        return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
     }
 
     void visit_open_cursor_stmt(OpenCursorStmt* stmt) {

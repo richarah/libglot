@@ -9,6 +9,7 @@ set(SQL_TESTS
     test_begin_end_blocks
     test_bugfix_regressions
     test_connect_by
+    test_connect_by_lowering
     test_create_procedure
     test_cte_windows_subqueries
     test_cursors

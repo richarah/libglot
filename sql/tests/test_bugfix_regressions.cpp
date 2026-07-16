@@ -308,3 +308,31 @@ TEST_CASE("Fuzz regression - Snowflake ':' path access is dialect-gated",
         REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
     }
 }
+
+TEST_CASE("Fuzz regression - RAISE level from a quoted identifier round-trips",
+          "[fuzz][raise]") {
+    // fuzz_sql_roundtrip: RAISE followed by a quoted identifier stored the
+    // identifier as the level and re-emitted it bare, so a level containing
+    // characters that need quoting produced SQL that would not re-lex.
+    libglot::Arena arena;
+    libglot::sql::SQLParser parser(arena, "RAISE \"weird level\"");
+    auto* ast = parser.parse_top_level();
+    REQUIRE(ast != nullptr);
+
+    libglot::sql::SQLGenerator gen(SQLDialect::PostgreSQL);
+    const std::string g1 = gen.generate(ast);
+    // The non-keyword level must be quoted, and the result must re-parse.
+    libglot::Arena arena2;
+    libglot::sql::SQLParser reparser(arena2, g1, SQLDialect::PostgreSQL);
+    auto* ast2 = reparser.parse_top_level();
+    libglot::sql::SQLGenerator gen2(SQLDialect::PostgreSQL);
+    REQUIRE(gen2.generate(ast2) == g1);
+}
+
+TEST_CASE("RAISE keyword levels stay unquoted", "[raise]") {
+    libglot::Arena arena;
+    libglot::sql::SQLParser parser(arena, "RAISE NOTICE 'hi'");
+    auto* ast = parser.parse_top_level();
+    libglot::sql::SQLGenerator gen(SQLDialect::PostgreSQL);
+    REQUIRE(gen.generate(ast) == "RAISE NOTICE 'hi'");
+}
