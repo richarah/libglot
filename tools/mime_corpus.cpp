@@ -89,8 +89,14 @@ int main(int argc, char** argv) {
             if (!entry.is_regular_file()) {
                 continue;
             }
+            // Accept any regular file: real corpora (SpamAssassin, Enron)
+            // name messages by hash with no meaningful extension, so
+            // filtering on one silently skips the entire corpus. Only
+            // obvious non-messages are excluded.
             const auto ext = entry.path().extension().string();
-            if (ext != ".eml" && ext != ".txt" && ext != "") {
+            const auto name = entry.path().filename().string();
+            if (ext == ".bz2" || ext == ".gz" || ext == ".zip" || ext == ".tar" ||
+                name == "cmds" || name == ".DS_Store") {
                 continue;
             }
             ++s.total;

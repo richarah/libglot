@@ -48,7 +48,7 @@ Ordered by real-world frequency:
 7. `multipart/signed` / `encrypted` (RFC 1847) - requires byte-exact
    canonical preservation of the signed part, or signatures break
 
-## Stage 4 - Differential testing (issue #7) [STRUCTURAL]
+## Stage 4 - Differential testing (issue #7) [STRUCTURAL] - DONE
 
 Run libglot and a mature implementation (Python stdlib `email`) over the
 same corpus; diff parsed structure (part count, content types, header
@@ -59,6 +59,41 @@ disagreements into the fuzz corpus.
 **Deliberately after stage 3**: a differential oracle run before the
 envelope gaps are closed would report a flood of known-missing features
 rather than real bugs.
+
+### Measured results (2026-07-16)
+
+- Committed corpus (`tests/corpus/mime`, 6 messages): **100% agreement**,
+  gated in CI by the `mime-differential` job.
+- 500 real SpamAssassin messages: **92.2% agreement** (405/500 before a
+  harness fix; the first run's dominant "disagreement" was the harness's
+  own bug - mime_dump applies RFC 2045's absent-header `charset=us-ascii`
+  default and the Python side did not, so the two sides differed by
+  convention rather than on content).
+- Robustness over 3,302 SpamAssassin messages: **98.64% parse**, 98.2% of
+  text parts decoded. The raw figure is 11% because those files are mbox:
+  each begins with a `From <addr> <date>` separator line, which is a
+  storage envelope, not RFC 5322 content. Stripping it is a tooling
+  concern - and proper mbox support means *splitting* one file into many
+  messages (some corpus files carry a `From ` line mid-file), not dropping
+  line 1. Tracked as issue #9; the parser stays strict by design.
+
+### Residual disagreements, classified
+
+- **ISO-8859-15 bodies** (7 of 500): libglot has no ISO-8859-15 decoder, so
+  it reports the charset as unknown rather than mislabelling the bytes.
+  Latin-9 is Latin-1 with eight substitutions, so this is a cheap, honest
+  win - issue #8.
+- **us-ascii-declared bodies containing 8-bit bytes**: Python's strict
+  decode raises and yields no text; libglot passes the bytes through. Both
+  defensible; libglot is the more useful behaviour here.
+- **A malformed date zone** (`19:21:44 01800`): Python resolves it to
+  +18:00; libglot declines to parse and records `InvalidDateFormat`.
+  Python is being extremely lenient with a zone that is not valid syntax.
+- **Address/subject formatting**: display-name and folding conventions
+  between the two canonicalizations, not content differences.
+
+The oracle has not yet found a libglot correctness bug - which is itself
+the useful result, given it found several in the harness.
 
 ## Stage 5 - Corpus breadth
 

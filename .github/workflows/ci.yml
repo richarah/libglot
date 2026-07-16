@@ -125,6 +125,24 @@ jobs:
           cd ..
           ./build/tools/mime_corpus --min-success 0.0 --quiet sa || true
 
+  mime-differential:
+    name: MIME differential vs Python email
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14
+      - name: Build mime_dump
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_TESTING=OFF \
+            -DLIBGLOT_BUILD_EXAMPLES=OFF -DLIBGLOT_BUILD_SQL=OFF
+          cmake --build build -j"$(nproc)" --target mime_dump
+      - name: Committed corpus must agree 100% with Python's email module
+        run: |
+          python3 scripts/mime_diff.py --tool build/tools/mime_dump \
+            --corpus tests/corpus/mime --fail-under 1.0 --verbose
+
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04
