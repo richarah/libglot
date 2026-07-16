@@ -822,6 +822,10 @@ private:
             write_temporal_clause(tbl);
         }
 
+        if (tbl->as_of_system_time) {
+            write_as_of_system_time_clause(tbl);
+        }
+
         // Output alias if present
         if (!tbl->alias.empty()) {
             this->space();
@@ -829,6 +833,27 @@ private:
             this->space();
             write_identifier(tbl->alias);
         }
+    }
+
+    /// CockroachDB's `AS OF SYSTEM TIME <expr>` historical-read clause - a
+    /// real CockroachDB-specific delta from plain PostgreSQL (docs/ROADMAP.md
+    /// stage 2). Distinct from the SQL:2011 FOR SYSTEM_TIME clause above:
+    /// different keywords, different semantics (a point-in-time read, not a
+    /// temporal-table history query), and CockroachDB-only - deliberately
+    /// not extended to the rest of the PostgreSQL family (e.g. YugabyteDB
+    /// has a similar distributed-timestamp model, but whether it accepts
+    /// this exact clause was never verified, so it stays unmodeled there
+    /// rather than guessed at).
+    void write_as_of_system_time_clause(TableRef* tbl) {
+        const auto d = this->dialect();
+        if (d != SQLDialect::CockroachDB) {
+            throw std::logic_error("AS OF SYSTEM TIME has no equivalent in " +
+                                    std::string(SQLDialectTraits::name(d)));
+        }
+        this->space();
+        this->write("AS OF SYSTEM TIME");
+        this->space();
+        visit(tbl->as_of_system_time_arg);
     }
 
     /// SQL:2011 system-versioned temporal table clause: only T-SQL (SQL
@@ -1236,6 +1261,17 @@ private:
             case ForUpdateWait::NONE:
                 break;
             }
+        }
+
+        // RisingWave: SELECT ... EMIT CHANGES streaming subscription
+        // modifier (docs/ROADMAP.md stage 2) - always last.
+        if (stmt->emit_changes) {
+            if (this->dialect() != SQLDialect::RisingWave) {
+                throw std::logic_error("EMIT CHANGES has no equivalent in " +
+                                        std::string(SQLDialectTraits::name(this->dialect())));
+            }
+            this->space();
+            this->write("EMIT CHANGES");
         }
     }
 
@@ -1743,7 +1779,22 @@ private:
     // ========================================================================
 
     void visit_insert_stmt(InsertStmt* stmt) {
-        this->write("INSERT INTO");
+        if (stmt->is_upsert) {
+            // CockroachDB UPSERT INTO ... (implicit insert-or-update on the
+            // primary key; docs/ROADMAP.md stage 2). Not the same statement
+            // as INSERT ... ON CONFLICT, so it is not silently downgraded to
+            // a plain INSERT for any other dialect.
+            if (this->dialect() != SQLDialect::CockroachDB) {
+                throw std::logic_error(
+                    "UPSERT (CockroachDB's implicit insert-or-update statement) has no "
+                    "equivalent in " +
+                    std::string(SQLDialectTraits::name(this->dialect())) +
+                    "; use INSERT ... ON CONFLICT / ON DUPLICATE KEY UPDATE instead");
+            }
+            this->write("UPSERT INTO");
+        } else {
+            this->write("INSERT INTO");
+        }
         this->space();
         visit(stmt->table);
 
@@ -1790,6 +1841,7 @@ private:
 
         // Other dialects: RETURNING at the end of the statement
         if (stmt->output && !is_tsql_dialect(this->dialect())) {
+            require_returning_supported(this->dialect(), /*is_update=*/false);
             this->space();
             write_output_clause(stmt->output, "INSERTED");
         }
@@ -1909,6 +1961,7 @@ private:
 
         // Other dialects: RETURNING at the end of the statement
         if (stmt->output && !is_tsql_dialect(this->dialect())) {
+            require_returning_supported(this->dialect(), /*is_update=*/true);
             this->space();
             write_output_clause(stmt->output, "INSERTED");
         }
@@ -1943,6 +1996,7 @@ private:
 
         // Other dialects: RETURNING at the end of the statement
         if (stmt->output && !is_tsql_dialect(this->dialect())) {
+            require_returning_supported(this->dialect(), /*is_update=*/false);
             this->space();
             write_output_clause(stmt->output, "DELETED");
         }
@@ -2116,6 +2170,23 @@ private:
         }
     }
 
+    /// CREATE MATERIALIZED VIEW is restricted to the PostgreSQL family
+    /// (docs/ROADMAP.md stage 2: this is RisingWave's and Materialize's
+    /// primary construct, and every other PG-family member is a verified
+    /// PostgreSQL fork that also accepts this exact syntax). Materialized
+    /// views genuinely exist in several other dialects too (Oracle,
+    /// Snowflake, BigQuery, ...) but each has its own refresh/options
+    /// syntax that was not modeled or tested here, so they throw rather
+    /// than silently emitting a PostgreSQL-shaped statement that may not be
+    /// valid there.
+    static void require_materialized_view_supported(SQLDialect d) {
+        if (!SQLDialectTraits::is_family(d, SQLDialectFamily::PostgreSQL)) {
+            throw std::logic_error(
+                "CREATE MATERIALIZED VIEW is only modeled for the PostgreSQL family in " +
+                std::string(SQLDialectTraits::name(d)));
+        }
+    }
+
     void visit_create_view_stmt(CreateViewStmt* stmt) {
         this->write("CREATE");
 
@@ -2125,7 +2196,12 @@ private:
         }
 
         this->space();
-        this->write("VIEW");
+        if (stmt->materialized) {
+            require_materialized_view_supported(this->dialect());
+            this->write("MATERIALIZED VIEW");
+        } else {
+            this->write("VIEW");
+        }
 
         if (stmt->if_not_exists) {
             this->space();
@@ -2196,7 +2272,12 @@ private:
     }
 
     void visit_drop_view_stmt(DropViewStmt* stmt) {
-        this->write("DROP VIEW");
+        if (stmt->materialized) {
+            require_materialized_view_supported(this->dialect());
+            this->write("DROP MATERIALIZED VIEW");
+        } else {
+            this->write("DROP VIEW");
+        }
 
         if (stmt->if_exists) {
             this->space();
@@ -2468,6 +2549,17 @@ private:
             this->write(seq->is_next ? "NEXT VALUE FOR" : "PREVIOUS VALUE FOR");
             this->space();
             write_identifier(seq->sequence_name);
+        } else if (d == SQLDialect::MariaDB) {
+            // MariaDB: NEXTVAL(seq) / LASTVAL(seq) (its CURRVAL equivalent) -
+            // a real, confirmed delta from MySQL (which has neither) and
+            // from the generic function-style form just below (a bare,
+            // unquoted sequence-name argument, not a quoted string literal -
+            // MariaDB's NEXTVAL/LASTVAL take an identifier, not a regclass-
+            // style string like PostgreSQL's nextval('seq')).
+            this->write(seq->is_next ? "NEXTVAL" : "LASTVAL");
+            this->write('(');
+            write_identifier(seq->sequence_name);
+            this->write(')');
         } else {
             // Function-style: nextval('seq') / currval('seq')
             this->write(seq->is_next ? "NEXTVAL" : "CURRVAL");
@@ -3003,6 +3095,25 @@ private:
     }
 
     void visit_show_stmt(ShowStmt* stmt) {
+        // Materialize TAIL/SUBSCRIBE (docs/ROADMAP.md stage 2): distinct
+        // streaming-query statements, Materialize-only. Fixes a pre-existing
+        // bug found while promoting Materialize - this branch did not exist
+        // before, so `TAIL t` silently regenerated as `SHOW t` (stmt->what
+        // held the table name, and the code below unconditionally wrote
+        // "SHOW"), which is not a fixed point and not even the same
+        // statement.
+        if (stmt->is_tail || stmt->is_subscribe) {
+            if (this->dialect() != SQLDialect::Materialize) {
+                throw std::logic_error(std::string(stmt->is_tail ? "TAIL" : "SUBSCRIBE") +
+                                        " has no equivalent in " +
+                                        std::string(SQLDialectTraits::name(this->dialect())));
+            }
+            this->write(stmt->is_tail ? "TAIL" : "SUBSCRIBE");
+            this->space();
+            write_identifier(stmt->what);
+            return;
+        }
+
         this->write("SHOW");
         this->space();
         this->write(stmt->what);
@@ -4098,6 +4209,34 @@ private:
     /// automatically.
     static bool is_tsql_dialect(SQLDialect d) noexcept {
         return SQLDialectTraits::is_family(d, SQLDialectFamily::TSQL);
+    }
+
+    /// Which non-T-SQL dialects genuinely support RETURNING, verified while
+    /// promoting MariaDB (docs/ROADMAP.md stage 2, issue #3 follow-on):
+    ///
+    /// - MySQL has never added RETURNING in any form - every statement kind
+    ///   throws. Before this stage-2 pass this generic RETURNING path had no
+    ///   dialect gate at all, so MySQL would have silently produced invalid
+    ///   SQL here; fixed alongside the MariaDB delta since without it there
+    ///   would be nothing to actually distinguish MariaDB's RETURNING from
+    ///   MySQL's lack of it.
+    /// - MariaDB added RETURNING for DELETE (10.0) and INSERT (10.5), but
+    ///   has never added it for UPDATE - a real, confirmed gap, not a guess.
+    ///
+    /// Every other dialect reaching this helper already fell through the
+    /// generic RETURNING branch unconditionally before this pass; that
+    /// permissive default is deliberately left as-is (not newly audited
+    /// dialect-by-dialect here - out of scope for this promotion).
+    static void require_returning_supported(SQLDialect d, bool is_update) {
+        if (d == SQLDialect::MySQL) {
+            throw std::logic_error("RETURNING has no equivalent in MySQL (use LAST_INSERT_ID() or "
+                                   "a separate SELECT)");
+        }
+        if (d == SQLDialect::MariaDB && is_update) {
+            throw std::logic_error(
+                "RETURNING is not supported on UPDATE in MariaDB (only INSERT, since 10.5, and "
+                "DELETE, since 10.0, support RETURNING)");
+        }
     }
 
     /// Emit an OUTPUT/RETURNING clause. `default_qualifier` is the row

@@ -303,16 +303,27 @@ private:
         with(standard_base(), {.supports_ilike = true}), // MonetDB
 
         // Distributed SQL Databases
+        //
+        // TiDB and SingleStore previously overrode true_literal/false_literal
+        // to "TRUE"/"FALSE" (issue #5's illustrative example of the `with()`
+        // delta mechanism overriding a base value). Verified while promoting
+        // both to first-class (docs/ROADMAP.md stage 2, issue #3 follow-on):
+        // both are MySQL wire-compatible forks with no confirmed boolean-
+        // literal display difference from MySQL (MySQL/TiDB/SingleStore all
+        // lack a real BOOLEAN literal - TRUE/FALSE are accepted as input but
+        // are just aliases for 1/0). Since this could not be confirmed as a
+        // real delta, per the honesty rule it now inherits mysql_base()'s
+        // 1/0 unchanged rather than restating an unverified guess.
         with(postgres_base(), {}), // CockroachDB (PostgreSQL wire-compatible)
         with(postgres_base(), {}), // YugabyteDB (PostgreSQL wire-compatible)
-        with(mysql_base(), {.true_literal = "TRUE", .false_literal = "FALSE"}), // TiDB
+        with(mysql_base(), {}),    // TiDB (MySQL wire-compatible; see note below)
         with(standard_base(), {.identifier_quote = '`'}),                      // Spanner
         with(postgres_base(), {}), // Citus (PostgreSQL extension)
 
         // Time-Series & Real-Time Databases
         with(postgres_base(), {}), // TimescaleDB (PostgreSQL extension)
         with(standard_base(), {}), // QuestDB
-        with(mysql_base(), {.true_literal = "TRUE", .false_literal = "FALSE"}), // SingleStore
+        with(mysql_base(), {}),    // SingleStore (MySQL wire-compatible; see note below)
 
         // Streaming & Materialized Views
         with(postgres_base(), {}), // RisingWave (PostgreSQL wire-compatible)

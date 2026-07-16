@@ -161,6 +161,8 @@ public:
             return parse_upsert();
         } else if (check(TK::TAIL)) {
             return parse_tail();
+        } else if (check(TK::IDENTIFIER) && ieq(current().text, "SUBSCRIBE")) {
+            return parse_tail();
         } else if (check(TK::OPTIMIZE)) {
             return parse_optimize();
         } else if (check(TK::COMPUTE)) {
@@ -531,13 +533,17 @@ public:
         // Sequence NEXTVAL('seq') / CURRVAL('seq') function-style call
         // (PostgreSQL/DB2/MariaDB/... ; the Oracle member-style seq.NEXTVAL
         // is recognized below, in the column-reference '.' handling).
-        // NEXTVAL/CURRVAL are not reserved keywords, so this must be
+        // MariaDB's actual "current value" function is spelled LASTVAL, not
+        // CURRVAL - both canonicalize to the same SequenceRefExpr(is_next =
+        // false); the generator picks the right spelling back for MariaDB.
+        // NEXTVAL/CURRVAL/LASTVAL are not reserved keywords, so this must be
         // disambiguated from an ordinary function call by name + LPAREN.
         if (check(TK::IDENTIFIER) &&
-            (ieq(current().text, "NEXTVAL") || ieq(current().text, "CURRVAL")) &&
+            (ieq(current().text, "NEXTVAL") || ieq(current().text, "CURRVAL") ||
+             ieq(current().text, "LASTVAL")) &&
             peek(1).type == TK::LPAREN) {
             bool is_next = ieq(current().text, "NEXTVAL");
-            (void)advance(); // NEXTVAL / CURRVAL
+            (void)advance(); // NEXTVAL / CURRVAL / LASTVAL
             expect(TK::LPAREN);
             if (!check(TK::STRING) && !check(TK::IDENTIFIER)) {
                 error("Expected sequence name in NEXTVAL()/CURRVAL()");
@@ -1141,6 +1147,17 @@ public:
                 (void)advance(); // LOCKED
                 stmt->for_update_wait = ForUpdateWait::SKIP_LOCKED;
             }
+        }
+
+        // RisingWave: SELECT ... EMIT CHANGES (streaming subscription
+        // modifier, always last). EMIT and CHANGES are soft keywords
+        // (matched by identifier text), so a column/table alias literally
+        // named "emit" is unaffected elsewhere.
+        if (check(TK::IDENTIFIER) && ieq(current().text, "EMIT") && peek(1).type == TK::IDENTIFIER &&
+            ieq(peek(1).text, "CHANGES")) {
+            (void)advance(); // EMIT
+            (void)advance(); // CHANGES
+            stmt->emit_changes = true;
         }
 
         return stmt;
@@ -2065,6 +2082,21 @@ public:
             }
         }
 
+        // CockroachDB: AS OF SYSTEM TIME <expr> historical-read clause -
+        // distinct from the SQL:2011 FOR SYSTEM_TIME clause above (no
+        // FOR/SYSTEM_TIME keyword, just AS OF SYSTEM TIME directly after the
+        // table reference, before any alias). SYSTEM is a soft keyword
+        // (matched by identifier text); TIME is the reserved datatype token.
+        if (check(TK::AS) && peek(1).type == TK::OF && peek(2).type == TK::IDENTIFIER &&
+            ieq(peek(2).text, "SYSTEM") && peek(3).type == TK::TIME) {
+            (void)advance(); // AS
+            (void)advance(); // OF
+            (void)advance(); // SYSTEM
+            (void)advance(); // TIME
+            table->as_of_system_time = true;
+            table->as_of_system_time_arg = parse_expression();
+        }
+
         // Check for optional alias: table_name AS alias or table_name alias
         if (match(TK::AS)) {
             if (check(TK::LPAREN) || check(TK::RPAREN) || check(TK::COMMA) ||
@@ -2081,13 +2113,17 @@ public:
             // so a table alias literally named "start" still works.
             const bool is_start_with =
                 (next_word == "START" || next_word == "start") && peek(1).type == TK::WITH;
-            if (!is_start_with && next_word != "TABLESAMPLE" && next_word != "tablesample" &&
-                next_word != "JOIN" && next_word != "INNER" && next_word != "LEFT" &&
-                next_word != "RIGHT" && next_word != "FULL" && next_word != "CROSS" &&
-                next_word != "WHERE" && next_word != "ORDER" && next_word != "GROUP" &&
-                next_word != "HAVING" && next_word != "LIMIT" && next_word != "OFFSET" &&
-                next_word != "UNION" && next_word != "INTERSECT" && next_word != "EXCEPT" &&
-                next_word != "WINDOW" && next_word != "window") {
+            // RisingWave: EMIT CHANGES is not an alias (the two-token form
+            // only - a table alias literally named "emit" still works).
+            const bool is_emit_changes =
+                ieq(next_word, "EMIT") && peek(1).type == TK::IDENTIFIER && ieq(peek(1).text, "CHANGES");
+            if (!is_start_with && !is_emit_changes && next_word != "TABLESAMPLE" &&
+                next_word != "tablesample" && next_word != "JOIN" && next_word != "INNER" &&
+                next_word != "LEFT" && next_word != "RIGHT" && next_word != "FULL" &&
+                next_word != "CROSS" && next_word != "WHERE" && next_word != "ORDER" &&
+                next_word != "GROUP" && next_word != "HAVING" && next_word != "LIMIT" &&
+                next_word != "OFFSET" && next_word != "UNION" && next_word != "INTERSECT" &&
+                next_word != "EXCEPT" && next_word != "WINDOW" && next_word != "window") {
                 // This is an alias without AS
                 table->alias = advance().text;
             }
@@ -2563,10 +2599,20 @@ public:
             is_temporary = true;
         }
 
+        // MATERIALIZED VIEW (PostgreSQL family - RisingWave and Materialize
+        // both use this as their primary construct; MATERIALIZED is a soft
+        // keyword, matched by identifier text).
+        bool materialized = false;
+        if (check(TK::IDENTIFIER) && ieq(current().text, "MATERIALIZED") &&
+            peek(1).type == TK::VIEW) {
+            (void)advance(); // MATERIALIZED
+            materialized = true;
+        }
+
         if (check(TK::TABLE)) {
             return parse_create_table(is_temporary, is_global);
         } else if (check(TK::VIEW)) {
-            return parse_create_view(or_replace);
+            return parse_create_view(or_replace, materialized);
         } else if (check(TK::INDEX)) {
             return parse_create_index();
         } else if (check(TK::SCHEMA) || check(TK::DATABASE)) {
@@ -2989,10 +3035,11 @@ public:
         return col;
     }
 
-    /// Parse CREATE VIEW
-    CreateViewStmt* parse_create_view(bool or_replace) {
+    /// Parse CREATE [MATERIALIZED] VIEW
+    CreateViewStmt* parse_create_view(bool or_replace, bool materialized = false) {
         auto stmt = this->template create_node<CreateViewStmt>();
         stmt->or_replace = or_replace;
+        stmt->materialized = materialized;
         expect(TK::VIEW);
 
         // View name
@@ -3105,10 +3152,19 @@ public:
     SQLNode* parse_drop_statement() {
         expect(TK::DROP);
 
+        // DROP MATERIALIZED VIEW (PostgreSQL family - mirrors CREATE
+        // MATERIALIZED VIEW; MATERIALIZED is a soft keyword).
+        bool materialized = false;
+        if (check(TK::IDENTIFIER) && ieq(current().text, "MATERIALIZED") &&
+            peek(1).type == TK::VIEW) {
+            (void)advance(); // MATERIALIZED
+            materialized = true;
+        }
+
         if (check(TK::TABLE)) {
             return parse_drop_table();
         } else if (check(TK::VIEW)) {
-            return parse_drop_view();
+            return parse_drop_view(materialized);
         } else if (check(TK::INDEX)) {
             return parse_drop_index();
         } else if (check(TK::SCHEMA) || check(TK::DATABASE)) {
@@ -3166,9 +3222,10 @@ public:
         return stmt;
     }
 
-    /// Parse DROP VIEW
-    DropViewStmt* parse_drop_view() {
+    /// Parse DROP [MATERIALIZED] VIEW
+    DropViewStmt* parse_drop_view(bool materialized = false) {
         auto stmt = this->template create_node<DropViewStmt>();
+        stmt->materialized = materialized;
         expect(TK::VIEW);
 
         // IF EXISTS?
@@ -4315,8 +4372,14 @@ public:
     // ========================================================================
 
     InsertStmt* parse_upsert() {
-        // UPSERT is similar to INSERT - treat as INSERT for now
+        // CockroachDB UPSERT INTO ... - an implicit insert-or-update on the
+        // primary key, structurally identical to INSERT but a distinct
+        // statement (no ON CONFLICT clause); is_upsert records this so the
+        // generator regenerates the same UPSERT keyword instead of silently
+        // downgrading it to a plain INSERT (which would be a different,
+        // narrower statement).
         auto stmt = this->template create_node<InsertStmt>();
+        stmt->is_upsert = true;
         expect(TK::UPSERT);
         expect(TK::INTO);
 
@@ -4353,9 +4416,18 @@ public:
     }
 
     ShowStmt* parse_tail() {
-        // TAIL table_name (Materialize)
+        // TAIL table_name (Materialize, deprecated spelling) or SUBSCRIBE
+        // table_name (Materialize, current spelling) - both parse onto the
+        // same ShowStmt shape; is_tail/is_subscribe records which keyword
+        // was written so the generator preserves the exact spelling.
         auto stmt = this->template create_node<ShowStmt>();
-        expect(TK::TAIL);
+        if (check(TK::TAIL)) {
+            (void)advance(); // TAIL
+            stmt->is_tail = true;
+        } else {
+            (void)advance(); // SUBSCRIBE (soft keyword)
+            stmt->is_subscribe = true;
+        }
         if (check(TK::IDENTIFIER)) {
             stmt->what = advance().text;
         }

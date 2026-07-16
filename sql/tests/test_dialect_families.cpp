@@ -79,13 +79,13 @@ constexpr ExpectedRow kExpected[] = {
 
     {SQLDialect::CockroachDB, SQLDialectFamily::PostgreSQL, '"', true, true, "TRUE", "FALSE"},
     {SQLDialect::YugabyteDB, SQLDialectFamily::PostgreSQL, '"', true, true, "TRUE", "FALSE"},
-    {SQLDialect::TiDB, SQLDialectFamily::MySQL, '`', true, false, "TRUE", "FALSE"},
+    {SQLDialect::TiDB, SQLDialectFamily::MySQL, '`', true, false, "1", "0"},
     {SQLDialect::Spanner, SQLDialectFamily::Standard, '`', true, false, "TRUE", "FALSE"},
     {SQLDialect::Citus, SQLDialectFamily::PostgreSQL, '"', true, true, "TRUE", "FALSE"},
 
     {SQLDialect::TimescaleDB, SQLDialectFamily::PostgreSQL, '"', true, true, "TRUE", "FALSE"},
     {SQLDialect::QuestDB, SQLDialectFamily::Standard, '"', true, false, "TRUE", "FALSE"},
-    {SQLDialect::SingleStore, SQLDialectFamily::MySQL, '`', true, false, "TRUE", "FALSE"},
+    {SQLDialect::SingleStore, SQLDialectFamily::MySQL, '`', true, false, "1", "0"},
 
     {SQLDialect::RisingWave, SQLDialectFamily::PostgreSQL, '"', true, true, "TRUE", "FALSE"},
     {SQLDialect::Materialize, SQLDialectFamily::PostgreSQL, '"', true, true, "TRUE", "FALSE"},
@@ -266,13 +266,18 @@ TEST_CASE("dialect families - MySQL family members inherit backtick quoting from
     CHECK(SQLDialectTraits::get_features(SQLDialect::TiDB).identifier_quote == '`');
     CHECK(SQLDialectTraits::get_features(SQLDialect::SingleStore).identifier_quote == '`');
 
-    // MariaDB inherits the 1/0 literal convention unchanged from
-    // mysql_base(); TiDB and SingleStore override it back to TRUE/FALSE -
-    // demonstrating a delta actually overriding a base value.
+    // MariaDB, TiDB, and SingleStore all inherit the 1/0 literal convention
+    // unchanged from mysql_base() - all three are MySQL wire-compatible
+    // forks with no confirmed boolean-literal display difference (stage 2,
+    // docs/ROADMAP.md; TiDB/SingleStore previously overrode this to
+    // TRUE/FALSE as issue #5's illustrative example of a delta overriding a
+    // base value, but that override could not be confirmed as a real
+    // dialect difference while promoting them to first-class, so it was
+    // removed per the honesty rule - see the comment in dialect_traits.h).
     CHECK(std::string(SQLDialectTraits::get_features(SQLDialect::MariaDB).true_literal) == "1");
-    CHECK(std::string(SQLDialectTraits::get_features(SQLDialect::TiDB).true_literal) == "TRUE");
+    CHECK(std::string(SQLDialectTraits::get_features(SQLDialect::TiDB).true_literal) == "1");
     CHECK(std::string(SQLDialectTraits::get_features(SQLDialect::SingleStore).true_literal) ==
-          "TRUE");
+          "1");
 }
 
 TEST_CASE("dialect families - PostgreSQL family members inherit ILIKE support from the family base",

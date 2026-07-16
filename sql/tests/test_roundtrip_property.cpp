@@ -186,16 +186,6 @@ const std::vector<std::string>& fixpoint_corpus() {
         "UPDATE t SET a = 1 WHERE b = 2",
         "DELETE FROM t WHERE a = 1",
         "MERGE INTO t USING u ON t.id = u.id WHEN MATCHED THEN UPDATE SET a = 1",
-        // OUTPUT / RETURNING (T-SQL emits OUTPUT, others RETURNING; both
-        // directions are fixed points for INSERTED-only / DELETE-DELETED
-        // combinations)
-        "INSERT INTO t (a, b) OUTPUT INSERTED.a, INSERTED.b VALUES (1, 2)",
-        "INSERT INTO t (a) VALUES (1) RETURNING id",
-        "INSERT INTO t (a) VALUES (1) RETURNING *",
-        "UPDATE t SET a = 1 OUTPUT INSERTED.a WHERE b = 2",
-        "UPDATE t SET a = 1 WHERE b = 2 RETURNING a",
-        "DELETE FROM t OUTPUT DELETED.* WHERE a = 1",
-        "DELETE FROM t WHERE a = 1 RETURNING a",
         // DDL
         "CREATE TABLE t (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL)",
         "CREATE TABLE IF NOT EXISTS t (id INT)",
@@ -266,6 +256,27 @@ const std::vector<std::string>& fixpoint_corpus() {
     return corpus;
 }
 
+// OUTPUT / RETURNING (T-SQL emits OUTPUT, others RETURNING; both directions
+// are fixed points for INSERTED-only / DELETE-DELETED combinations).
+// Deliberately NOT run against MySQL like fixpoint_corpus() above is:
+// MySQL has never supported RETURNING in any form (docs/ROADMAP.md stage
+// 2 / test_dialect_mysql_family.cpp) - generator.h now throws
+// std::logic_error for it instead of silently emitting invalid SQL, which
+// is why these queries were split out of the shared corpus rather than
+// weakening that new check to keep this file passing.
+const std::vector<std::string>& output_returning_corpus() {
+    static const std::vector<std::string> corpus = {
+        "INSERT INTO t (a, b) OUTPUT INSERTED.a, INSERTED.b VALUES (1, 2)",
+        "INSERT INTO t (a) VALUES (1) RETURNING id",
+        "INSERT INTO t (a) VALUES (1) RETURNING *",
+        "UPDATE t SET a = 1 OUTPUT INSERTED.a WHERE b = 2",
+        "UPDATE t SET a = 1 WHERE b = 2 RETURNING a",
+        "DELETE FROM t OUTPUT DELETED.* WHERE a = 1",
+        "DELETE FROM t WHERE a = 1 RETURNING a",
+    };
+    return corpus;
+}
+
 } // namespace
 
 TEST_CASE("Roundtrip property - generated SQL is a fixed point (ANSI)",
@@ -292,6 +303,16 @@ TEST_CASE("Roundtrip property - generated SQL is a fixed point (MySQL)",
 TEST_CASE("Roundtrip property - generated SQL is a fixed point (SQLServer)",
           "[roundtrip-property][sqlserver]") {
     for (const auto& q : fixpoint_corpus()) {
+        require_fixpoint(q, SQLDialect::SQLServer);
+    }
+}
+
+TEST_CASE("Roundtrip property - OUTPUT/RETURNING is a fixed point (ANSI, PostgreSQL, "
+          "SQLServer - not MySQL, which has no RETURNING at all)",
+          "[roundtrip-property][output]") {
+    for (const auto& q : output_returning_corpus()) {
+        require_fixpoint(q, SQLDialect::ANSI);
+        require_fixpoint(q, SQLDialect::PostgreSQL);
         require_fixpoint(q, SQLDialect::SQLServer);
     }
 }
@@ -514,4 +535,49 @@ TEST_CASE("Roundtrip property - MERGE WHEN NOT MATCHED BY SOURCE (T-SQL)",
                      "WHEN NOT MATCHED THEN INSERT (a) VALUES (1) "
                      "WHEN NOT MATCHED BY SOURCE THEN DELETE",
                      SQLDialect::SQLServer);
+}
+
+// ============================================================================
+// Stage 2 (docs/ROADMAP.md, issue #3 follow-on): promoted PostgreSQL/MySQL/
+// T-SQL family members. Full per-dialect exact-string coverage lives in
+// test_dialect_pg_family.cpp / test_dialect_mysql_family.cpp /
+// test_dialect_tsql_family.cpp - these are corpus-style fixpoint-only
+// entries for the property suite.
+// ============================================================================
+
+TEST_CASE("Roundtrip property - CockroachDB AS OF SYSTEM TIME / UPSERT",
+          "[roundtrip-property][cockroachdb]") {
+    require_fixpoint("SELECT * FROM t AS OF SYSTEM TIME '-1m' WHERE a = 1", SQLDialect::CockroachDB);
+    require_fixpoint("UPSERT INTO t (a, b) VALUES (1, 2)", SQLDialect::CockroachDB);
+}
+
+TEST_CASE("Roundtrip property - RisingWave EMIT CHANGES / CREATE MATERIALIZED VIEW",
+          "[roundtrip-property][risingwave]") {
+    require_fixpoint("SELECT a, b FROM t WHERE a > 1 EMIT CHANGES", SQLDialect::RisingWave);
+    require_fixpoint("CREATE MATERIALIZED VIEW v AS SELECT a FROM t WHERE a > 1",
+                     SQLDialect::RisingWave);
+}
+
+TEST_CASE("Roundtrip property - Materialize TAIL / SUBSCRIBE / CREATE MATERIALIZED VIEW",
+          "[roundtrip-property][materialize]") {
+    require_fixpoint("TAIL my_view", SQLDialect::Materialize);
+    require_fixpoint("SUBSCRIBE my_view", SQLDialect::Materialize);
+    require_fixpoint("CREATE MATERIALIZED VIEW v AS SELECT a FROM t", SQLDialect::Materialize);
+}
+
+TEST_CASE("Roundtrip property - Redshift/Greenplum trailing table options",
+          "[roundtrip-property][table-options]") {
+    require_fixpoint(
+        "CREATE TABLE users (id INT DISTKEY, name VARCHAR(100) SORTKEY, data SUPER)",
+        SQLDialect::Redshift);
+    require_fixpoint("CREATE TABLE sales (id INT, amount DECIMAL) DISTRIBUTED BY (id)",
+                     SQLDialect::Greenplum);
+}
+
+TEST_CASE("Roundtrip property - MariaDB NEXTVAL/LASTVAL sequences and INSERT/DELETE RETURNING",
+          "[roundtrip-property][mariadb]") {
+    require_fixpoint("SELECT NEXTVAL(seq_a)", SQLDialect::MariaDB);
+    require_fixpoint("SELECT LASTVAL(seq_a)", SQLDialect::MariaDB);
+    require_fixpoint("INSERT INTO t (a) VALUES (1) RETURNING id", SQLDialect::MariaDB);
+    require_fixpoint("DELETE FROM t WHERE a = 1 RETURNING id", SQLDialect::MariaDB);
 }

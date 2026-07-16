@@ -685,6 +685,16 @@ struct TableRef : SQLNode {
     SQLNode* temporal_arg1 = nullptr; // AS OF ts / FROM a / BETWEEN a / CONTAINED IN (a, ...)
     SQLNode* temporal_arg2 = nullptr; // TO b / AND b / CONTAINED IN (..., b)
 
+    // CockroachDB `AS OF SYSTEM TIME <expr>` historical-read clause. This is
+    // deliberately a separate mechanism from TemporalKind above: different
+    // keywords (no FOR/SYSTEM_TIME), different semantics (a point-in-time
+    // read of the whole query, not a temporal-table history query), and
+    // CockroachDB-only (docs/ROADMAP.md stage 2) - not extended to the rest
+    // of the PostgreSQL family since no other member's support for this
+    // exact clause was verified.
+    bool as_of_system_time = false;
+    SQLNode* as_of_system_time_arg = nullptr;
+
     explicit TableRef(std::string_view tbl) : SQLNode(SQLNodeKind::TABLE_REF), table(tbl) {}
 
     // Two-argument constructor: database.table (for parse_table_ref)
@@ -771,6 +781,7 @@ struct SelectStmt : SQLNode {
     StartWithClause* start_with = nullptr;               // Oracle START WITH (hierarchical)
     ConnectByClause* connect_by = nullptr;               // Oracle CONNECT BY (hierarchical)
     bool order_siblings = false;                         // Oracle ORDER SIBLINGS BY
+    bool emit_changes = false; // RisingWave `EMIT CHANGES` streaming query modifier
 
     SelectStmt()
         : SQLNode(SQLNodeKind::SELECT_STMT), with(nullptr), from(nullptr), where(nullptr),
@@ -878,6 +889,8 @@ struct InsertStmt : SQLNode {
     OutputClause* output;                             // OUTPUT / RETURNING clause
     OnConflictClause* on_conflict = nullptr;          // PostgreSQL ON CONFLICT ...
     OnDuplicateKeyClause* on_duplicate_key = nullptr; // MySQL ON DUPLICATE KEY UPDATE ...
+    bool is_upsert = false; // CockroachDB `UPSERT INTO ...` (implicit insert-or-update, no
+                             // ON CONFLICT clause) - distinct statement, not just INSERT
 
     InsertStmt()
         : SQLNode(SQLNodeKind::INSERT_STMT), table(nullptr), select_query(nullptr),
@@ -1100,6 +1113,7 @@ struct CreateViewStmt : SQLNode {
     SQLNode* query;                        // SelectStmt or set operation
     bool or_replace;
     bool if_not_exists;
+    bool materialized = false; // CREATE MATERIALIZED VIEW (PostgreSQL family only - see generator.h)
 
     CreateViewStmt()
         : SQLNode(SQLNodeKind::CREATE_VIEW_STMT), query(nullptr), or_replace(false),
@@ -1110,6 +1124,7 @@ struct DropViewStmt : SQLNode {
     std::string_view name;
     bool if_exists;
     bool cascade;
+    bool materialized = false; // DROP MATERIALIZED VIEW (PostgreSQL family only - see generator.h)
 
     DropViewStmt() : SQLNode(SQLNodeKind::DROP_VIEW_STMT), if_exists(false), cascade(false) {}
 };
@@ -1171,8 +1186,15 @@ struct SetStmt : SQLNode {
 };
 
 struct ShowStmt : SQLNode {
-    std::string_view what;   // TABLES, DATABASES, etc.
+    std::string_view what;   // TABLES, DATABASES, etc. (also holds the table name for TAIL/SUBSCRIBE)
     std::string_view target; // Optional
+
+    // Materialize streaming-query statements: `TAIL <table>` (deprecated
+    // spelling) and `SUBSCRIBE <table>` (current spelling) both parse onto
+    // this node; the flag records which keyword was written so generation
+    // preserves it exactly rather than picking one canonical spelling.
+    bool is_tail = false;
+    bool is_subscribe = false;
 
     ShowStmt() : SQLNode(SQLNodeKind::SHOW_STMT) {}
 };

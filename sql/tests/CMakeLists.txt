@@ -22,8 +22,11 @@ set(SQL_TESTS
     test_dialect_duckdb
     test_dialect_families
     test_dialect_feature_combinations
+    test_dialect_mysql_family
     test_dialect_oracle
+    test_dialect_pg_family
     test_dialect_transpilation
+    test_dialect_tsql_family
     test_distinct_on
     test_dml_statements
     test_end_to_end
