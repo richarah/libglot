@@ -282,3 +282,29 @@ TEST_CASE("Regression - null-safe equality and ASOF joins", "[regression][dialec
     REQUIRE(transpile("SELECT * FROM t1 ASOF JOIN t2 ON t1.ts >= t2.ts", SQLDialect::ANSI) ==
             "SELECT * FROM \"t1\" ASOF JOIN \"t2\" ON \"t1\".\"ts\" >= \"t2\".\"ts\"");
 }
+
+TEST_CASE("Fuzz regression - Snowflake ':' path access is dialect-gated",
+          "[fuzz][snowflake][json]") {
+    // fuzz_sql_roundtrip found: 'A:=Y:Yz' parses under Snowflake (':' is
+    // path access), but emitting 'Y:Yz' for another dialect produces SQL
+    // that re-lexes ':Yz' as a host parameter and fails to round-trip.
+    libglot::Arena arena;
+    libglot::sql::SQLParser parser(arena, "A := Y:Yz", SQLDialect::Snowflake);
+    auto* ast = parser.parse_top_level();
+    REQUIRE(ast != nullptr);
+
+    SECTION("Snowflake -> Snowflake is a fixed point") {
+        libglot::sql::SQLGenerator gen(SQLDialect::Snowflake);
+        const std::string g1 = gen.generate(ast);
+        libglot::Arena arena2;
+        libglot::sql::SQLParser reparser(arena2, g1, SQLDialect::Snowflake);
+        auto* ast2 = reparser.parse_top_level();
+        libglot::sql::SQLGenerator gen2(SQLDialect::Snowflake);
+        REQUIRE(gen2.generate(ast2) == g1);
+    }
+
+    SECTION("non-Snowflake targets throw instead of emitting unparseable SQL") {
+        libglot::sql::SQLGenerator gen(SQLDialect::PostgreSQL);
+        REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
+    }
+}

@@ -3,6 +3,8 @@
 
 add_library(libglot-mime INTERFACE)
 add_library(libglot::mime ALIAS libglot-mime)
+# Export as libglot::mime (matching the in-tree alias), not libglot::libglot-mime
+set_target_properties(libglot-mime PROPERTIES EXPORT_NAME mime)
 
 target_include_directories(libglot-mime
     INTERFACE

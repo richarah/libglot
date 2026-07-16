@@ -3,6 +3,8 @@
 
 add_library(libglot-sql INTERFACE)
 add_library(libglot::sql ALIAS libglot-sql)
+# Export as libglot::sql (matching the in-tree alias), not libglot::libglot-sql
+set_target_properties(libglot-sql PROPERTIES EXPORT_NAME sql)
 
 target_include_directories(libglot-sql
     INTERFACE

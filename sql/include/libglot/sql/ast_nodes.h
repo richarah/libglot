@@ -980,12 +980,13 @@ struct CreateTableStmt : SQLNode {
     std::vector<TableConstraint*> constraints;
     bool if_not_exists;
     bool temporary;
+    bool global_temporary; // CREATE GLOBAL TEMPORARY TABLE (Oracle/DB2 style)
     SQLNode* as_select;                     // CREATE TABLE AS SELECT (may be a set operation)
     std::vector<TableOption> table_options; // Trailing ENGINE=/DISTSTYLE/PARTITION BY/... options
 
     CreateTableStmt()
         : SQLNode(SQLNodeKind::CREATE_TABLE_STMT), table(nullptr), if_not_exists(false),
-          temporary(false), as_select(nullptr) {}
+          temporary(false), global_temporary(false), as_select(nullptr) {}
 };
 
 struct DropTableStmt : SQLNode {

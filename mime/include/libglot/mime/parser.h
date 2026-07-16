@@ -131,9 +131,11 @@ protected:
         std::string_view source;
     };
 
-    /// Delegating constructor that receives pre-tokenized result
+    /// Delegating constructor that receives pre-tokenized result.
+    /// (Base is listed first to match actual initialization order; moving
+    /// the token vector does not touch result.source.)
     MimeParser(libglot::Arena& arena, TokenizeResult&& result)
-        : source_(result.source), Base(arena, std::move(result.tokens)) {}
+        : Base(arena, std::move(result.tokens)), source_(result.source) {}
 
     /// Copy source into arena and tokenize the arena-owned copy
     /// This ensures all token string_views point to arena memory.

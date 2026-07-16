@@ -14,7 +14,7 @@ static std::string test_round_trip(const std::string& sql, SQLDialect dialect) {
 }
 
 // Helper to verify basic parsing works
-static void verify_basic_sql(SQLDialect dialect, const char* dialect_name) {
+static void verify_basic_sql(SQLDialect dialect, [[maybe_unused]] const char* dialect_name) {
     libglot::Arena arena;
 
     // Test 1: Basic SELECT

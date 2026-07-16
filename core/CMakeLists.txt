@@ -5,6 +5,8 @@
 
 add_library(libglot-core INTERFACE)
 add_library(libglot::core ALIAS libglot-core)
+# Export as libglot::core (matching the in-tree alias), not libglot::libglot-core
+set_target_properties(libglot-core PROPERTIES EXPORT_NAME core)
 
 target_include_directories(libglot-core
     INTERFACE

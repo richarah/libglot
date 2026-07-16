@@ -41,7 +41,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     }
 
     libglot::sql::SQLGenerator gen(gen_dialect);
-    const std::string emitted = gen.generate(ast);
+    std::string emitted;
+    try {
+        emitted = gen.generate(ast);
+    } catch (const std::logic_error&) {
+        // Documented generator contract: constructs a dialect cannot express
+        // throw std::logic_error instead of emitting wrong SQL. Not a finding.
+        return 0;
+    }
 
     // Generated SQL must re-parse in the dialect it was generated for.
     libglot::Arena arena2;

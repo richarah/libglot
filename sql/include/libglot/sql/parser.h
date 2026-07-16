@@ -904,9 +904,7 @@ public:
         }
 
         // FIRST n [SKIP m] (Firebird, Informix)
-        bool has_first = false;
         if (match(TK::FIRST)) {
-            has_first = true;
             stmt->limit = parse_prefix(); // Parse just the number
             // Optional: SKIP m (offset)
             if (match(TK::SKIP)) {
@@ -2511,8 +2509,9 @@ public:
         auto stmt = this->template create_node<CreateTableStmt>();
         expect(TK::TABLE);
 
-        // Set temporary flag
+        // Set temporary flags
         stmt->temporary = is_temporary;
+        stmt->global_temporary = is_global;
 
         // IF NOT EXISTS?
         if (match(TK::IF_KW) || match(TK::IF)) {
@@ -5122,9 +5121,11 @@ private:
         std::string_view source;
     };
 
-    /// Delegating constructor that receives pre-tokenized result
+    /// Delegating constructor that receives pre-tokenized result.
+    /// (Base is listed first to match actual initialization order; moving
+    /// the token vector does not touch result.source.)
     SQLParser(libglot::Arena& arena, TokenizeResult&& result, SQLDialect dialect)
-        : source_(result.source), dialect_(dialect), Base(arena, std::move(result.tokens)) {}
+        : Base(arena, std::move(result.tokens)), source_(result.source), dialect_(dialect) {}
 
     /// Copy source into arena and tokenize the arena-owned copy
     /// This ensures all token string_views point to arena memory

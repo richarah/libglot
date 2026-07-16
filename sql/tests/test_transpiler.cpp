@@ -68,8 +68,9 @@ TEST_CASE("Dialect - Feature support", "[dialect]") {
     auto& postgres = SQLDialectTraits::get_features(SQLDialect::PostgreSQL);
     auto& tsql = SQLDialectTraits::get_features(SQLDialect::SQLServer);
 
-    // ANSI and PostgreSQL support LIMIT/OFFSET
+    // ANSI and PostgreSQL support LIMIT/OFFSET; T-SQL does not
     REQUIRE(ansi.supports_limit_offset == true);
+    REQUIRE(tsql.supports_limit_offset == false);
     REQUIRE(postgres.supports_limit_offset == true);
     REQUIRE(postgres.supports_ilike == true); // PostgreSQL supports ILIKE
 }

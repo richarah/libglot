@@ -760,8 +760,15 @@ private:
             return;
         }
 
-        // Snowflake JSON path access prints without spaces: data:field
+        // Snowflake JSON path access prints without spaces: data:field.
+        // Other dialects have no ':' path operator - and worse, most of them
+        // re-lex ':name' as a host parameter, so emitting it would produce
+        // SQL that cannot round-trip (found by fuzz_sql_roundtrip).
         if (op->op == TK::COLON) {
+            if (this->dialect() != SQLDialect::Snowflake) {
+                throw std::logic_error("':' JSON path access requires the Snowflake dialect; "
+                                       "use -> / ->> operators for other dialects");
+            }
             visit(op->left);
             this->write(':');
             visit(op->right);
@@ -1921,6 +1928,10 @@ private:
         this->space();
 
         if (stmt->temporary) {
+            if (stmt->global_temporary) {
+                this->write("GLOBAL");
+                this->space();
+            }
             this->write("TEMPORARY");
             this->space();
         }
