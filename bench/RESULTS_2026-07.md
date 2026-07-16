@@ -52,3 +52,32 @@ microsecond band while correctness features were added.
 Notes: measurements taken on a shared/virtualized machine (load average ~6
 during runs); treat ±25 % as noise. CV on the noisiest SQL series was
 ~24 %. For regression tracking, compare medians from the same machine.
+
+## libglot vs Python sqlglot (measured 2026-07-16)
+
+Head-to-head on the same machine, same queries, same session. libglot:
+Release `-O2`, GCC 15, 20,000 iterations/query. sqlglot 30.12.0 on CPython,
+2,000 iterations/query. "parse" = source to AST; "transpile" = parse +
+generate (PostgreSQL in, T-SQL out). Times are ns/op.
+
+| Query | libglot parse | sqlglot parse | speedup | libglot transpile | sqlglot transpile | speedup |
+|---|---|---|---|---|---|---|
+| `SELECT 1` | 1.3 µs | 42.8 µs | 33x | 1.5 µs | 80.9 µs | 47x |
+| `SELECT col FROM t` | 1.5 µs | 58.9 µs | 36x | 1.7 µs | 102.1 µs | 64x |
+| SELECT + WHERE + ORDER BY + LIMIT | 3.0 µs | 142.0 µs | 46x | 3.5 µs | 266.5 µs | 73x |
+| JOIN + GROUP BY + HAVING + ORDER BY | 5.2 µs | 310.8 µs | 58x | 6.2 µs | 559.5 µs | 81x |
+| CTE + window function | 4.4 µs | 275.0 µs | 56x | 6.0 µs | 577.2 µs | 93x |
+
+**Summary: 33-58x faster on parse, 47-93x faster on transpile.** The margin
+widens with query complexity, and is larger for transpile than for parse
+(generation is where the interpreted implementation pays most).
+
+Caveats, so these numbers are not oversold:
+- Different feature sets. sqlglot supports far more dialects and does work
+  libglot does not (e.g. a full optimizer, schema binding). This measures the
+  common path: parse, and parse+generate.
+- Measured on one shared/virtualized machine (WSL2, 12 cores); treat +/-25%
+  as noise. Re-run with `bench/` to reproduce.
+- The historical "126-252x faster than Python" figure in this repo predates
+  the overhaul, was never reproducible here, and is superseded by the table
+  above.
