@@ -169,3 +169,49 @@ TEST_CASE("Pipeline: text/plain part with charset=latin9 (alias) decodes to UTF-
     REQUIRE(*decoded == "Pri\xC2\xBF"
                          "e");
 }
+
+// ============================================================================
+// IANA charset alias coverage (found by the Enron corpus run)
+// ============================================================================
+
+TEST_CASE("Charset - IANA aliases for US-ASCII resolve", "[charset][aliases]") {
+    // ANSI_X3.4-1968 is IANA's PRIMARY name for this charset ("US-ASCII" is
+    // an alias). JavaMail emits it, and it labels ~10% of the Enron corpus;
+    // before this was recognized, those bodies decoded as unknown-charset.
+    for (std::string_view name : {"ansi_x3.4-1968", "ANSI_X3.4-1968", "ANSI_X3.4-1986",
+                                  "iso-ir-6", "iso646-us", "IBM367", "cp367", "csASCII",
+                                  "us", "us-ascii", "US-ASCII", "ascii", "ASCII"}) {
+        INFO("charset name: " << name);
+        REQUIRE(CharsetConverter::detect_charset(name) == CharsetConverter::Charset::USASCII);
+    }
+}
+
+TEST_CASE("Charset - names are matched case-insensitively", "[charset][aliases]") {
+    // RFC 2045 5.1: the charset parameter value is not case sensitive.
+    REQUIRE(CharsetConverter::detect_charset("UtF-8") == CharsetConverter::Charset::UTF8);
+    REQUIRE(CharsetConverter::detect_charset("ISO-8859-15") == CharsetConverter::Charset::ISO885915);
+    REQUIRE(CharsetConverter::detect_charset("Windows-1252") ==
+            CharsetConverter::Charset::WINDOWS1252);
+    REQUIRE(CharsetConverter::detect_charset("UTF-16LE") == CharsetConverter::Charset::UTF16LE);
+}
+
+TEST_CASE("Charset - unknown names stay unknown", "[charset][aliases]") {
+    // Never guess: an unrecognized charset must report Unknown so callers
+    // can refuse rather than mislabel bytes.
+    REQUIRE(CharsetConverter::detect_charset("shift_jis") == CharsetConverter::Charset::Unknown);
+    REQUIRE(CharsetConverter::detect_charset("euc-kr") == CharsetConverter::Charset::Unknown);
+    REQUIRE(CharsetConverter::detect_charset("") == CharsetConverter::Charset::Unknown);
+}
+
+TEST_CASE("Charset - ansi_x3.4-1968 body decodes through the pipeline", "[charset][pipeline]") {
+    libglot::Arena arena;
+    const std::string msg = "Content-Type: text/plain; charset=ansi_x3.4-1968\r\n"
+                            "\r\nplain ascii body\r\n";
+    auto result = libglot::mime::parse_message(arena, msg);
+    REQUIRE(result.message != nullptr);
+    auto text = libglot::mime::decoded_body_utf8(*result.message);
+    REQUIRE(text.has_value());
+    // The body is everything after the blank line, trailing CRLF included
+    // (same convention as Python's get_payload).
+    REQUIRE(*text == "plain ascii body\r\n");
+}

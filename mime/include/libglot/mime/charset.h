@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -43,33 +44,65 @@ public:
 
     /// Detect charset from MIME charset name
     static Charset detect_charset(std::string_view charset_name) {
-        static const std::unordered_map<std::string_view, Charset> charset_map = {
-            {"UTF-8", Charset::UTF8},
+        static const std::unordered_map<std::string, Charset> charset_map = {
             {"utf-8", Charset::UTF8},
-            {"ISO-8859-1", Charset::ISO88591},
+            {"utf8", Charset::UTF8},
             {"iso-8859-1", Charset::ISO88591},
+            {"iso8859-1", Charset::ISO88591},
+            {"iso_8859-1", Charset::ISO88591},
             {"latin1", Charset::ISO88591},
-            {"ISO-8859-15", Charset::ISO885915},
+            {"latin-1", Charset::ISO88591},
+            {"l1", Charset::ISO88591},
+            {"iso-ir-100", Charset::ISO88591},
+            {"csisolatin1", Charset::ISO88591},
             {"iso-8859-15", Charset::ISO885915},
             {"iso8859-15", Charset::ISO885915},
+            {"iso_8859-15", Charset::ISO885915},
             {"latin9", Charset::ISO885915},
             {"latin-9", Charset::ISO885915},
-            {"iso_8859-15", Charset::ISO885915},
-            {"US-ASCII", Charset::USASCII},
+            {"l9", Charset::ISO885915},
+            {"iso-ir-203", Charset::ISO885915},
+            {"csisolatin9", Charset::ISO885915},
             {"us-ascii", Charset::USASCII},
-            {"ASCII", Charset::USASCII},
             {"ascii", Charset::USASCII},
+            // IANA registers ANSI_X3.4-1968 as the PRIMARY name of this
+            // charset; "US-ASCII" is one of its aliases. Real mail uses the
+            // primary name: it labels ~10% of the Enron corpus (JavaMail
+            // emits it), and without these entries those bodies decode as
+            // unknown-charset. Full IANA alias set for US-ASCII.
+            {"ansi_x3.4-1968", Charset::USASCII},
+            {"ansi_x3.4-1986", Charset::USASCII},
+            {"iso-ir-6", Charset::USASCII},
+            {"iso646-us", Charset::USASCII},
+            {"iso_646.irv:1991", Charset::USASCII},
+            {"ibm367", Charset::USASCII},
+            {"cp367", Charset::USASCII},
+            {"csascii", Charset::USASCII},
+            {"us", Charset::USASCII},
             {"windows-1252", Charset::WINDOWS1252},
-            {"Windows-1252", Charset::WINDOWS1252},
-            {"UTF-16", Charset::UTF16},
+            {"windows1252", Charset::WINDOWS1252},
+            {"cp1252", Charset::WINDOWS1252},
             {"utf-16", Charset::UTF16},
-            {"UTF-16BE", Charset::UTF16BE},
+            {"utf16", Charset::UTF16},
             {"utf-16be", Charset::UTF16BE},
-            {"UTF-16LE", Charset::UTF16LE},
+            {"utf16be", Charset::UTF16BE},
             {"utf-16le", Charset::UTF16LE},
+            {"utf16le", Charset::UTF16LE},
         };
 
-        auto it = charset_map.find(charset_name);
+        // Charset names are case-insensitive (RFC 2045 5.1: "the charset
+        // parameter value ... is not case sensitive"), so normalize here
+        // rather than relying on every caller to do it and rather than
+        // carrying one table entry per spelling. Surrounding whitespace and
+        // any quoting are already stripped by the parameter parser.
+        std::string key;
+        key.reserve(charset_name.size());
+        for (char c : charset_name) {
+            key.push_back(static_cast<char>(
+                std::tolower(static_cast<unsigned char>(c))));
+        }
+
+        auto it = charset_map.find(key);
         return (it != charset_map.end()) ? it->second : Charset::Unknown;
     }
 

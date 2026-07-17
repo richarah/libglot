@@ -81,3 +81,17 @@ Caveats, so these numbers are not oversold:
 - The historical "126-252x faster than Python" figure in this repo predates
   the overhaul, was never reproducible here, and is superseded by the table
   above.
+
+## MIME corpus (measured 2026-07-17)
+
+| Corpus | Messages | Parse | Text decoded | Notes |
+|---|---|---|---|---|
+| Enron (full, maildir) | 517,401 | **99.99%** | **100.00%** | 3m11s (~2,700 msg/s), peak RSS **11.5 MB** |
+| SpamAssassin (raw, mbox-split) | 3,303 | **98.61%** | **98.95%** | `--mbox`, no preprocessing |
+| Committed corpus | 6 | 100% | 100% | CI-gated, plus 100% differential agreement |
+
+Flat 11.5 MB peak RSS across half a million messages is the arena
+allocator behaving: memory is bounded by the largest single message, not
+by corpus size.
+
+Reproduce: `tools/mime_corpus [--mbox] --min-success 0.0 <dir>`.
