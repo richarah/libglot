@@ -15,7 +15,7 @@ two corpus gates.
 |---|---|
 | **1,287 tests**, including generate→parse fixed-point property tests | `ctest`; CI on GCC and Clang, Debug and Release |
 | **Differentially tested against Python's `email`** — the parsed structure of a message is compared field by field, not just "did it crash" | `scripts/mime_diff.py` + `tools/mime_dump`; CI job `mime-differential` gates the committed corpus at **100% agreement**. On a 500-message raw SpamAssassin sample: **79% agreement**, residual classified in [`docs/ROADMAP.md`](docs/ROADMAP.md#stage-5---corpus-breadth---done-partial-see-remaining-work) |
-| **98.6% parse / 99.0% text-decode** over 3,303 real messages (raw SpamAssassin, mbox-split, no preprocessing) | `tools/mime_corpus --mbox`; CI job `mime-corpus` |
+| **99.99% parse / 100% text-decode** over the full **517,401-message Enron corpus**, at ~2,700 msg/s and a flat **11.5 MB** peak RSS; 98.6%/99.0% over raw SpamAssassin | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md); `tools/mime_corpus`; CI job `mime-corpus` |
 | **SQL: 33–58× faster parse, 47–93× faster transpile** than Python sqlglot 30.12 | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md) — methodology and caveats included |
 | **MIME: 8–227× faster** than Python's `email` — 139–227× vs `policy.default`, 8–15× vs the lazier `compat32`. Both are stated because the honest number depends on how much work you ask Python to do | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md) |
 | Parsers fuzzed under ASan/UBSan; the transpiler round-trip contract is fuzzed too | `fuzz/`; CI job `fuzzers` |
