@@ -16,8 +16,8 @@ enum class Endianness { Big, Little };
 /// ============================================================================
 ///
 /// Handles character set conversions for MIME messages per RFC 2047/2231.
-/// Supports common charsets: UTF-8, ISO-8859-1, US-ASCII, Windows-1252,
-/// UTF-16 (BE/LE, with or without a byte-order mark)
+/// Supports common charsets: UTF-8, ISO-8859-1, ISO-8859-15 (Latin-9),
+/// US-ASCII, Windows-1252, UTF-16 (BE/LE, with or without a byte-order mark)
 ///
 /// Limitations:
 /// - Full conversion requires external libraries (like iconv)
@@ -32,6 +32,7 @@ public:
     enum class Charset {
         UTF8,
         ISO88591, // Latin-1
+        ISO885915, // Latin-9 (Latin-1 with 8 substitutions, incl. the Euro sign)
         USASCII,
         WINDOWS1252,
         UTF16, // bare "UTF-16": BOM-detected, big-endian default (RFC 2781)
@@ -48,6 +49,12 @@ public:
             {"ISO-8859-1", Charset::ISO88591},
             {"iso-8859-1", Charset::ISO88591},
             {"latin1", Charset::ISO88591},
+            {"ISO-8859-15", Charset::ISO885915},
+            {"iso-8859-15", Charset::ISO885915},
+            {"iso8859-15", Charset::ISO885915},
+            {"latin9", Charset::ISO885915},
+            {"latin-9", Charset::ISO885915},
+            {"iso_8859-15", Charset::ISO885915},
             {"US-ASCII", Charset::USASCII},
             {"us-ascii", Charset::USASCII},
             {"ASCII", Charset::USASCII},
@@ -79,6 +86,10 @@ public:
 
         if (from_charset == Charset::ISO88591) {
             return iso88591_to_utf8(input);
+        }
+
+        if (from_charset == Charset::ISO885915) {
+            return iso885915_to_utf8(input);
         }
 
         if (from_charset == Charset::WINDOWS1252) {
@@ -191,6 +202,54 @@ public:
                 result.push_back(static_cast<char>(0xC0 | (c >> 6)));
                 result.push_back(static_cast<char>(0x80 | (c & 0x3F)));
             }
+        }
+
+        return result;
+    }
+
+    /// Convert ISO-8859-15 (Latin-9) to UTF-8.
+    ///
+    /// Latin-9 (the 1999 revision of Latin-1) is byte-identical to
+    /// ISO-8859-1 except for exactly eight code points: 0xA4 EURO SIGN,
+    /// 0xA6 S WITH CARON, 0xA8 s WITH CARON, 0xB4 Z WITH CARON, 0xB8 z WITH
+    /// CARON, 0xBC OE LIGATURE, 0xBD oe LIGATURE, 0xBE Y WITH DIAERESIS.
+    /// Every other byte (including the 0x80-0x9F C1 range) maps exactly as
+    /// ISO-8859-1.
+    static std::string iso885915_to_utf8(std::string_view input) {
+        std::string result;
+        result.reserve(input.size() * 3); // the Euro sign (U+20AC) needs 3 bytes in UTF-8
+
+        for (unsigned char c : input) {
+            uint32_t codepoint = c;
+            switch (c) {
+            case 0xA4:
+                codepoint = 0x20AC; // EURO SIGN
+                break;
+            case 0xA6:
+                codepoint = 0x0160; // LATIN CAPITAL LETTER S WITH CARON
+                break;
+            case 0xA8:
+                codepoint = 0x0161; // LATIN SMALL LETTER S WITH CARON
+                break;
+            case 0xB4:
+                codepoint = 0x017D; // LATIN CAPITAL LETTER Z WITH CARON
+                break;
+            case 0xB8:
+                codepoint = 0x017E; // LATIN SMALL LETTER Z WITH CARON
+                break;
+            case 0xBC:
+                codepoint = 0x0152; // LATIN CAPITAL LIGATURE OE
+                break;
+            case 0xBD:
+                codepoint = 0x0153; // LATIN SMALL LIGATURE OE
+                break;
+            case 0xBE:
+                codepoint = 0x0178; // LATIN CAPITAL LETTER Y WITH DIAERESIS
+                break;
+            default:
+                break; // identical to ISO-8859-1 elsewhere
+            }
+            append_utf8_codepoint(result, codepoint);
         }
 
         return result;

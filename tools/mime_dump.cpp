@@ -88,9 +88,9 @@
 //       //     already surface via the "parts" shape, and "name" is
 //       //     reported via the dedicated "filename" field below. Charset
 //       //     names are lowercased and a small alias table (utf8ee->utf-8,
-//       //     ascii->us-ascii, latin1->iso-8859-1) is applied on both
-//       //     sides so spelling variants of the same charset do not read
-//       //     as a disagreement.
+//       //     ascii->us-ascii, latin1->iso-8859-1, latin9/iso8859-15-style
+//       //     spellings->iso-8859-15) is applied on both sides so spelling
+//       //     variants of the same charset do not read as a disagreement.
 //       //
 //       //   content-transfer-encoding:
 //       //     The declared token, lowercased and trimmed; defaulted to
@@ -265,6 +265,10 @@ std::string canonical_charset_name(std::string_view raw) {
     }
     if (lower == "windows1252" || lower == "cp1252") {
         return "windows-1252";
+    }
+    if (lower == "iso8859-15" || lower == "iso8859_15" || lower == "iso_8859-15" ||
+        lower == "latin9" || lower == "latin-9") {
+        return "iso-8859-15";
     }
     return lower;
 }

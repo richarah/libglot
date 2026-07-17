@@ -143,6 +143,8 @@ inline std::optional<std::string> decoded_body_utf8(const Message& part) {
         return decoded;
     case CharsetConverter::Charset::ISO88591:
         return CharsetConverter::iso88591_to_utf8(*decoded);
+    case CharsetConverter::Charset::ISO885915:
+        return CharsetConverter::iso885915_to_utf8(*decoded);
     case CharsetConverter::Charset::WINDOWS1252:
         return CharsetConverter::windows1252_to_utf8(*decoded);
     case CharsetConverter::Charset::UTF16:

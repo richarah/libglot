@@ -95,13 +95,48 @@ rather than real bugs.
 The oracle has not yet found a libglot correctness bug - which is itself
 the useful result, given it found several in the harness.
 
-## Stage 5 - Corpus breadth
+## Stage 5 - Corpus breadth - DONE (partial; see remaining work)
 
-With a differential oracle in place, scale up: SpamAssassin (already
-best-effort in CI), Enron (~500k messages, the real scale test), Apache
-James mime4j and Python `email` test suites (RFC edge cases with known
-expected outputs), and parser-differential/security corpora. Publish real
-success and agreement rates; retire estimates.
+Closed issues #8 (ISO-8859-15) and #9 (real mbox support in tooling), then
+re-measured everything against raw, unmodified SpamAssassin.
+
+### Measured (2026-07-17), raw corpus, mbox-split
+
+- **3,303 messages** from 3,302 raw files (one file really was a
+  multi-message mbox, which is why splitting rather than stripping was the
+  right call): **98.61% parse**, **98.95% of text parts decoded** (up from
+  98.20% - ISO-8859-15 support accounts for the gain).
+- Differential vs Python `email`, 500-message raw sample: **79.07%
+  agreement**. This is NOT comparable to the earlier 92.2%: that sample was
+  a different, tidier 500 (pre-stripped easy_ham), while this one is raw
+  and includes hard_ham/spam. Sample composition, not a regression.
+- Committed corpus: **100%**, gated in CI.
+
+### Residual disagreements (500-message raw sample)
+
+Dominated by canonicalization convention in the *harness*, not proven
+libglot bugs: `body_text` (50, mostly charset scope and us-ascii-declared
+bodies holding 8-bit bytes where Python's strict decode fails and libglot
+passes through), `date` (29), `subject` (22), `to`/`from` (31 combined -
+display-name and folding conventions between the two canonicalizations).
+
+Two harness bugs were found and fixed while measuring, each worth several
+points of apparent agreement on its own: the RFC 2045 absent-header
+charset default (applied by mime_dump, not by the Python side), and year
+zero-padding (`strftime("%Y")` renders year 102 as "102"; mime_dump pads
+to "0102"). Neither was a parser difference.
+
+Verified along the way: libglot applies RFC 5322 4.3's three-digit-year
+rule (`102` -> 2002) and Python's `parsedate_to_datetime` does not - a real
+difference, though not the one the corpus exercises (that mail carries a
+four-digit `0102`, which both read literally as year 102).
+
+### Remaining
+
+Per-field classification of the residual (each class needs individual
+diagnosis before it can be called a bug or a convention), Enron at scale,
+mime4j / Python `email` RFC test suites, and security/parser-differential
+corpora.
 
 ## Non-goals (unchanged)
 

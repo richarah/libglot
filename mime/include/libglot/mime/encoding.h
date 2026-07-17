@@ -447,6 +447,7 @@ public:
             case CharsetConverter::Charset::UTF8:
             case CharsetConverter::Charset::USASCII:
             case CharsetConverter::Charset::ISO88591:
+            case CharsetConverter::Charset::ISO885915:
             case CharsetConverter::Charset::WINDOWS1252:
                 decoded_text = CharsetConverter::to_utf8(decoded_text, cs);
                 break;

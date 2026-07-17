@@ -4,6 +4,7 @@
 set(MIME_TESTS
     test_address_groups
     test_boundary_recovery
+    test_charset_latin9
     test_charset_utf16
     test_date_parsing
     test_external_body
