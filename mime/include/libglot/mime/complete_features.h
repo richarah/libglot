@@ -670,7 +670,9 @@ public:
             return out;
         }
 
-        int hour = 0, minute = 0, second = 0;
+        int hour = 0;
+        int minute = 0;
+        int second = 0;
         if (!parse_digits(s, pos, 1, 2, hour)) {
             return out;
         }
