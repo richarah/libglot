@@ -18,7 +18,9 @@ enum class Endianness { Big, Little };
 ///
 /// Handles character set conversions for MIME messages per RFC 2047/2231.
 /// Supports common charsets: UTF-8, ISO-8859-1, ISO-8859-15 (Latin-9),
-/// US-ASCII, Windows-1252, UTF-16 (BE/LE, with or without a byte-order mark)
+/// ISO-8859-9 (Latin-5, Turkish), ISO-8859-2 (Latin-2, Central European),
+/// KOI8-R (Cyrillic), US-ASCII, Windows-1252, UTF-16 (BE/LE, with or
+/// without a byte-order mark)
 ///
 /// Limitations:
 /// - Full conversion requires external libraries (like iconv)
@@ -34,6 +36,9 @@ public:
         UTF8,
         ISO88591, // Latin-1
         ISO885915, // Latin-9 (Latin-1 with 8 substitutions, incl. the Euro sign)
+        ISO88599, // Latin-5 (Turkish; Latin-1 with 6 substitutions)
+        ISO88592, // Latin-2 (Central European); not a Latin-1 delta, its own table
+        KOI8R, // Cyrillic (Russian); not a Latin-1 delta, its own table
         USASCII,
         WINDOWS1252,
         UTF16, // bare "UTF-16": BOM-detected, big-endian default (RFC 2781)
@@ -63,6 +68,25 @@ public:
             {"l9", Charset::ISO885915},
             {"iso-ir-203", Charset::ISO885915},
             {"csisolatin9", Charset::ISO885915},
+            {"iso-8859-9", Charset::ISO88599},
+            {"iso8859-9", Charset::ISO88599},
+            {"iso_8859-9", Charset::ISO88599},
+            {"latin5", Charset::ISO88599},
+            {"latin-5", Charset::ISO88599},
+            {"l5", Charset::ISO88599},
+            {"iso-ir-148", Charset::ISO88599},
+            {"csisolatin5", Charset::ISO88599},
+            {"iso-8859-2", Charset::ISO88592},
+            {"iso8859-2", Charset::ISO88592},
+            {"iso_8859-2", Charset::ISO88592},
+            {"latin2", Charset::ISO88592},
+            {"latin-2", Charset::ISO88592},
+            {"l2", Charset::ISO88592},
+            {"iso-ir-101", Charset::ISO88592},
+            {"csisolatin2", Charset::ISO88592},
+            {"koi8-r", Charset::KOI8R},
+            {"koi8r", Charset::KOI8R},
+            {"cskoi8r", Charset::KOI8R},
             {"us-ascii", Charset::USASCII},
             {"ascii", Charset::USASCII},
             // IANA registers ANSI_X3.4-1968 as the PRIMARY name of this
@@ -123,6 +147,18 @@ public:
 
         if (from_charset == Charset::ISO885915) {
             return iso885915_to_utf8(input);
+        }
+
+        if (from_charset == Charset::ISO88599) {
+            return iso88599_to_utf8(input);
+        }
+
+        if (from_charset == Charset::ISO88592) {
+            return iso88592_to_utf8(input);
+        }
+
+        if (from_charset == Charset::KOI8R) {
+            return koi8r_to_utf8(input);
         }
 
         if (from_charset == Charset::WINDOWS1252) {
@@ -282,6 +318,112 @@ public:
             default:
                 break; // identical to ISO-8859-1 elsewhere
             }
+            append_utf8_codepoint(result, codepoint);
+        }
+
+        return result;
+    }
+
+    /// Convert ISO-8859-9 (Latin-5, Turkish) to UTF-8.
+    ///
+    /// Byte-identical to ISO-8859-1 except six code points that replace the
+    /// Icelandic letters Latin-1 has no use for in Turkish: 0xD0 G WITH
+    /// BREVE, 0xDD I WITH DOT ABOVE, 0xDE S WITH CEDILLA, and their
+    /// lowercase forms at 0xF0, 0xFD, 0xFE.
+    static std::string iso88599_to_utf8(std::string_view input) {
+        std::string result;
+        result.reserve(input.size() * 2); // every substitution still fits in 2 UTF-8 bytes
+
+        for (unsigned char c : input) {
+            uint32_t codepoint = c;
+            switch (c) {
+            case 0xD0:
+                codepoint = 0x011E; // LATIN CAPITAL LETTER G WITH BREVE
+                break;
+            case 0xDD:
+                codepoint = 0x0130; // LATIN CAPITAL LETTER I WITH DOT ABOVE
+                break;
+            case 0xDE:
+                codepoint = 0x015E; // LATIN CAPITAL LETTER S WITH CEDILLA
+                break;
+            case 0xF0:
+                codepoint = 0x011F; // LATIN SMALL LETTER G WITH BREVE
+                break;
+            case 0xFD:
+                codepoint = 0x0131; // LATIN SMALL LETTER DOTLESS I
+                break;
+            case 0xFE:
+                codepoint = 0x015F; // LATIN SMALL LETTER S WITH CEDILLA
+                break;
+            default:
+                break; // identical to ISO-8859-1 elsewhere
+            }
+            append_utf8_codepoint(result, codepoint);
+        }
+
+        return result;
+    }
+
+    /// Convert ISO-8859-2 (Latin-2, Central European) to UTF-8.
+    ///
+    /// Unlike ISO-8859-15/-9, Latin-2 is not a Latin-1 delta: only the
+    /// 0xA0-0xFF ASCII-adjacent punctuation positions that are identical
+    /// across every Latin-N page (space, degree sign, etc.) coincide with
+    /// Latin-1; every letter position is remapped to a Czech/Polish/
+    /// Hungarian/Slovak/... accented letter.
+    static std::string iso88592_to_utf8(std::string_view input) {
+        static constexpr uint16_t kHighMap[128] = {
+            0x0080, 0x0081, 0x0082, 0x0083, 0x0084, 0x0085, 0x0086, 0x0087, 0x0088, 0x0089, 0x008A,
+            0x008B, 0x008C, 0x008D, 0x008E, 0x008F, 0x0090, 0x0091, 0x0092, 0x0093, 0x0094, 0x0095,
+            0x0096, 0x0097, 0x0098, 0x0099, 0x009A, 0x009B, 0x009C, 0x009D, 0x009E, 0x009F, 0x00A0,
+            0x0104, 0x02D8, 0x0141, 0x00A4, 0x013D, 0x015A, 0x00A7, 0x00A8, 0x0160, 0x015E, 0x0164,
+            0x0179, 0x00AD, 0x017D, 0x017B, 0x00B0, 0x0105, 0x02DB, 0x0142, 0x00B4, 0x013E, 0x015B,
+            0x02C7, 0x00B8, 0x0161, 0x015F, 0x0165, 0x017A, 0x02DD, 0x017E, 0x017C, 0x0154, 0x00C1,
+            0x00C2, 0x0102, 0x00C4, 0x0139, 0x0106, 0x00C7, 0x010C, 0x00C9, 0x0118, 0x00CB, 0x011A,
+            0x00CD, 0x00CE, 0x010E, 0x0110, 0x0143, 0x0147, 0x00D3, 0x00D4, 0x0150, 0x00D6, 0x00D7,
+            0x0158, 0x016E, 0x00DA, 0x0170, 0x00DC, 0x00DD, 0x0162, 0x00DF, 0x0155, 0x00E1, 0x00E2,
+            0x0103, 0x00E4, 0x013A, 0x0107, 0x00E7, 0x010D, 0x00E9, 0x0119, 0x00EB, 0x011B, 0x00ED,
+            0x00EE, 0x010F, 0x0111, 0x0144, 0x0148, 0x00F3, 0x00F4, 0x0151, 0x00F6, 0x00F7, 0x0159,
+            0x016F, 0x00FA, 0x0171, 0x00FC, 0x00FD, 0x0163, 0x02D9,
+        };
+
+        std::string result;
+        result.reserve(input.size() * 2); // every Latin-2 codepoint fits in 2 UTF-8 bytes
+
+        for (unsigned char c : input) {
+            uint32_t codepoint = c < 0x80 ? c : kHighMap[c - 0x80];
+            append_utf8_codepoint(result, codepoint);
+        }
+
+        return result;
+    }
+
+    /// Convert KOI8-R (Russian Cyrillic) to UTF-8.
+    ///
+    /// Unlike ISO-8859-15/-9, KOI8-R is not a Latin-1 delta: 0x00-0x7F is
+    /// plain ASCII, but 0x80-0xFF is its own table (box-drawing characters
+    /// and Cyrillic letters), fixed by the standard.
+    static std::string koi8r_to_utf8(std::string_view input) {
+        static constexpr uint16_t kHighMap[128] = {
+            0x2500, 0x2502, 0x250C, 0x2510, 0x2514, 0x2518, 0x251C, 0x2524, 0x252C, 0x2534, 0x253C,
+            0x2580, 0x2584, 0x2588, 0x258C, 0x2590, 0x2591, 0x2592, 0x2593, 0x2320, 0x25A0, 0x2219,
+            0x221A, 0x2248, 0x2264, 0x2265, 0x00A0, 0x2321, 0x00B0, 0x00B2, 0x00B7, 0x00F7, 0x2550,
+            0x2551, 0x2552, 0x0451, 0x2553, 0x2554, 0x2555, 0x2556, 0x2557, 0x2558, 0x2559, 0x255A,
+            0x255B, 0x255C, 0x255D, 0x255E, 0x255F, 0x2560, 0x2561, 0x0401, 0x2562, 0x2563, 0x2564,
+            0x2565, 0x2566, 0x2567, 0x2568, 0x2569, 0x256A, 0x256B, 0x256C, 0x00A9, 0x044E, 0x0430,
+            0x0431, 0x0446, 0x0434, 0x0435, 0x0444, 0x0433, 0x0445, 0x0438, 0x0439, 0x043A, 0x043B,
+            0x043C, 0x043D, 0x043E, 0x043F, 0x044F, 0x0440, 0x0441, 0x0442, 0x0443, 0x0436, 0x0432,
+            0x044C, 0x044B, 0x0437, 0x0448, 0x044D, 0x0449, 0x0447, 0x044A, 0x042E, 0x0410, 0x0411,
+            0x0426, 0x0414, 0x0415, 0x0424, 0x0413, 0x0425, 0x0418, 0x0419, 0x041A, 0x041B, 0x041C,
+            0x041D, 0x041E, 0x041F, 0x042F, 0x0420, 0x0421, 0x0422, 0x0423, 0x0416, 0x0412, 0x042C,
+            0x042B, 0x0417, 0x0428, 0x042D, 0x0429, 0x0427, 0x042A,
+        };
+
+        std::string result;
+        result.reserve(input.size() * 3); // Cyrillic/box-drawing codepoints need up to 3 UTF-8 bytes
+
+        for (unsigned char c : input) {
+            uint32_t codepoint = c < 0x80 ? c : kHighMap[c - 0x80];
             append_utf8_codepoint(result, codepoint);
         }
 

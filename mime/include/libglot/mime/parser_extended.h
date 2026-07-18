@@ -4,6 +4,7 @@
 #include "boundary.h"
 #include "charset.h"
 #include "complete_features.h"
+#include "encoding.h"
 #include "limits.h"
 #include "mime_type_validator.h"
 #include "parser.h"
@@ -224,6 +225,17 @@ private:
     /// comment stripping, RFC 2231 continuations, Content-Type validation,
     /// address-group parsing.
     void enhance_header(Header* header) {
+        // A literal NUL byte cannot occur in RFC 5322 header text (the
+        // grammar is text/US-ASCII, RFC 6532 extends it to UTF-8, neither
+        // includes NUL); a downstream consumer that treats header values as
+        // C strings would silently truncate at it, which is exactly the
+        // kind of confusion a security-focused parser should flag rather
+        // than pass through unremarked.
+        if (header->value.find('\0') != std::string_view::npos) {
+            record_anomaly(AnomalyKind::NullByteInHeader,
+                           "header value contains a NUL byte");
+        }
+
         // RFC 6532: headers may carry raw UTF-8 directly, not just RFC 2047
         // encoded-words. Bytes >= 0x80 are legal here; the header value is
         // never modified either way (it is always a plain slice of the
@@ -274,6 +286,33 @@ private:
             }
         }
 
+        // A filename destined for the local filesystem (Content-Disposition
+        // "filename", or Content-Type's legacy pre-RFC-2183 "name") must
+        // never carry a NUL byte (truncation past whatever suffix a
+        // downstream extension check was relying on) or a path separator
+        // (directory traversal, e.g. "../../etc/passwd" or an absolute
+        // path) -- these are exactly the two classes RFC 2183 and common
+        // MUA practice already treat as attacker-controlled, not filesystem
+        // input to trust verbatim. Checked after RFC 2231 reassembly above
+        // so a percent-encoded/continued filename* is covered too, and on
+        // the RFC 2047-decoded value (an encoded-word's base64/QP payload
+        // legitimately contains '/'; decoding first also means an attacker
+        // can't hide "../" from this check by wrapping it in one).
+        if (parameterized) {
+            for (const auto& [name, value] : header->parameters) {
+                if (!detail::ascii_ieq(name, "filename") && !detail::ascii_ieq(name, "name")) {
+                    continue;
+                }
+                std::string decoded = EncodedWordDecoder::decode(value);
+                if (decoded.find('\0') != std::string::npos ||
+                    decoded.find('/') != std::string::npos ||
+                    decoded.find('\\') != std::string::npos) {
+                    record_anomaly(AnomalyKind::InvalidFilenameChars,
+                                   "filename parameter contains a NUL byte or path separator");
+                }
+            }
+        }
+
         // Content-Type syntax validation (RFC 2045/6838)
         if (detail::ascii_ieq(header->field, "Content-Type")) {
             auto validation = MimeTypeValidator::validate(header->value);
@@ -304,17 +343,23 @@ private:
         for (auto* header : msg->headers) {
             enhance_header(header);
         }
-        if (rejected_) {
-            return;
-        }
 
         // Structured values that apply regardless of Content-Type (e.g. a
         // plain RFC 5322 message with no MIME headers at all still has a
         // Date / Message-ID / References worth parsing -- this matters for
         // message/rfc822 encapsulated messages in particular, which are
-        // routinely non-MIME).
+        // routinely non-MIME). These come from headers already collected
+        // above, not from descending further into the body, so a rejected
+        // parse (e.g. an unrelated header failing RFC 6532 validation)
+        // must not suppress them -- only body/multipart descent below is
+        // gated on rejected_.
         parse_date_header(msg);
         parse_threading_headers(msg);
+        check_null_in_base64(msg);
+
+        if (rejected_) {
+            return;
+        }
 
         // The first Content-Type header drives the message structure
         Header* content_type = nullptr;
@@ -382,7 +427,7 @@ private:
                            "message/partial part detected; reassembly with sibling "
                            "fragments (matching id, ordered by number/total) is required");
         } else if (detail::ascii_ieq(media, "message/rfc822")) {
-            msg->encapsulated = parse_encapsulated_message(msg->body);
+            msg->encapsulated = parse_encapsulated_message(transfer_decoded_rfc822_body(msg));
         } else if (detail::ascii_ieq(media, "message/delivery-status")) {
             msg->delivery_status =
                 this->arena().create<DeliveryStatusRef>(DeliveryStatusParser::parse(msg->body));
@@ -446,6 +491,57 @@ private:
                 msg->references = this->arena().create<std::vector<MessageId>>(std::move(ids));
             }
         }
+    }
+
+    /// A literal NUL byte cannot occur in valid base64 text (the alphabet
+    /// is A-Za-z0-9+/=); one present in a body declared base64 is either
+    /// transport corruption or an attempt to smuggle a byte a downstream
+    /// C-string-based consumer would treat as end-of-data past whatever
+    /// validation happened first. Checked on the raw (still-encoded) body
+    /// against the part's own Content-Transfer-Encoding, not after
+    /// decoding -- the lenient decoder (RFC 2045 §6.8: ignore characters
+    /// outside the alphabet) would otherwise just silently drop it.
+    void check_null_in_base64(const Message* msg) {
+        for (auto* header : msg->headers) {
+            if (!detail::ascii_ieq(header->field, "Content-Transfer-Encoding")) {
+                continue;
+            }
+            if (TransferEncoding::detect_encoding(header->value) ==
+                    TransferEncoding::Encoding::Base64 &&
+                msg->body.find('\0') != std::string_view::npos) {
+                record_anomaly(AnomalyKind::NullInBase64,
+                               "body declared Content-Transfer-Encoding: base64 contains a "
+                               "NUL byte");
+            }
+            break;
+        }
+    }
+
+    /// RFC 2046 §5.2.1 permits only "7bit"/"8bit"/"binary" on a
+    /// message/rfc822 part, but real senders sometimes base64 or
+    /// quoted-printable encode one anyway (mime4j's conformance suite
+    /// carries a fixture for exactly this). Transfer-decoding before
+    /// recursing is the useful behavior: parsing the still-encoded bytes
+    /// as headers+body finds no real header lines (no ':' in base64
+    /// text) and silently yields an empty nested message, which is worse
+    /// than either declining or decoding -- and the content is genuinely
+    /// recoverable once decoded. 7bit/8bit/binary (and absent) pass
+    /// through unchanged. Decoded bytes are copied into the arena since
+    /// Message::body and everything under it are string_views into the
+    /// original source buffer, which this decoded copy is not.
+    std::string_view transfer_decoded_rfc822_body(const Message* msg) {
+        auto encoding = TransferEncoding::Encoding::SevenBit;
+        for (auto* header : msg->headers) {
+            if (detail::ascii_ieq(header->field, "Content-Transfer-Encoding")) {
+                encoding = TransferEncoding::detect_encoding(header->value);
+                break;
+            }
+        }
+        if (encoding == TransferEncoding::Encoding::Base64 ||
+            encoding == TransferEncoding::Encoding::QuotedPrintable) {
+            return this->arena().copy_source(TransferEncoding::decode_body(msg->body, encoding));
+        }
+        return msg->body;
     }
 
     /// Recursively parse the body of a message/rfc822 part as a full

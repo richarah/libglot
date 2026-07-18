@@ -177,7 +177,10 @@ TEST_CASE("Encoded-Word: charset name is case-insensitive", "[encoding][rfc2047]
 
 TEST_CASE("Encoded-Word: unknown charset returns raw bytes and is flagged",
           "[encoding][rfc2047][charset]") {
-    auto result = EncodedWordDecoder::decode_with_charset_info("=?KOI8-R?Q?=D0=D2=C9?=");
+    // Shift_JIS is genuinely out of scope (Asian legacy charsets, see
+    // charset.h's class comment), unlike KOI8-R/ISO-8859-2/-9 which are
+    // supported.
+    auto result = EncodedWordDecoder::decode_with_charset_info("=?Shift_JIS?Q?=D0=D2=C9?=");
     REQUIRE(result.has_unknown_charset);
     REQUIRE(result.text == "\xD0\xD2\xC9"); // raw bytes, unconverted
 }

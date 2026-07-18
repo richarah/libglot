@@ -259,7 +259,9 @@ TEST_CASE("Pipeline: decoded body helpers flag undecodable content", "[mime][pip
     libglot::Arena arena;
 
     SECTION("unknown charset yields no UTF-8 text") {
-        std::string_view source = "Content-Type: text/plain; charset=KOI8-R\n"
+        // Shift_JIS is genuinely out of scope (Asian legacy charsets, see
+        // charset.h's class comment), unlike KOI8-R which is supported.
+        std::string_view source = "Content-Type: text/plain; charset=Shift_JIS\n"
                                   "\n"
                                   "some bytes\n";
 

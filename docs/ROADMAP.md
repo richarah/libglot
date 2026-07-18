@@ -6,7 +6,7 @@ below it: doing them out of order means doing the work twice.
 Status is tracked per stage; `docs/FEATURE_MATRIX.md` remains the
 row-by-row source of truth for what is DONE vs OOS.
 
-## Stage 1 - Dialect family inheritance (issue #5) [STRUCTURAL]
+## Stage 1 - Dialect family inheritance (issue #5) [STRUCTURAL] - DONE
 
 45 dialect rows are hand-maintained; promoting a dialect currently means
 duplicating what its family already does. Express families in
@@ -16,7 +16,7 @@ family member is a delta plus a conformance suite, correct by construction.
 **Blocks stage 2.** Doing stage 2 first would produce 12 copy-pasted
 dialects that then have to be rewritten.
 
-## Stage 2 - Promote the family-member dialects (issue #3 follow-on)
+## Stage 2 - Promote the family-member dialects (issue #3 follow-on) - DONE
 
 With families in place, promote the ~12 near-free members:
 
@@ -34,7 +34,7 @@ Netezza, Exasol, Presto/Trino, Athena, Hive/Spark/Databricks/Impala) are
 genuine per-dialect work. They stay honestly labelled as quoting/traits
 only until individually promoted - we do not pad the headline number.
 
-## Stage 3 - MIME envelope gaps (issue #6)
+## Stage 3 - MIME envelope gaps (issue #6) - DONE
 
 Ordered by real-world frequency:
 
@@ -154,12 +154,234 @@ aliases), and lookup is case-insensitive inside `detect_charset` per RFC
 Enron went 92.64% -> 100.00%. Regression tests in
 `mime/tests/test_charset_latin9.cpp`.
 
+### Differential residual, classified field-by-field (2026-07-18) - DONE
+
+Re-ran the exact 500-message raw-sample differential (79.07% agreement)
+and diagnosed every disagreeing field individually, rather than leaving
+the residual as one unexamined number. Two real libglot bugs turned up
+and were fixed; everything else sorted into "out of scope" or "both
+parsers are defensible, here's why."
+
+**Bug 1 - a Reject-severity anomaly on any header silently dropped Date
+and Message-ID/threading parsing for the whole message.** `finish_message`
+checked `rejected_` (set by e.g. `InvalidUtf8Header` on a raw 8-bit
+Subject - common in real spam, nothing to do with the Date header)
+*before* calling `parse_date_header`/`parse_threading_headers`, even
+though the code comment's own stated intent was to stop body/multipart
+*descent*, not header-derived extraction that needs no further descent.
+9/104 disagreeing messages in the sample had a perfectly valid Date
+silently discarded this way. Fixed by moving both calls ahead of the
+`rejected_` check; multipart descent below is still correctly gated.
+
+**Bug 2 - `DateTimeParser` silently accepted trailing garbage after a
+resolved zone.** `Fri, 23 Aug 2002 22:46:34 GMT+1` matched zone "GMT"
+(known, offset 0) and silently discarded the "+1", reporting a confident
+UTC offset the header never actually specified - worse than declining to
+parse, which is what the same parser already does for other malformed
+zones (`19:21:44 01800`, stage-4 residual). Fixed narrowly: a numeric
+zone (`+0700`) now requires nothing follow it; a resolved alpha zone
+allows further *space-separated words* (real mail spells out "Eastern
+Daylight Time", and RFC 5322 §4.3 already treats any unrecognized
+all-alpha obs-zone as equivalent to "-0000" - that leniency is
+deliberate and stays), but rejects anything glued on with no separating
+whitespace. Verified both the fix and the non-regression by hand
+(`GMT+1` -> invalid, `Eastern Daylight Time` -> still valid/unknown-tz)
+before re-running the full suite.
+
+Both fixes: 0 regressions across the 500-message sample and the full
+1309-test suite. Message-level agreement stayed at 79.07% (the 9
+Date-fixed messages still disagree on other fields, mostly charset), but
+the Date field itself dropped from 29 to 20 residual disagreements -
+correctness fixed independent of whether it moved the headline number.
+
+**Charset gaps closed** (the same audit surfaced these independently of
+the two bugs above): ISO-8859-9 (Latin-5, Turkish), ISO-8859-2 (Latin-2,
+Central European), and KOI8-R (Cyrillic) were all present in real
+messages in the 500-sample and reported undecodable. ISO-8859-9 is a
+Latin-1 delta like Latin-9 (6 substitutions); ISO-8859-2 and KOI8-R are
+not and get their own 128-entry tables (generated from Python's own
+codecs, cross-checked byte-for-byte rather than transcribed from memory).
+Wiring these in required finding *three* separate charset dispatch
+points that have to be kept in sync by hand (`decoded_body_utf8`,
+`EncodedWordDecoder::decode`'s RFC 2047 path, and the `to_utf8`
+switch) - missing the encoded-word one was caught by a dedicated test
+per charset, not by inspection, and is exactly the kind of gap that
+would otherwise resurface for the next charset added. Raw SpamAssassin
+corpus (3,303 messages): text-decode rate 98.95% -> 99.25%. Regression
+tests in `mime/tests/test_charset_regional.cpp`.
+
+**Classified as out of scope or defensible, not bugs:**
+
+- **Subject/body charsets in Asian encodings** (ISO-2022-JP, GB2312/GBK,
+  Big5): matches the existing "Asian charsets OOS" non-goal exactly -
+  ISO-2022-JP's raw escape sequences (`\x1b$B...\x1b(J`) pass through
+  unconverted, same honest-unknown-charset behavior as the others.
+- **Raw undeclared 8-bit bytes in headers** (no RFC 2047 encoding, just a
+  legacy charset's bytes directly in Subject/From): libglot preserves the
+  bytes (escaped as private-use codepoints by `mime_dump`'s JSON output
+  so they survive the round trip); Python's strict header decode
+  substitutes U+FFFD and loses the original bytes. Same convention
+  already documented for body text, now confirmed to extend to headers.
+- **A "strict" base64 decode disagreement that turned out to be Python's
+  bug, not libglot's**: two large body-length mismatches (29,847 vs
+  39,798 bytes, 81,105 vs 108,142) traced to base64 payloads with a
+  handful of stray non-alphabet bytes. RFC 2045 §6.8 is unambiguous -
+  decoders "must ignore" characters outside the base64 alphabet.
+  libglot does; Python's `base64.b64decode` raises, and the stdlib
+  `email` package's fallback path returns the *undecoded* payload
+  (explaining why Python's "decoded" length was suspiciously close to
+  the encoded length). Verified with `base64.b64decode(..., validate=True)`
+  reproducing the same "Only base64 data is allowed" error standalone.
+- **to/from address fields (31 disagreements)**: all traced to
+  `tools/mime_dump.cpp`'s `canonical_address_values`, a deliberately
+  simplified ad-hoc splitter (its own comment says "not a
+  re-serialization of RFC 5322 syntax") - not the library's real
+  `AddressGroupParser`/structured address AST. Covers: empty
+  `undisclosed-recipients:;` groups (Python's address list comes back
+  empty for these, the harness has no group-aware fallback so the field
+  is omitted instead of matching); double literal spaces inside a
+  quoted-string display name (`"MR.IKE  EJOH"`) that the harness's own
+  `collapse_ws` erases on the Python side, even though libglot correctly
+  preserves quoted-string content verbatim and Python's own parser also
+  preserved it before the harness normalized it away; an RFC
+  2047-encoded-word glued directly onto an addr-spec local-part with no
+  angle brackets (`joko@rs.128.ne.jp@FreeBSD.ORG`) that the dump tool's
+  angle-bracket-only quoting logic doesn't re-quote (Python does); and a
+  garbled spamware `To:` header (`<C:\`Bulk...txt@dogma.slashnull.org>`)
+  where Python truncates to `C` and libglot keeps the whole malformed
+  addr-spec - neither is "more correct" for input this broken.
+- **Message-ID with a trailing RFC 5322 CFWS comment** (`<id> (added by
+  ...)`- a relay convention): libglot correctly stops at the closing
+  `>` per the msg-id grammar; the harness's Python-side comparison is a
+  naive strip that includes the trailing comment. Harness gap, not a
+  parser bug.
+- **`parts.count` for a message that also tripped `InvalidUtf8Header`**:
+  correctly gated behind `rejected_` (unlike Date/threading, multipart
+  descent should stop under a Reject-severity anomaly) - working as
+  designed, not a consequence of either bug above.
+- **A 1-byte body-length difference** on one message: a boundary
+  immediately preceded by content with no trailing newline - a known,
+  minor CRLF-before-boundary convention ambiguity (RFC 2046), not
+  systemic (1/500).
+
+### RFC conformance suite imported from Apache James Mime4j (2026-07-18) - DONE
+
+Vendored the 32 hand-crafted `.msg` conformance fixtures from Apache James
+Mime4j's own test suite (`mime/tests/data/mime4j/`, Apache License 2.0 -
+its `mimetools-testmsgs/` sibling directory is Artistic-licensed and was
+deliberately excluded). Chosen over cpython's `test_email` suite: mime4j's
+fixtures are self-contained message files with a matching expected-output
+XML; cpython's equivalent coverage is ~493 test methods with fixtures as
+inline Python string literals welded to Python-specific assertions, an
+order of magnitude more translation work per fixture for the same kind of
+edge case.
+
+Read from disk at test time (`mime/tests/test_rfc_conformance_mime4j.cpp`,
+32 fixtures / 31 TEST_CASEs / 177 assertions) rather than retyped as string
+literals, so CRLFs and long boundary strings are never hand-transcribed.
+Assertions check libglot's own verified behavior, not a mechanical
+reproduction of mime4j's tree (its internal model and leniency choices
+differ from libglot's by design in places - each divergence is explained
+in the test file).
+
+**A third real bug found and fixed**: `message/rfc822` parts never
+transfer-decoded their body before recursing into it as a nested message.
+RFC 2046 §5.2.1 permits only 7bit/8bit/binary there, but real senders
+sometimes base64-encode one anyway (mime4j's
+`base64encoded-rfc822message*.msg` fixtures exist for exactly this) -
+libglot was parsing the still-base64 bytes as headers+body directly,
+finding no real header lines (no `:` in base64 text) and silently
+producing an empty nested message instead of the real, recoverable
+content. Fixed in `finish_message`'s `message/rfc822` branch: the part's
+own Content-Transfer-Encoding is decoded (base64/quoted-printable; other
+values pass through unchanged) before recursing, with the decoded bytes
+copied into the arena (`Message::body` and everything under it are
+string_views into the original source buffer, which a decoded temporary
+is not). Verified two and three levels of nesting decode correctly,
+including a base64-encoded message/rfc822 whose decoded content is itself
+multipart. 0 regressions across the resulting 1340-test suite.
+
+**Two further gaps found, not fixed in this pass** (bigger, riskier
+changes than the ones above; tracked here rather than silently patched
+alongside a test-suite import):
+- **No preamble/epilogue modeling.** `Message` has no concept of RFC
+  2046's preamble/epilogue at all - content before the first boundary and
+  after the last is simply absent from the AST. Harmless when a boundary
+  splits normally (RFC says readers should ignore both anyway), but
+  visible when nothing splits at all (see below).
+- **A multipart whose only boundary occurrence is the close delimiter
+  (`--boundary--` with no preceding `--boundary`) is not recognized as
+  multipart at all.** RFC 2046 explicitly permits a zero-body-part
+  multipart; mime4j reports 0 parts plus preamble/epilogue text for this.
+  libglot's splitter appears to require an opening delimiter before a
+  close ends a part sequence, so finding only the close, it falls back to
+  reporting the whole body undivided (`multipartnopart.msg`,
+  `missing-inner-start-boundary.msg`).
+
+**Confirmed as deliberate strictness, not bugs** (same "decline rather
+than guess wrong" philosophy as the differential-residual findings
+above): a boundary line followed by anything other than linear whitespace
+(RFC 2046's `transport-padding` is `*LWSP-char`, not arbitrary text) is
+correctly not recognized as a delimiter, even though mime4j tolerates
+trailing garbage there (`ending-boundaries.msg`); and RFC 5322 §4's
+obsolete header grammar (whitespace before `:`, blank lines inside a
+fold) is currently rejected outright rather than tolerated, a real gap
+but a much larger one (touches the core header tokenizer) than anything
+else found this pass, so left as an open follow-up rather than attempted
+here (`obsolete.msg`).
+
+### Security / adversarial-input corpus (2026-07-18) - DONE
+
+Added `mime/tests/test_security_corpus.cpp`: hand-crafted attack-shaped
+inputs with a specific expected defensive outcome each (null-byte
+smuggling, filename path traversal, an RFC 2047 encoding-based evasion of
+the filename check, and a boundary-confusion shape complementing mime4j's
+`boundary-name-clash.msg`), run deterministically in CI - distinct from
+`fuzz/fuzz_mime_parser.cpp`'s randomized, time-boxed mutation fuzzing.
+
+**Found three genuinely dead anomaly detectors and implemented them.**
+`AnomalyKind::NullByteInHeader`, `NullInBase64`, and `InvalidFilenameChars`
+all existed in `anomalies.h` - Security-severity classification, display
+names, doc comments describing exactly what they should catch - but
+`record_anomaly` was never called for any of the three anywhere in the
+parser. Writing adversarial test cases for them immediately surfaced this
+(the anomaly simply never fired). Implemented all three:
+- `NullByteInHeader`: a literal NUL in any header value (`enhance_header`).
+- `NullInBase64`: a NUL in a body whose Content-Transfer-Encoding is
+  declared `base64` (valid base64 text cannot contain one) - checked on
+  the raw encoded body, not after decoding, since the decoder's RFC 2045
+  §6.8-mandated leniency (ignore out-of-alphabet characters) would
+  otherwise silently drop it before any check could see it.
+- `InvalidFilenameChars`: a NUL byte or path separator (`/`, `\`) in a
+  Content-Disposition `filename` or Content-Type's legacy `name`
+  parameter, checked on the RFC 2047-decoded value (an encoded-word's
+  base64 payload legitimately contains `/` as an alphabet character, a
+  real false positive hit while building this corpus and fixed by
+  decoding first - which also closes an evasion, since an attacker can no
+  longer hide `../` from the check by RFC-2047-encoding it).
+
+All three verified to add **zero false positives** over the full
+517,401-message Enron corpus and the 3,303-message raw SpamAssassin
+corpus - and `InvalidFilenameChars` does fire once for real on the latter,
+a genuine MHT-style attachment (`Content-Type: image/jpeg;
+name="./MassMail-1509_files/image002.jpg"`) whose Content-Type `name`
+parameter carries an embedded relative path, exactly the shape RFC 2183
+and this check exist to flag. Two more anomaly-adjacent controls were
+found dead by the same method and are **not** fixed here (documented
+rather than silently expanded into): `AnomalyKind::DuplicateFilenameParameter`,
+and `ParserLimits::max_filename_length` (defined per config tier in
+`limits.h`, never checked against an actual filename anywhere).
+
+0 regressions: 1353/1353 tests, committed corpus still 100%, 79.48%/
+99.25% SpamAssassin figures unchanged (none of the new checks fire on
+real, non-adversarial mail at that scale).
+
 ### Remaining
 
-Per-field classification of the differential residual (each class needs
-individual diagnosis before it can be called a bug or a convention),
-mime4j / Python `email` RFC test suites, and security/parser-differential
-corpora.
+The two mime4j-discovered gaps (preamble/epilogue modeling +
+zero-body-part multipart recognition; obsolete RFC 5322 header grammar
+tolerance), plus the two now-identified dead controls
+(`DuplicateFilenameParameter`, `max_filename_length` enforcement).
 
 ## Non-goals (unchanged)
 

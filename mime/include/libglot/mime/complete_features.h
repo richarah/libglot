@@ -717,6 +717,13 @@ public:
                 }
                 tz_offset = -tz_offset;
             }
+            // Nothing legitimately follows a numeric zone; trailing
+            // characters glued onto it (a mistyped extra digit, say) would
+            // otherwise be silently dropped and the offset accepted as
+            // though it were the whole story.
+            if (pos != s.size()) {
+                return out;
+            }
         } else if (std::isalpha(static_cast<unsigned char>(zc))) {
             size_t zone_start = pos;
             while (pos < s.size() && std::isalpha(static_cast<unsigned char>(s[pos]))) {
@@ -724,6 +731,18 @@ public:
             }
             std::string_view zone = s.substr(zone_start, pos - zone_start);
             if (!resolve_obs_zone(zone, tz_offset, tz_unknown)) {
+                return out;
+            }
+            // A recognized zone word may be followed by further words (real
+            // mail spells out "Eastern Daylight Time"; resolve_obs_zone's
+            // fallback already treats the whole thing as an unreliable
+            // "-0000"-equivalent obs-zone, matching RFC 5322 §4.3). But
+            // anything glued directly onto the zone with no separating
+            // whitespace ("GMT+1") is not a further word, it is unparsed
+            // content silently dropped from a *resolved* zone -- reject
+            // rather than report a confident offset the header didn't
+            // actually specify.
+            if (pos != s.size() && !std::isspace(static_cast<unsigned char>(s[pos]))) {
                 return out;
             }
         } else {
