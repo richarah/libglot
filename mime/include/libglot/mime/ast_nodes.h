@@ -124,6 +124,20 @@ struct Message : MimeNode {
     /// this span is never normalized, unfolded, or re-encoded.
     std::string_view raw_source;
 
+    /// RFC 2046 §5.1.1: content before the first boundary delimiter
+    /// ("preamble") and after the final close delimiter ("epilogue") of a
+    /// multipart body. Both are defined as material a conforming reader
+    /// "should" ignore for content purposes, but they are still part of
+    /// the message -- captured here rather than silently discarded so a
+    /// caller can inspect them if it needs to (e.g. detecting a
+    /// non-MIME-aware relay's banner text). Empty when this message is
+    /// not multipart, or when no boundary delimiter was found at all (an
+    /// isolated close-delimiter with no preceding opening one is not a
+    /// valid multipart-body per the RFC 2046 grammar -- msg->body holds
+    /// the untouched raw content in that case, not preamble/epilogue).
+    std::string_view preamble;
+    std::string_view epilogue;
+
     explicit Message() : MimeNode(MimeNodeKind::MESSAGE), headers(), body(), parts() {}
 
     explicit Message(std::vector<Header*> h, std::string_view b = "")

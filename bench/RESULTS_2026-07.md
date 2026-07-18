@@ -82,12 +82,12 @@ Caveats, so these numbers are not oversold:
   the overhaul, was never reproducible here, and is superseded by the table
   above.
 
-## MIME corpus (measured 2026-07-17, SpamAssassin re-measured 2026-07-18)
+## MIME corpus (measured 2026-07-17, re-measured 2026-07-18 after the stage-5 follow-up work)
 
 | Corpus | Messages | Parse | Text decoded | Notes |
 |---|---|---|---|---|
-| Enron (full, maildir) | 517,401 | **99.99%** | **100.00%** | 3m11s (~2,700 msg/s), peak RSS **11.5 MB** |
-| SpamAssassin (raw, mbox-split) | 3,303 | **98.61%** | **99.25%** | `--mbox`, no preprocessing; up from 98.95% after adding ISO-8859-9/-2 and KOI8-R (docs/ROADMAP.md stage 5 differential follow-up) |
+| Enron (full, maildir) | 517,401 | **100.00%** | **100.00%** | up from 99.99% parse after RFC 5322 obsolete-header-grammar tolerance (docs/ROADMAP.md); peak RSS **11.5 MB** |
+| SpamAssassin (raw, mbox-split) | 3,303 | **99.58%** | **99.26%** | `--mbox`, no preprocessing; parse up from 98.61% (obsolete-header tolerance), decode up from 98.95% (ISO-8859-9/-2, KOI8-R) - both docs/ROADMAP.md stage 5 differential follow-up |
 | Committed corpus | 6 | 100% | 100% | CI-gated, plus 100% differential agreement |
 
 Flat 11.5 MB peak RSS across half a million messages is the arena

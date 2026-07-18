@@ -301,22 +301,41 @@ is not). Verified two and three levels of nesting decode correctly,
 including a base64-encoded message/rfc822 whose decoded content is itself
 multipart. 0 regressions across the resulting 1340-test suite.
 
-**Two further gaps found, not fixed in this pass** (bigger, riskier
-changes than the ones above; tracked here rather than silently patched
-alongside a test-suite import):
-- **No preamble/epilogue modeling.** `Message` has no concept of RFC
-  2046's preamble/epilogue at all - content before the first boundary and
-  after the last is simply absent from the AST. Harmless when a boundary
-  splits normally (RFC says readers should ignore both anyway), but
-  visible when nothing splits at all (see below).
-- **A multipart whose only boundary occurrence is the close delimiter
-  (`--boundary--` with no preceding `--boundary`) is not recognized as
-  multipart at all.** RFC 2046 explicitly permits a zero-body-part
-  multipart; mime4j reports 0 parts plus preamble/epilogue text for this.
-  libglot's splitter appears to require an opening delimiter before a
-  close ends a part sequence, so finding only the close, it falls back to
-  reporting the whole body undivided (`multipartnopart.msg`,
-  `missing-inner-start-boundary.msg`).
+**One further gap found and initially left unfixed, closed the same
+week**: `Message` had no concept of RFC 2046's preamble/epilogue at all -
+content before the first boundary and after the last was simply absent
+from the AST. This looked, at first, like a second bug bundled with it -
+a multipart whose only boundary occurrence is the close delimiter
+(`--boundary--` with no preceding `--boundary`, e.g. `multipartnopart.msg`,
+`missing-inner-start-boundary.msg`) reported 0 parts and the whole body
+"undivided". Closer inspection showed the 0-parts result was *already
+correct* (mime4j reports 0 parts for these exact fixtures too - a lone
+close delimiter with nothing to open is arguably not even valid
+`multipart-body` grammar, and libglot declining to invent a part where
+none was opened is the same strictness already documented elsewhere);
+"undivided" was just the absence of preamble/epilogue making a correct
+result look incomplete.
+
+### Preamble/epilogue modeling (2026-07-18) - DONE
+
+Added `Message::preamble`/`Message::epilogue` (ast_nodes.h) and populated
+them in `parse_multipart_body` (parser_extended.h, now takes the
+`Message*` directly rather than returning a bare parts vector): content
+before the first recognized delimiter, and after the final close
+delimiter, captured regardless of whether that first delimiter turns out
+to be an open or an immediate close. Exposed in `tools/mime_dump.cpp`'s
+JSON schema too. Verified against mime4j's own expected trees:
+`multipartnopart.msg` and `missing-inner-start-boundary.msg` now match
+mime4j's preamble/epilogue text exactly (previously invisible), and
+`ending-boundaries.msg` - where libglot's stricter boundary matching
+recognizes a different, later delimiter than mime4j does - now reports a
+larger preamble ending where libglot's first valid match actually falls,
+rather than reporting the whole body undivided.
+
+0 regressions: 1358/1358 tests, committed corpus still 100%, differential
+and both real-corpus figures (SpamAssassin 79.48%/99.25%, Enron 99.99%/
+100.00%) all unchanged - this only adds visibility, it doesn't change
+what counts as a part or how anything is split.
 
 **Confirmed as deliberate strictness, not bugs** (same "decline rather
 than guess wrong" philosophy as the differential-residual findings
@@ -339,13 +358,19 @@ the filename check, and a boundary-confusion shape complementing mime4j's
 `boundary-name-clash.msg`), run deterministically in CI - distinct from
 `fuzz/fuzz_mime_parser.cpp`'s randomized, time-boxed mutation fuzzing.
 
-**Found three genuinely dead anomaly detectors and implemented them.**
-`AnomalyKind::NullByteInHeader`, `NullInBase64`, and `InvalidFilenameChars`
-all existed in `anomalies.h` - Security-severity classification, display
-names, doc comments describing exactly what they should catch - but
-`record_anomaly` was never called for any of the three anywhere in the
-parser. Writing adversarial test cases for them immediately surfaced this
-(the anomaly simply never fired). Implemented all three:
+**Found five genuinely dead anomaly detectors and implemented all of
+them.** `AnomalyKind::NullByteInHeader`, `NullInBase64`,
+`InvalidFilenameChars`, `DuplicateFilenameParameter`, and
+`ExcessiveFilenameLength` all existed in `anomalies.h` - severity
+classification, display names, doc comments describing exactly what they
+should catch - but `record_anomaly` was never called for any of the five
+anywhere in the parser, and `ParserLimits::max_filename_length` (the
+limit `ExcessiveFilenameLength` should have been backing) was defined
+per config tier in `limits.h` but never checked against anything either.
+Writing adversarial test cases for these immediately surfaced the gap
+(the anomaly simply never fired). Implemented all five in two passes:
+
+The first three, alongside the initial corpus build:
 - `NullByteInHeader`: a literal NUL in any header value (`enhance_header`).
 - `NullInBase64`: a NUL in a body whose Content-Transfer-Encoding is
   declared `base64` (valid base64 text cannot contain one) - checked on
@@ -360,28 +385,87 @@ parser. Writing adversarial test cases for them immediately surfaced this
   decoding first - which also closes an evasion, since an attacker can no
   longer hide `../` from the check by RFC-2047-encoding it).
 
-All three verified to add **zero false positives** over the full
+The remaining two, as an immediate follow-up rather than left dead:
+- `DuplicateFilenameParameter`: the same `filename`/`name` parameter
+  declared more than once in one header (a real MIME-confusion vector -
+  two parsers may disagree on which occurrence wins, letting an attacker
+  show a reviewer one filename while a different consumer saves under
+  another). Checked on the raw pre-reassembly parameter list specifically
+  so RFC 2231 §4's sanctioned "send both `filename=` and `filename*=`
+  for compatibility" pattern is never flagged - the two are different
+  literal keys before reassembly, only colliding into one shared
+  `filename` entry afterward.
+- `ExcessiveFilenameLength`, now actually backed by
+  `ParserLimits::max_filename_length`: the RFC 2047-decoded filename
+  value checked against the configured limit, alongside the
+  `InvalidFilenameChars` check it shares a loop with.
+
+All five verified to add **zero false positives** over the full
 517,401-message Enron corpus and the 3,303-message raw SpamAssassin
-corpus - and `InvalidFilenameChars` does fire once for real on the latter,
-a genuine MHT-style attachment (`Content-Type: image/jpeg;
+corpus - and `InvalidFilenameChars` does fire once for real on the
+latter, a genuine MHT-style attachment (`Content-Type: image/jpeg;
 name="./MassMail-1509_files/image002.jpg"`) whose Content-Type `name`
 parameter carries an embedded relative path, exactly the shape RFC 2183
-and this check exist to flag. Two more anomaly-adjacent controls were
-found dead by the same method and are **not** fixed here (documented
-rather than silently expanded into): `AnomalyKind::DuplicateFilenameParameter`,
-and `ParserLimits::max_filename_length` (defined per config tier in
-`limits.h`, never checked against an actual filename anywhere).
+and this check exist to flag.
 
-0 regressions: 1353/1353 tests, committed corpus still 100%, 79.48%/
+0 regressions: 1358/1358 tests, committed corpus still 100%, 79.48%/
 99.25% SpamAssassin figures unchanged (none of the new checks fire on
 real, non-adversarial mail at that scale).
 
+### RFC 5322 obsolete header grammar tolerance (2026-07-18) - DONE
+
+The last item from this stage-5 follow-up sequence, and initially
+expected to be the largest - "touches the core header tokenizer" - turned
+out much smaller once traced to its actual root cause instead of assumed
+from the symptom.
+
+`obsolete.msg` exercises three RFC 5322 §4 obsolete forms in one message:
+whitespace before `:`, a whitespace-only continuation line inside a fold,
+and whitespace/tabs on both sides of `:`. Tracing *why* it threw showed
+all three were already handled correctly: `HeaderFolding::unfold_headers`
+already joins a whitespace-only continuation line into its parent header
+(verified by unfolding the fixture standalone and inspecting the result),
+and the tokenizer already treats WSP before/after `:` as ordinary
+skippable whitespace between tokens. The actual, sole blocker was a
+fourth, unrelated thing in the same fixture: one header's field name
+contains a non-ASCII byte, which the tokenizer turns into a stray
+`INVALID` token, and `parse_header_with_parameters` had no recovery for
+that - it aborted the *entire* message over one bad line.
+
+Fixed narrowly: `parse_header_with_parameters` (parser_extended.h) now
+recovers when a header line isn't well-formed field-name + `:` + value
+(missing IDENTIFIER, or no COLON following one) by skipping to the next
+NEWLINE and recording `AnomalyKind::ObsoleteHeaderSyntax`, instead of
+throwing - the same recovery `parse_part`'s own line scanner already had
+for a colon-less line inside a multipart part (an inconsistency between
+the two paths noticed while making this fix), now applied consistently
+at the top level too. A malformed header line is skipped; a
+well-formed one anywhere else in the same message is never lost over it.
+
+Measured impact, not just "no regressions" - this genuinely fixes real
+messages:
+- Raw SpamAssassin corpus (3,303 messages): parse rate **98.61% ->
+  99.58%** (46 -> 14 parse errors), `ObsoleteHeaderSyntax` legitimately
+  recorded 541 times.
+- Full Enron corpus (517,401 messages): parse rate **99.99% -> 100.00%**
+  (54 -> 24 parse errors), `ObsoleteHeaderSyntax` recorded 57 times.
+- 500-message raw differential sample: agreement **79.48% -> 79.88%**
+  (2 more messages now parse and match, where they previously failed
+  libglot's side entirely).
+- Committed corpus: still 100%. 1358/1358 tests.
+
+All four items from the stage-5 follow-up list (differential-residual
+classification, mime4j suite import, security corpus, and this) are now
+closed.
+
 ### Remaining
 
-The two mime4j-discovered gaps (preamble/epilogue modeling +
-zero-body-part multipart recognition; obsolete RFC 5322 header grammar
-tolerance), plus the two now-identified dead controls
-(`DuplicateFilenameParameter`, `max_filename_length` enforcement).
+The security/parser-differential corpus's own follow-up items:
+`DuplicateFilenameParameter` and `max_filename_length` enforcement were
+closed alongside it (see above), but `WhitespaceOnlyFoldLine` and
+`NonAsciiInUnstructuredHeader` (anomalies.h) are two more Degraded-severity
+kinds found dead by the same "found while testing" pattern and not yet
+wired up - noted here rather than chased further in this pass.
 
 ## Non-goals (unchanged)
 

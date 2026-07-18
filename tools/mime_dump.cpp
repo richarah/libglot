@@ -413,6 +413,11 @@ struct NodeData {
     std::optional<std::string> body_decode_error;
     std::optional<std::string> body_digest;
     std::vector<NodeData> parts;
+    // RFC 2046 §5.1.1: content before/after a multipart's boundary
+    // delimiters (Message::preamble/epilogue); absent when this message
+    // is not multipart, or has neither.
+    std::optional<std::string> preamble;
+    std::optional<std::string> epilogue;
 };
 
 const mime::Header* find_ci(const mime::Message& msg, std::string_view field) {
@@ -643,6 +648,13 @@ NodeData build_node(const mime::Message& msg) {
         node.filename = *fname;
     }
 
+    if (!msg.preamble.empty()) {
+        node.preamble = std::string(msg.preamble);
+    }
+    if (!msg.epilogue.empty()) {
+        node.epilogue = std::string(msg.epilogue);
+    }
+
     const bool is_container = !msg.parts.empty() || msg.encapsulated != nullptr;
     if (is_container) {
         if (!msg.parts.empty()) {
@@ -750,6 +762,18 @@ void serialize_node(std::string& out, const NodeData& node, int indent) {
         indent_to(out, indent + 1);
         out += "\"body_digest\": ";
         append_json_string(out, *node.body_digest);
+        out += ",\n";
+    }
+    if (node.preamble) {
+        indent_to(out, indent + 1);
+        out += "\"preamble\": ";
+        append_json_string(out, *node.preamble);
+        out += ",\n";
+    }
+    if (node.epilogue) {
+        indent_to(out, indent + 1);
+        out += "\"epilogue\": ";
+        append_json_string(out, *node.epilogue);
         out += ",\n";
     }
 

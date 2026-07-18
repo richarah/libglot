@@ -32,16 +32,34 @@
 ///      yielding an empty nested message instead of the real, recoverable
 ///      content.
 ///
-/// Two further gaps were found and are NOT fixed here (bigger, riskier
-/// changes deserving their own pass -- see docs/ROADMAP.md's follow-up
-/// list): libglot has no preamble/epilogue concept on Message at all, and
-/// a multipart whose *only* boundary occurrence is the close delimiter
-/// (zero body-parts, RFC 2046 permits this) isn't recognized as multipart
-/// at all -- it falls back to reporting the whole body undivided
-/// (multipartnopart.msg, missing-inner-start-boundary.msg below). Also,
-/// libglot's obsolete-header-syntax handling (WSP before ':', blank lines
-/// mid-fold, RFC 5322 §4's obs-* grammar) is stricter than mime4j's: it
-/// throws rather than tolerating those forms (obsolete.msg below).
+/// This suite also found that libglot's Message had no preamble/epilogue
+/// concept at all (RFC 2046 §5.1.1 defines both); a multipart whose
+/// *only* boundary occurrence is the close delimiter (zero body-parts,
+/// which RFC 2046 permits) looked "undivided" only because that content
+/// was never surfaced, not because the 0-part result itself was wrong --
+/// mime4j reports 0 parts for the same fixtures too. Fixed as a follow-up
+/// pass (Message::preamble/epilogue, parser_extended.h's
+/// parse_multipart_body, mime_dump.cpp's JSON schema): see
+/// multipartnopart.msg and missing-inner-start-boundary.msg below, and
+/// docs/ROADMAP.md.
+///
+/// A fourth issue looked, at first, like the biggest of all: libglot threw
+/// on RFC 5322 §4's obsolete header grammar entirely (WSP before ':',
+/// blank lines mid-fold) rather than tolerating it. Tracing *why*
+/// obsolete.msg failed showed the obs-* grammar was already tokenizing
+/// correctly -- HeaderFolding::unfold_headers already joins a
+/// whitespace-only continuation line into its parent header, and the
+/// tokenizer already treats WSP before/after ':' as ordinary skippable
+/// whitespace. The actual, sole blocker was one line whose field name
+/// contains a non-ASCII byte turning into a stray INVALID token, which
+/// aborted parsing of the *entire* message rather than just that one
+/// line. Fixed by making `parse_header_with_parameters` recover from a
+/// malformed header line (skip to the next NEWLINE, record
+/// AnomalyKind::ObsoleteHeaderSyntax, keep going) instead of throwing --
+/// the same recovery `parse_part`'s line scanner already had for a
+/// colon-less line inside a multipart part, now applied consistently at
+/// the top level too (obsolete.msg and the malformedHeader*/
+/// malformedHeaderStartsBody*.msg fixtures below).
 /// ============================================================================
 
 #include "../../core/include/libglot/util/arena.h"
@@ -250,7 +268,8 @@ TEST_CASE("mime4j very-long-boundary and very-very-long-boundary: matching doesn
     REQUIRE(r2.message->parts[0]->body.size() == 7116);
 }
 
-TEST_CASE("mime4j bad-newlines-multiple-parts: bare-LF (not CRLF) multipart still splits",
+TEST_CASE("mime4j bad-newlines-multiple-parts: bare-LF (not CRLF) multipart still "
+          "splits, with preamble and epilogue captured (RFC 2046 §5.1.1)",
           "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("bad-newlines-multiple-parts.msg");
     libglot::Arena arena;
@@ -259,6 +278,8 @@ TEST_CASE("mime4j bad-newlines-multiple-parts: bare-LF (not CRLF) multipart stil
     REQUIRE(!result.rejected);
     REQUIRE(result.message->parts.size() == 1);
     REQUIRE(result.message->parts[0]->body == "Text body\n");
+    REQUIRE(result.message->preamble == "This is a multi-part message in MIME format.\n");
+    REQUIRE(result.message->epilogue == "That was a multi-part message in MIME format.\n");
 }
 
 TEST_CASE("mime4j multipartdigestnestedemptyparts: multipart/digest with a "
@@ -401,14 +422,16 @@ TEST_CASE("mime4j ending-boundaries: trailing non-whitespace text on a boundary 
           "means it is not a valid delimiter (RFC 2046 permits only LWSP there)",
           "[mime][rfc-conformance][mime4j][strictness]") {
     // mime4j treats "--boundary <arbitrary text>" as a delimiter anyway
-    // (ignoring anything after the marker, not just whitespace) and
-    // recovers a body-part plus an epilogue. libglot follows the grammar
-    // literally -- transport-padding is "*LWSP-char", not arbitrary text
-    // -- so neither line is recognized as a delimiter and the whole body
-    // is reported undivided. Also documents a real, separate, currently
-    // unfixed gap: libglot's Message has no preamble/epilogue modeling at
-    // all (see file header comment) -- moot here since no boundary was
-    // recognized either way.
+    // (ignoring anything after the marker, not just whitespace); libglot
+    // follows the grammar literally -- transport-padding is "*LWSP-char",
+    // not arbitrary text -- so the message's only two "--boundary..."
+    // occurrences with trailing garbage are NOT recognized as delimiters.
+    // There is a third, clean "--boundary--" further down with nothing
+    // after it on the line, which IS recognized: 0 parts (nothing opened
+    // before it), with everything before it captured as preamble
+    // (including the two garbage "delimiter-shaped" lines, which are just
+    // ordinary text from libglot's point of view) and everything after
+    // as epilogue.
     std::string raw = read_fixture("ending-boundaries.msg");
     libglot::Arena arena;
     auto result = parse_message(arena, raw);
@@ -416,18 +439,19 @@ TEST_CASE("mime4j ending-boundaries: trailing non-whitespace text on a boundary 
     REQUIRE(!result.rejected);
     REQUIRE(result.message->parts.empty());
     REQUIRE(result.message->body.size() == 702);
+    REQUIRE(result.message->preamble.find("--boundary This should be ignored") == 0);
+    REQUIRE(result.message->preamble.find("first part") != std::string_view::npos);
+    REQUIRE(result.message->epilogue ==
+            "\r\nThe above boundary should be part of the epilogue, too.");
 }
 
 TEST_CASE("mime4j multipartnopart: a multipart whose only boundary occurrence is the "
-          "close delimiter is not recognized as multipart at all",
-          "[mime][rfc-conformance][mime4j][gap]") {
-    // RFC 2046 permits a multipart with zero body-parts. mime4j reports 0
-    // parts plus preamble/epilogue text. libglot has no preamble/epilogue
-    // concept and its splitter requires an opening delimiter before a
-    // close is recognized as ending a part sequence; finding only the
-    // close, it falls back to reporting the whole body undivided. A real,
-    // narrow, currently-unfixed gap -- tracked in docs/ROADMAP.md, not
-    // silently fixed here.
+          "close delimiter reports 0 parts plus preamble/epilogue, matching mime4j",
+          "[mime][rfc-conformance][mime4j]") {
+    // RFC 2046 permits a multipart with zero body-parts; mime4j reports 0
+    // parts plus preamble/epilogue text for this exact fixture, which is
+    // what libglot now reports too (Message::preamble/epilogue, added
+    // alongside this conformance suite -- see docs/ROADMAP.md).
     std::string raw = read_fixture("multipartnopart.msg");
     libglot::Arena arena;
     auto result = parse_message(arena, raw);
@@ -435,6 +459,9 @@ TEST_CASE("mime4j multipartnopart: a multipart whose only boundary occurrence is
     REQUIRE(!result.rejected);
     REQUIRE(result.message->parts.empty());
     REQUIRE(result.message->body.size() == 115);
+    REQUIRE(result.message->preamble ==
+            "This is a multi-part message in MIME format with no parts.\r\n");
+    REQUIRE(result.message->epilogue == "\r\nEpilogue\r\n");
 }
 
 TEST_CASE("mime4j missing-boundary: a multipart with no boundary occurrence at all "
@@ -464,75 +491,126 @@ TEST_CASE("mime4j missing-inner-boundary: an inner multipart with an opening bou
 }
 
 TEST_CASE("mime4j missing-inner-start-boundary: an inner multipart whose only boundary "
-          "occurrence is its own close delimiter (same gap as multipartnopart)",
-          "[mime][rfc-conformance][mime4j][gap]") {
+          "occurrence is its own close delimiter reports 0 parts plus a preamble, "
+          "same shape as multipartnopart",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("missing-inner-start-boundary.msg");
     libglot::Arena arena;
     auto result = parse_message(arena, raw);
     REQUIRE(result.message != nullptr);
     REQUIRE(!result.rejected);
+    REQUIRE(result.message->preamble == "Outer preamble\r\n");
+    REQUIRE(result.message->epilogue == "Outer epilouge\r\n");
     REQUIRE(result.message->parts.size() == 2);
     REQUIRE(result.message->parts[0]->body == "Foo\r\n");
     REQUIRE(result.message->parts[1]->parts.empty());
     REQUIRE(result.message->parts[1]->body.size() == 25);
+    REQUIRE(result.message->parts[1]->preamble == "AAA\r\n");
+    REQUIRE(result.message->parts[1]->epilogue.empty());
 }
 
 // ============================================================================
-// Malformed header sections: libglot throws libglot::ParseError (documented
-// in mime.h: "a line without ':' throws"), matching its own contract.
-// mime4j instead silently drops or folds these lines and keeps going --
-// a deliberate, more-lenient design choice on its side, not a bug on
-// libglot's. obsolete.msg additionally exercises RFC 5322 §4's obsolete
-// header grammar (WSP before ':', blank lines inside a fold); libglot
-// currently rejects the whole obs-* grammar rather than tolerating it --
-// a real, larger gap than the ones above, tracked as follow-up work
-// rather than fixed in this pass (see file header comment).
+// Malformed header sections: a header line that doesn't parse as
+// field-name + ':' + value is now skipped (AnomalyKind::ObsoleteHeaderSyntax
+// recorded), not a fatal ParseError -- matching how a colon-less line was
+// already handled inside a multipart part (parse_part's own line scanner),
+// and matching mime4j's own tolerant behavior for every fixture below.
+// This closed the last of the four remaining Stage 5 follow-up gaps (see
+// docs/ROADMAP.md): tracing through *why* obsolete.msg failed showed the
+// obs-* grammar (WSP before ':', blank lines mid-fold) was already
+// tokenizing correctly -- the actual, sole blocker was one line whose
+// field name contains a non-ASCII byte, which aborted the whole parse
+// rather than just that one line.
 // ============================================================================
 
 TEST_CASE("mime4j basic-plain-with-bad-header-separator: a header/body separator "
-          "line with a stray space is not a valid blank line",
-          "[mime][rfc-conformance][mime4j][strictness]") {
+          "line with a stray space is not a valid blank line, so everything "
+          "after it is read as (malformed, skipped) headers until real body text",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("basic-plain-with-bad-header-separator.msg");
     libglot::Arena arena;
-    REQUIRE_THROWS_AS(parse_message(arena, raw), libglot::ParseError);
+    auto result = parse_message(arena, raw);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(find_header(*result.message, "Subject")->value == "Simple Subject");
+    REQUIRE(result.message->body == "This results in a bogus header.\r\n");
 }
 
 TEST_CASE("mime4j malformedHeader-nocrlfcrlf: a body-shaped line with no colon "
-          "in the header section",
-          "[mime][rfc-conformance][mime4j][strictness]") {
+          "in the header section is skipped, not fatal",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("malformedHeader-nocrlfcrlf.msg");
     libglot::Arena arena;
-    REQUIRE_THROWS_AS(parse_message(arena, raw), libglot::ParseError);
+    auto result = parse_message(arena, raw);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(result.has_anomaly(AnomalyKind::ObsoleteHeaderSyntax));
+    REQUIRE(find_header(*result.message, "Subject")->value == "this is a subject");
+    REQUIRE(find_header(*result.message, "AnotherHeader") != nullptr);
+    REQUIRE(result.message->body == "Body text\r\n");
 }
 
-TEST_CASE("mime4j malformedHeader-noheader: no header section at all, no blank-line "
-          "separator to find",
-          "[mime][rfc-conformance][mime4j][strictness]") {
+TEST_CASE("mime4j malformedHeader-noheader: no header section at all reads as an "
+          "all-skipped header block with an empty body, matching mime4j exactly",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("malformedHeader-noheader.msg");
     libglot::Arena arena;
-    REQUIRE_THROWS_AS(parse_message(arena, raw), libglot::ParseError);
+    auto result = parse_message(arena, raw);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(result.message->body.empty());
 }
 
 TEST_CASE("mime4j malformedHeaderStartsBody-nocrlfcrlf: variant with the bogus "
-          "colon-less line placed differently",
-          "[mime][rfc-conformance][mime4j][strictness]") {
+          "colon-less line placed differently is likewise skipped, not fatal",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("malformedHeaderStartsBody-nocrlfcrlf.msg");
     libglot::Arena arena;
-    REQUIRE_THROWS_AS(parse_message(arena, raw), libglot::ParseError);
+    auto result = parse_message(arena, raw);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(find_header(*result.message, "Subject")->value == "this is a subject");
+    REQUIRE(result.message->body == "Body text\r\n");
 }
 
 TEST_CASE("mime4j malformedHeaderStartsBody-noheader: variant with no header "
-          "section, different body shape",
-          "[mime][rfc-conformance][mime4j][strictness]") {
+          "section, different body shape, also an empty body",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("malformedHeaderStartsBody-noheader.msg");
     libglot::Arena arena;
-    REQUIRE_THROWS_AS(parse_message(arena, raw), libglot::ParseError);
+    auto result = parse_message(arena, raw);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(result.message->body.empty());
 }
 
 TEST_CASE("mime4j obsolete: RFC 5322 obs-* header grammar (WSP before ':', blank "
-          "lines mid-fold) is currently rejected outright, not tolerated",
-          "[mime][rfc-conformance][mime4j][gap]") {
+          "lines mid-fold, WSP around ':') all parse correctly; the one line "
+          "with a non-ASCII field name is skipped rather than aborting everything",
+          "[mime][rfc-conformance][mime4j]") {
     std::string raw = read_fixture("obsolete.msg");
     libglot::Arena arena;
-    REQUIRE_THROWS_AS(parse_message(arena, raw), libglot::ParseError);
+    auto result = parse_message(arena, raw);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(result.has_anomaly(AnomalyKind::ObsoleteHeaderSyntax));
+    // "Subject :The obsolete syntax...folding." -- WSP before ':', and the
+    // blank-looking continuation line, both already unfold correctly.
+    REQUIRE(find_header(*result.message, "Subject")->value ==
+            "The obsolete syntax allow spaces before the colon        "
+            "and also empty lines in folding.");
+    // "Date    :     Malformed Date." -- WSP around ':'; the value itself
+    // is deliberately not a valid RFC 5322 date-time (that's the fixture's
+    // point), so it's kept as a header but fails date-parsing separately.
+    REQUIRE(find_header(*result.message, "Date")->value == "Malformed Date.");
+    REQUIRE(result.message->date == nullptr);
+    REQUIRE(result.has_anomaly(AnomalyKind::InvalidDateFormat));
+    // "HeaderWithWSP \t  \t:\t\tvalue." -- WSP/tabs on both sides of ':'.
+    REQUIRE(find_header(*result.message, "HeaderWithWSP")->value == "value.");
+    // "Inval<0xED>d-Header: this is not valid." -- a field name with a
+    // non-ASCII byte is not valid RFC 5322 ftext under either grammar;
+    // skipped rather than kept or fatal. Only the three well-formed
+    // headers above survive.
+    REQUIRE(result.message->headers.size() == 3);
+    REQUIRE(result.message->body == "body\r\n");
 }

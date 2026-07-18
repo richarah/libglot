@@ -9,21 +9,21 @@
 /// deterministically in CI like every other Catch2 test rather than a
 /// time-boxed background job.
 ///
-/// Building this corpus found that three AnomalyKind values existed in
-/// anomalies.h -- NullByteInHeader, NullInBase64, InvalidFilenameChars --
-/// complete with Security-severity classification and display names, but
-/// were never actually raised anywhere in the parser: real dead code,
-/// presumably intended when the anomaly enum was designed and never
-/// finished. All three are now implemented (parser_extended.h:
-/// enhance_header, check_null_in_base64, and the filename-parameter check
-/// alongside RFC 2231 reassembly) and verified to introduce zero false
-/// positives over the full 517,401-message Enron corpus and the raw
-/// SpamAssassin corpus (which does trip InvalidFilenameChars once, on a
-/// genuine MHT-style attachment named with an embedded relative path --
-/// see docs/ROADMAP.md). Two more are still dead
-/// (`DuplicateFilenameParameter`, and `ParserLimits::max_filename_length`
-/// is defined per config tier but never checked against anything) --
-/// documented as follow-up, not fixed here.
+/// Building this corpus found that five AnomalyKind values existed in
+/// anomalies.h -- NullByteInHeader, NullInBase64, InvalidFilenameChars,
+/// DuplicateFilenameParameter, ExcessiveFilenameLength -- complete with
+/// severity classification and display names, but were never actually
+/// raised anywhere in the parser: real dead code, presumably intended
+/// when the anomaly enum was designed and never finished.
+/// `ParserLimits::max_filename_length` (limits.h) was likewise defined
+/// per config tier but never checked against anything -- it now backs
+/// ExcessiveFilenameLength. All five are implemented (parser_extended.h:
+/// enhance_header, check_null_in_base64, and the filename-parameter
+/// checks alongside RFC 2231 reassembly) and verified to introduce zero
+/// false positives over the full 517,401-message Enron corpus and the
+/// raw SpamAssassin corpus (which does trip InvalidFilenameChars once,
+/// on a genuine MHT-style attachment named with an embedded relative
+/// path -- see docs/ROADMAP.md).
 /// ============================================================================
 
 #include "../../core/include/libglot/util/arena.h"
@@ -194,6 +194,86 @@ TEST_CASE("Security: a clean filename carries no InvalidFilenameChars anomaly",
     REQUIRE(result.message != nullptr);
     REQUIRE(!result.has_anomaly(AnomalyKind::InvalidFilenameChars));
     REQUIRE(!result.rejected);
+}
+
+// ============================================================================
+// DuplicateFilenameParameter (previously defined, never raised)
+// ============================================================================
+
+TEST_CASE("Security: filename declared twice in one header is flagged", "[mime][security]") {
+    // A classic MIME-confusion vector: two parsers may disagree on which
+    // occurrence wins, letting an attacker show a reviewer one filename
+    // while a different consumer saves under another.
+    libglot::Arena arena;
+    auto result = parse_message(
+        arena, "Content-Type: application/octet-stream\n"
+              "Content-Disposition: attachment; filename=\"safe.pdf\"; filename=\"evil.exe\"\n"
+              "\n"
+              "data\n");
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.has_anomaly(AnomalyKind::DuplicateFilenameParameter));
+}
+
+TEST_CASE("Security: plain filename plus filename* (RFC 2231 compat pattern) is "
+          "NOT flagged as a duplicate",
+          "[mime][security]") {
+    // RFC 2231 §4 explicitly sanctions sending both together for backward
+    // compatibility (filename* for extended charset, filename as a plain
+    // fallback) -- this is not a duplicate, and must not be flagged as one.
+    libglot::Arena arena;
+    auto result = parse_message(
+        arena, "Content-Type: application/octet-stream\n"
+              "Content-Disposition: attachment; filename=\"fallback.txt\"; "
+              "filename*=UTF-8''extended.txt\n"
+              "\n"
+              "data\n");
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.has_anomaly(AnomalyKind::DuplicateFilenameParameter));
+}
+
+TEST_CASE("Security: a clean single filename carries no DuplicateFilenameParameter "
+          "anomaly",
+          "[mime][security]") {
+    libglot::Arena arena;
+    auto result =
+        parse_message(arena, "Content-Type: application/octet-stream\n"
+                             "Content-Disposition: attachment; filename=\"report.pdf\"\n"
+                             "\n"
+                             "data\n");
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.has_anomaly(AnomalyKind::DuplicateFilenameParameter));
+}
+
+// ============================================================================
+// ExcessiveFilenameLength (previously defined, never raised;
+// ParserLimits::max_filename_length was likewise never checked)
+// ============================================================================
+
+TEST_CASE("Security: a filename longer than the configured limit is flagged",
+          "[mime][security][limits]") {
+    libglot::Arena arena;
+    ParseOptions options;
+    options.limits.max_filename_length = 16;
+    std::string source = "Content-Type: application/octet-stream\n"
+                        "Content-Disposition: attachment; filename=\"" +
+                        std::string(50, 'a') + ".pdf\"\n\ndata\n";
+    auto result = parse_message(arena, source, options);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.has_anomaly(AnomalyKind::ExcessiveFilenameLength));
+}
+
+TEST_CASE("Security: a filename within the configured limit is NOT flagged",
+          "[mime][security][limits]") {
+    libglot::Arena arena;
+    ParseOptions options;
+    options.limits.max_filename_length = 255;
+    auto result =
+        parse_message(arena,
+                      "Content-Type: application/octet-stream\n"
+                      "Content-Disposition: attachment; filename=\"report.pdf\"\n\ndata\n",
+                      options);
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.has_anomaly(AnomalyKind::ExcessiveFilenameLength));
 }
 
 // ============================================================================

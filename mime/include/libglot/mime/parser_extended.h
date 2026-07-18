@@ -104,7 +104,9 @@ public:
                 this->advance();
                 break;
             }
-            headers.push_back(parse_header_with_parameters());
+            if (auto* header = parse_header_with_parameters()) {
+                headers.push_back(header);
+            }
         }
 
         // Get body
@@ -130,17 +132,33 @@ public:
         return msg;
     }
 
-    /// Parse header with parameters (Content-Type: text/plain; charset=utf-8)
+    /// Parse header with parameters (Content-Type: text/plain; charset=utf-8).
+    /// Returns nullptr when the line is not a well-formed header at all
+    /// (RFC 5322 §4's obsolete grammar is more tolerant than the current
+    /// grammar, but a field name containing bytes outside the printable
+    /// US-ASCII ftext range -- found via the mime4j conformance suite's
+    /// obsolete.msg -- is not valid under either one); the whole line is
+    /// then skipped rather than aborting the parse, matching how a
+    /// colon-less line is already handled inside a multipart part
+    /// (parse_part's line scanner). A syntactically sound header
+    /// elsewhere in the same message must not be lost over one bad line.
     Header* parse_header_with_parameters() {
         // Field name
         if (!this->check(TK::IDENTIFIER)) {
-            this->error("Expected header field name");
+            record_anomaly(AnomalyKind::ObsoleteHeaderSyntax,
+                           "header line does not begin with a valid field name; skipped");
+            skip_to_next_header_line();
+            return nullptr;
         }
         auto field_tok = this->advance();
 
         // Colon
         if (!this->match(TK::COLON)) {
-            this->error("Expected ':' after header field name");
+            record_anomaly(AnomalyKind::ObsoleteHeaderSyntax,
+                           "header field name contains characters outside RFC 5322 ftext "
+                           "(no ':' found); line skipped");
+            skip_to_next_header_line();
+            return nullptr;
         }
 
         // Value (may be empty)
@@ -163,6 +181,19 @@ public:
     }
 
 private:
+    /// Recovery for a header line that failed to parse as field-name +
+    /// ':' + value: discard tokens up to and including the next NEWLINE
+    /// (or EOF, if the malformed line is the last one), so one bad line
+    /// doesn't abort parsing of every header after it.
+    void skip_to_next_header_line() {
+        while (!this->check(TK::NEWLINE) && !this->check(TK::EOF_TOKEN)) {
+            this->advance();
+        }
+        if (this->check(TK::NEWLINE)) {
+            this->advance();
+        }
+    }
+
     /// Check if Content-Type indicates multipart
     bool is_multipart(std::string_view content_type) const {
         return content_type.find("multipart/") == 0;
@@ -264,6 +295,33 @@ private:
         const bool parameterized = detail::ascii_ieq(header->field, "Content-Type") ||
                                    detail::ascii_ieq(header->field, "Content-Disposition");
 
+        // A literal "filename" (or legacy "name") key appearing more than
+        // once in the same header is a real MIME-confusion vector -- two
+        // parsers disagreeing on which occurrence wins gives an attacker a
+        // way to show a reviewer one filename while a different consumer
+        // saves under another. Checked on the RAW parameter list, before
+        // the RFC 2231 reassembly below appends its own "filename" entry:
+        // RFC 2231 §4 explicitly sanctions sending both plain `filename=`
+        // and encoded `filename*0=`/`filename*1=` together for backward
+        // compatibility, and that pattern must not be flagged as a
+        // duplicate (the two are different literal keys pre-reassembly).
+        if (parameterized) {
+            int filename_count = 0;
+            int name_count = 0;
+            for (const auto& [pname, pvalue] : header->parameters) {
+                (void)pvalue;
+                if (detail::ascii_ieq(pname, "filename")) {
+                    ++filename_count;
+                } else if (detail::ascii_ieq(pname, "name")) {
+                    ++name_count;
+                }
+            }
+            if (filename_count > 1 || name_count > 1) {
+                record_anomaly(AnomalyKind::DuplicateFilenameParameter,
+                               "filename or name parameter is declared more than once");
+            }
+        }
+
         // RFC 2231 parameter continuations: reassemble name*0/name*1/... into
         // a single percent-decoded (and charset-converted) parameter.
         if (parameterized && has_continued_parameter(header->parameters)) {
@@ -309,6 +367,10 @@ private:
                     decoded.find('\\') != std::string::npos) {
                     record_anomaly(AnomalyKind::InvalidFilenameChars,
                                    "filename parameter contains a NUL byte or path separator");
+                }
+                if (decoded.size() > limits_.max_filename_length) {
+                    record_anomaly(AnomalyKind::ExcessiveFilenameLength,
+                                   "filename parameter exceeds the configured length limit");
                 }
             }
         }
@@ -408,7 +470,7 @@ private:
             for (const auto& param : content_type->parameters) {
                 if (param.first == "boundary") {
                     if (!param.second.empty()) {
-                        msg->parts = parse_multipart_body(msg->body, param.second);
+                        parse_multipart_body(msg, param.second);
                     }
                     break;
                 }
@@ -730,30 +792,44 @@ private:
     /// delimiter (epilogue) is discarded. Enforces nesting-depth and
     /// part-count limits; violations stop parsing cleanly and are recorded
     /// as anomalies. Once the parse is rejected, no further parts are read.
-    std::vector<Part*> parse_multipart_body(std::string_view body, std::string_view boundary) {
+    void parse_multipart_body(Message* msg, std::string_view boundary) {
+        std::string_view body = msg->body;
         std::vector<Part*> parts;
 
         if (boundary.empty()) {
-            return parts;
+            return;
         }
 
         // DoS protection: cap recursion into nested multiparts
         if (tracker_.current_nesting_depth >= limits_.max_nesting_depth) {
             record_anomaly(AnomalyKind::ExcessiveNestingDepth,
                            "multipart nesting depth limit reached; not descending further");
-            return parts;
+            return;
         }
         tracker_.enter_level();
 
         auto delim = find_boundary_delimiter(body, boundary, 0);
         if (!delim.found) {
+            // No delimiter at all: msg->body already holds the untouched raw
+            // content (RFC 2046's grammar requires a dash-boundary before
+            // anything else, so there is no preamble/epilogue to speak of
+            // here -- the whole thing failed to become a multipart-body).
             tracker_.exit_level();
-            return parts;
+            return;
         }
 
-        // Everything before the first delimiter is the preamble (discarded)
+        // Content before the first delimiter is the preamble (RFC 2046
+        // §5.1.1); populated even when that first delimiter is itself a
+        // close (an isolated "--boundary--" with no preceding opening one,
+        // e.g. RFC 2046 permits a multipart with zero body-parts, and real
+        // messages sometimes omit the also-required opening line anyway --
+        // mime4j's own conformance suite expects preamble+epilogue with 0
+        // parts for exactly this shape, not a hard failure).
+        msg->preamble = body.substr(0, delim.content_end);
+
         bool closed = delim.is_close;
         size_t part_start = delim.next_pos;
+        size_t epilogue_start = delim.next_pos;
 
         while (!closed && !rejected_) {
             // DoS protection: cap total number of parts
@@ -780,16 +856,22 @@ private:
             if (!next.found) {
                 record_anomaly(AnomalyKind::MissingFinalBoundary,
                                "multipart body lacks the final close delimiter (--boundary--)");
-                break;
+                tracker_.exit_level();
+                msg->parts = std::move(parts);
+                return;
             }
 
             closed = next.is_close;
             part_start = next.next_pos;
+            epilogue_start = next.next_pos;
         }
 
-        // Everything after the close delimiter is the epilogue (discarded)
+        // Content after the close delimiter is the epilogue (RFC 2046 §5.1.1).
+        if (closed) {
+            msg->epilogue = body.substr(epilogue_start);
+        }
         tracker_.exit_level();
-        return parts;
+        msg->parts = std::move(parts);
     }
 
     /// Parse a single MIME part (headers + body)
