@@ -95,7 +95,7 @@ rather than real bugs.
 The oracle has not yet found a libglot correctness bug - which is itself
 the useful result, given it found several in the harness.
 
-## Stage 5 - Corpus breadth - DONE (partial; see remaining work)
+## Stage 5 - Corpus breadth - DONE
 
 Closed issues #8 (ISO-8859-15) and #9 (real mbox support in tooling), then
 re-measured everything against raw, unmodified SpamAssassin.

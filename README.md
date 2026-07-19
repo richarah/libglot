@@ -13,11 +13,11 @@ two corpus gates.
 
 | Claim | Evidence |
 |---|---|
-| **1,287 tests**, including generate→parse fixed-point property tests | `ctest`; CI on GCC and Clang, Debug and Release |
-| **Differentially tested against Python's `email`** — the parsed structure of a message is compared field by field, not just "did it crash" | `scripts/mime_diff.py` + `tools/mime_dump`; CI job `mime-differential` gates the committed corpus at **100% agreement**. On a 500-message raw SpamAssassin sample: **79% agreement**, residual classified in [`docs/ROADMAP.md`](docs/ROADMAP.md#stage-5---corpus-breadth---done-partial-see-remaining-work) |
-| **99.99% parse / 100% text-decode** over the full **517,401-message Enron corpus**, at ~2,700 msg/s and a flat **11.5 MB** peak RSS; 98.6%/99.0% over raw SpamAssassin | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md); `tools/mime_corpus`; CI job `mime-corpus` |
+| **1,367 tests**, including generate→parse fixed-point property tests | `ctest`; CI on GCC and Clang, Debug and Release |
+| **Differentially tested against Python's `email`** — the parsed structure of a message is compared field by field, not just "did it crash" | `scripts/mime_diff.py` + `tools/mime_dump`; CI job `mime-differential` gates the committed corpus at **100% agreement**. On a 500-message raw SpamAssassin sample: **79.88% agreement**, residual classified in [`docs/ROADMAP.md`](docs/ROADMAP.md#stage-5---corpus-breadth---done) |
+| **100.00% parse / 100% text-decode** over the full **517,401-message Enron corpus**, at ~2,700 msg/s and a flat **11.5 MB** peak RSS; 99.6%/99.3% over raw SpamAssassin | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md); `tools/mime_corpus`; CI job `mime-corpus` |
 | **SQL: 33–58× faster parse, 47–93× faster transpile** than Python sqlglot 30.12 | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md) — methodology and caveats included |
-| **MIME: 8–227× faster** than Python's `email` — 139–227× vs `policy.default`, 8–15× vs the lazier `compat32`. Both are stated because the honest number depends on how much work you ask Python to do | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md) |
+| **MIME: faster than every other real parser measured** — 1.9–2.6× `mail-parser` (Rust, benchmark-oriented), 2.1–7.0× Apache James Mime4j (Java), 70–110× Python's `email` (stdlib), on identical real-mail corpora with identical per-message work | [`bench/RESULTS_2026-07.md`](bench/RESULTS_2026-07.md), [`bench/mime_comparison/`](bench/mime_comparison/) — methodology, driver sources, and caveats included |
 | Parsers fuzzed under ASan/UBSan; the transpiler round-trip contract is fuzzed too | `fuzz/`; CI job `fuzzers` |
 
 ## Honest limits
