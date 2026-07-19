@@ -1,237 +1,186 @@
+// SQL Server OUTPUT clause and PostgreSQL RETURNING clause, mapped onto the
+// shared OutputClause AST.
+//
+// Design choices (documented in generator.h):
+//  - T-SQL dialects (SQLServer, AzureSynapse) emit OUTPUT; unqualified items
+//    get the statement's default row image (INSERTED for INSERT/UPDATE,
+//    DELETED for DELETE).
+//  - Every other dialect emits RETURNING with the qualifier stripped - valid
+//    only when items reference the statement's own result rows. References
+//    to the other row image (e.g. DELETED.x in an UPDATE, or any mix of
+//    INSERTED and DELETED) throw std::logic_error.
+
 #include <catch2/catch_test_macros.hpp>
-#include "libglot/sql/complete_features.h"
-#include "libglot/core/arena.h"
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
+#include <libglot/util/arena.h>
+
+#include <stdexcept>
+#include <string>
 
 using namespace libglot::sql;
-using namespace libglot;
-using TK = libsqlglot::TokenType;
 
-TEST_CASE("OUTPUT - Basic INSERTED columns", "[sql][output][tsql]") {
-    const char* sql = "OUTPUT INSERTED.id, INSERTED.name";
+namespace {
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->columns.size() == 2);
-    REQUIRE(stmt->columns[0].first == OutputClause::Target::INSERTED);
-    REQUIRE(stmt->columns[1].first == OutputClause::Target::INSERTED);
+std::string transpile(const std::string& sql, SQLDialect parse_dialect, SQLDialect gen_dialect) {
+    libglot::Arena arena;
+    SQLParser parser(arena, sql, parse_dialect);
+    auto ast = parser.parse_top_level();
+    SQLGenerator gen(gen_dialect);
+    return gen.generate(ast);
 }
 
-TEST_CASE("OUTPUT - DELETED columns", "[sql][output][tsql]") {
-    const char* sql = "OUTPUT DELETED.id, DELETED.old_value";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->columns.size() == 2);
-    REQUIRE(stmt->columns[0].first == OutputClause::Target::DELETED);
-    REQUIRE(stmt->columns[1].first == OutputClause::Target::DELETED);
+std::string sqlserver(const std::string& sql) {
+    return transpile(sql, SQLDialect::SQLServer, SQLDialect::SQLServer);
 }
 
-TEST_CASE("OUTPUT - Mixed INSERTED and DELETED", "[sql][output][tsql]") {
-    const char* sql = "OUTPUT INSERTED.new_val, DELETED.old_val";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->columns.size() == 2);
-    REQUIRE(stmt->columns[0].first == OutputClause::Target::INSERTED);
-    REQUIRE(stmt->columns[1].first == OutputClause::Target::DELETED);
+std::string postgres(const std::string& sql) {
+    return transpile(sql, SQLDialect::PostgreSQL, SQLDialect::PostgreSQL);
 }
 
-TEST_CASE("OUTPUT - With INTO table", "[sql][output][tsql]") {
-    const char* sql = "OUTPUT INSERTED.id, INSERTED.name INTO @AuditTable";
+} // namespace
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
+// ============================================================================
+// T-SQL OUTPUT round trips (SQL Server)
+// ============================================================================
 
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->columns.size() == 2);
-    REQUIRE(stmt->into_table != nullptr);
+TEST_CASE("OUTPUT - INSERT with INSERTED columns", "[output][insert][sqlserver]") {
+    REQUIRE(sqlserver("INSERT INTO t (a, b) OUTPUT INSERTED.a, INSERTED.b VALUES (1, 2)") ==
+            "INSERT INTO [t] ([a], [b]) OUTPUT INSERTED.[a], INSERTED.[b] VALUES (1, 2)");
 }
 
-TEST_CASE("OUTPUT - In INSERT statement", "[sql][output][tsql][complete]") {
-    const char* sql = R"(
-        INSERT INTO employees (name, salary)
-        OUTPUT INSERTED.id, INSERTED.name, INSERTED.salary
-        VALUES ('John Doe', 50000)
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("OUTPUT - INSERT ... SELECT with OUTPUT", "[output][insert][sqlserver]") {
+    REQUIRE(sqlserver("INSERT INTO t (a) OUTPUT INSERTED.a SELECT a FROM u") ==
+            "INSERT INTO [t] ([a]) OUTPUT INSERTED.[a] SELECT [a] FROM [u]");
 }
 
-TEST_CASE("OUTPUT - In UPDATE statement", "[sql][output][tsql][complete]") {
-    const char* sql = R"(
-        UPDATE employees
-        SET salary = salary * 1.1
-        OUTPUT INSERTED.id, INSERTED.salary, DELETED.salary
-        WHERE department = 'Sales'
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("OUTPUT - UPDATE with INSERTED and DELETED", "[output][update][sqlserver]") {
+    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2") ==
+            "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a], DELETED.[a] WHERE [b] = 2");
 }
 
-TEST_CASE("OUTPUT - In DELETE statement", "[sql][output][tsql][complete]") {
-    const char* sql = R"(
-        DELETE FROM employees
-        OUTPUT DELETED.id, DELETED.name, DELETED.salary
-        WHERE termination_date < '2020-01-01'
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("OUTPUT - DELETE with DELETED star", "[output][delete][sqlserver]") {
+    REQUIRE(sqlserver("DELETE FROM t OUTPUT DELETED.* WHERE a = 1") ==
+            "DELETE FROM [t] OUTPUT DELETED.* WHERE [a] = 1");
+    // Without a WHERE clause
+    REQUIRE(sqlserver("DELETE FROM t OUTPUT DELETED.id") == "DELETE FROM [t] OUTPUT DELETED.[id]");
 }
 
-TEST_CASE("OUTPUT - Generator output", "[sql][output][generator]") {
-    const char* sql = "OUTPUT INSERTED.id, DELETED.old_value INTO @log";
+TEST_CASE("OUTPUT - aliased items", "[output][alias][sqlserver]") {
+    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT INSERTED.a AS new_a, DELETED.a AS old_a") ==
+            "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a] AS [new_a], DELETED.[a] AS [old_a]");
+}
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
-
-    REQUIRE(stmt != nullptr);
-
-    class TestGenerator : public CompleteSQLGenerator<TestGenerator> {
-    public:
-        using CompleteSQLGenerator::CompleteSQLGenerator;
-        std::string generate(OutputClause* output) {
-            visit_output_clause(output);
-            return get_output();
-        }
+TEST_CASE("OUTPUT - generated T-SQL is a fixed point", "[output][fixpoint][sqlserver]") {
+    const std::string queries[] = {
+        "INSERT INTO t (a) OUTPUT INSERTED.a VALUES (1)",
+        "UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2",
+        "DELETE FROM t OUTPUT DELETED.* WHERE a = 1",
     };
-
-    TestGenerator gen(arena, SQLDialect::TSQL);
-    std::string result = gen.generate(stmt);
-
-    REQUIRE(result.find("OUTPUT") != std::string::npos);
-    REQUIRE(result.find("INSERTED") != std::string::npos);
-    REQUIRE(result.find("DELETED") != std::string::npos);
-    REQUIRE(result.find("INTO") != std::string::npos);
+    for (const auto& q : queries) {
+        const std::string g1 = sqlserver(q);
+        REQUIRE(sqlserver(g1) == g1);
+    }
 }
 
-TEST_CASE("OUTPUT - Single column", "[sql][output][tsql]") {
-    const char* sql = "OUTPUT INSERTED.created_at";
+// ============================================================================
+// PostgreSQL RETURNING parses natively onto the same AST
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->columns.size() == 1);
+TEST_CASE("RETURNING - INSERT/UPDATE/DELETE native round trips", "[returning][postgresql]") {
+    REQUIRE(postgres("INSERT INTO t (a) VALUES (1) RETURNING id") ==
+            "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"id\"");
+    REQUIRE(postgres("INSERT INTO t (a) VALUES (1) RETURNING id, a + 1 AS next_a") ==
+            "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"id\", \"a\" + 1 AS \"next_a\"");
+    REQUIRE(postgres("UPDATE t SET a = 1 WHERE b = 2 RETURNING a") ==
+            "UPDATE \"t\" SET \"a\" = 1 WHERE \"b\" = 2 RETURNING \"a\"");
+    REQUIRE(postgres("DELETE FROM t WHERE a = 1 RETURNING *") ==
+            "DELETE FROM \"t\" WHERE \"a\" = 1 RETURNING *");
 }
 
-TEST_CASE("OUTPUT - Many columns", "[sql][output][tsql]") {
-    const char* sql = "OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.phone, INSERTED.address";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance();
-    auto* stmt = parser.parse_output_clause();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->columns.size() == 5);
+TEST_CASE("RETURNING - INSERT ... SELECT ... RETURNING", "[returning][postgresql]") {
+    REQUIRE(postgres("INSERT INTO t (a) SELECT a FROM u RETURNING id") ==
+            "INSERT INTO \"t\" (\"a\") SELECT \"a\" FROM \"u\" RETURNING \"id\"");
 }
 
-TEST_CASE("OUTPUT - With table variable", "[sql][output][tsql]") {
-    const char* sql = R"(
-        DECLARE @MyTableVar TABLE (id INT, name VARCHAR(50));
+// ============================================================================
+// Cross-dialect transpilation: OUTPUT <-> RETURNING
+// ============================================================================
 
-        INSERT INTO employees (name, department)
-        OUTPUT INSERTED.id, INSERTED.name INTO @MyTableVar
-        VALUES ('Jane Smith', 'IT');
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("OUTPUT INSERTED.x transpiles to RETURNING x for PostgreSQL", "[output][transpile]") {
+    REQUIRE(transpile("INSERT INTO t (a) OUTPUT INSERTED.a VALUES (1)", SQLDialect::SQLServer,
+                      SQLDialect::PostgreSQL) ==
+            "INSERT INTO \"t\" (\"a\") VALUES (1) RETURNING \"a\"");
+    REQUIRE(transpile("UPDATE t SET a = 1 OUTPUT INSERTED.a WHERE b = 2", SQLDialect::SQLServer,
+                      SQLDialect::PostgreSQL) ==
+            "UPDATE \"t\" SET \"a\" = 1 WHERE \"b\" = 2 RETURNING \"a\"");
+    // DELETE returns the deleted rows: DELETED.x maps to RETURNING x
+    REQUIRE(transpile("DELETE FROM t OUTPUT DELETED.* WHERE a = 1", SQLDialect::SQLServer,
+                      SQLDialect::PostgreSQL) == "DELETE FROM \"t\" WHERE \"a\" = 1 RETURNING *");
 }
 
-TEST_CASE("OUTPUT - In MERGE statement", "[sql][output][tsql][complete]") {
-    const char* sql = R"(
-        MERGE INTO target AS t
-        USING source AS s ON t.id = s.id
-        WHEN MATCHED THEN UPDATE SET t.value = s.value
-        WHEN NOT MATCHED THEN INSERT (id, value) VALUES (s.id, s.value)
-        OUTPUT INSERTED.id, INSERTED.value, DELETED.value;
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("RETURNING transpiles to OUTPUT for SQL Server", "[returning][transpile]") {
+    REQUIRE(transpile("INSERT INTO t (a) VALUES (1) RETURNING id", SQLDialect::PostgreSQL,
+                      SQLDialect::SQLServer) ==
+            "INSERT INTO [t] ([a]) OUTPUT INSERTED.[id] VALUES (1)");
+    REQUIRE(transpile("UPDATE t SET a = 1 WHERE b = 2 RETURNING a", SQLDialect::PostgreSQL,
+                      SQLDialect::SQLServer) ==
+            "UPDATE [t] SET [a] = 1 OUTPUT INSERTED.[a] WHERE [b] = 2");
+    REQUIRE(transpile("DELETE FROM t WHERE a = 1 RETURNING *", SQLDialect::PostgreSQL,
+                      SQLDialect::SQLServer) == "DELETE FROM [t] OUTPUT DELETED.* WHERE [a] = 1");
 }
 
-TEST_CASE("OUTPUT - Audit trail pattern", "[sql][output][tsql]") {
-    const char* sql = R"(
-        UPDATE inventory
-        SET quantity = quantity - 10
-        OUTPUT
-            INSERTED.product_id,
-            DELETED.quantity AS old_qty,
-            INSERTED.quantity AS new_qty,
-            GETDATE() AS change_date
-        INTO inventory_audit
-        WHERE product_id = 123
-    )";
+// ============================================================================
+// Untranslatable combinations throw std::logic_error for non-T-SQL targets
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("Mixed INSERTED + DELETED throws for non-T-SQL dialects", "[output][error]") {
+    const std::string sql = "UPDATE t SET a = 1 OUTPUT INSERTED.a, DELETED.a WHERE b = 2";
+    for (auto d : {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::ANSI}) {
+        libglot::Arena arena;
+        SQLParser parser(arena, sql, SQLDialect::SQLServer);
+        auto ast = parser.parse_top_level();
+        SQLGenerator gen(d);
+        REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
+    }
 }
 
-TEST_CASE("OUTPUT - Without INTO clause", "[sql][output][tsql]") {
-    const char* sql = R"(
-        DELETE FROM old_records
-        OUTPUT DELETED.*
-        WHERE created_date < '2015-01-01'
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("DELETED in UPDATE / INSERTED in DELETE throw for non-T-SQL", "[output][error]") {
+    // Old-row values from an UPDATE cannot be expressed with RETURNING
+    {
+        libglot::Arena arena;
+        SQLParser parser(arena, "UPDATE t SET a = 1 OUTPUT DELETED.a", SQLDialect::SQLServer);
+        auto ast = parser.parse_top_level();
+        SQLGenerator gen(SQLDialect::PostgreSQL);
+        REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
+    }
+    // INSERTED rows make no sense for a DELETE outside T-SQL
+    {
+        libglot::Arena arena;
+        SQLParser parser(arena, "DELETE FROM t OUTPUT INSERTED.a", SQLDialect::SQLServer);
+        auto ast = parser.parse_top_level();
+        SQLGenerator gen(SQLDialect::PostgreSQL);
+        REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
+    }
+    // ... but both are fine when targeting SQL Server itself
+    REQUIRE(sqlserver("UPDATE t SET a = 1 OUTPUT DELETED.a") ==
+            "UPDATE [t] SET [a] = 1 OUTPUT DELETED.[a]");
 }
 
-TEST_CASE("OUTPUT - Temp table destination", "[sql][output][tsql]") {
-    const char* sql = R"(
-        INSERT INTO employees (name)
-        OUTPUT INSERTED.id, INSERTED.name INTO #temp_employees
-        SELECT name FROM staging_employees
-    )";
+// ============================================================================
+// Strictness: trailing input after OUTPUT/RETURNING is still an error
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("OUTPUT/RETURNING do not relax trailing-input checking", "[output][strict]") {
+    {
+        libglot::Arena arena;
+        SQLParser parser(arena, "INSERT INTO t (a) VALUES (1) RETURNING id id2 id3",
+                         SQLDialect::PostgreSQL);
+        REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
+    }
+    {
+        libglot::Arena arena;
+        SQLParser parser(arena, "DELETE FROM t OUTPUT DELETED. WHERE a = 1", SQLDialect::SQLServer);
+        REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
+    }
 }

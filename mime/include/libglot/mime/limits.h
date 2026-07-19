@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstddef>
 #include <chrono>
+#include <cstddef>
 
 namespace libglot::mime {
 
@@ -51,22 +51,22 @@ struct ParserLimits {
     /// Maximum total header section size (all headers combined)
     /// Default: 2 MB (prevents memory exhaustion)
     /// Real-world: Enron max = 64 KB, SpamAssassin max = 128 KB
-    size_t max_header_size = 2 * 1024 * 1024;
+    size_t max_header_size = size_t{2} * 1024 * 1024;
 
     /// Maximum single header field size (name + value)
     /// Default: 128 KB (RFC 5322 recommends 998 bytes per line, but folding allows unlimited)
     /// Real-world: Enron max = 16 KB, SpamAssassin max = 32 KB
-    size_t max_header_field_size = 128 * 1024;
+    size_t max_header_field_size = size_t{128} * 1024;
 
     /// Maximum line length (single unfolded line)
     /// Default: 1 MB (RFC 5322 recommends 998 bytes, but real-world exceeds)
     /// Real-world: Enron max = 4 KB, SpamAssassin max = 16 KB (Base64 lines can be long)
-    size_t max_line_length = 1 * 1024 * 1024;
+    size_t max_line_length = size_t{1} * 1024 * 1024;
 
     /// Maximum total message size (headers + body)
     /// Default: 256 MB (reasonable email attachment limit)
     /// Real-world: Most email servers limit to 25-50 MB
-    size_t max_message_size = 256 * 1024 * 1024;
+    size_t max_message_size = size_t{256} * 1024 * 1024;
 
     /// Maximum boundary parameter length
     /// Default: 70 (RFC 2046 recommends no more than 70 characters)
@@ -99,20 +99,20 @@ struct ParserLimits {
         limits.max_nesting_depth = 16;
         limits.max_total_parts = 100;
         limits.max_headers_per_part = 100;
-        limits.max_header_size = 128 * 1024;                // 128 KB
-        limits.max_header_field_size = 16 * 1024;           // 16 KB
-        limits.max_line_length = 16 * 1024;                 // 16 KB
-        limits.max_message_size = 10 * 1024 * 1024;         // 10 MB
+        limits.max_header_size = size_t{128} * 1024;        // 128 KB
+        limits.max_header_field_size = size_t{16} * 1024;   // 16 KB
+        limits.max_line_length = size_t{16} * 1024;         // 16 KB
+        limits.max_message_size = size_t{10} * 1024 * 1024; // 10 MB
         limits.max_boundary_length = 70;
         limits.max_filename_length = 255;
         limits.max_encoded_word_length = 75;
-        limits.max_parse_time = std::chrono::seconds(5);    // 5 seconds
+        limits.max_parse_time = std::chrono::seconds(5); // 5 seconds
         return limits;
     }
 
     /// Standard: Reasonable limits for typical email (default)
     static ParserLimits standard() {
-        return ParserLimits{};  // Use default values
+        return ParserLimits{}; // Use default values
     }
 
     /// Permissive: Generous limits (for trusted input or testing)
@@ -121,14 +121,14 @@ struct ParserLimits {
         limits.max_nesting_depth = 1024;
         limits.max_total_parts = 100'000;
         limits.max_headers_per_part = 10'000;
-        limits.max_header_size = 16 * 1024 * 1024;          // 16 MB
-        limits.max_header_field_size = 1 * 1024 * 1024;     // 1 MB
-        limits.max_line_length = 16 * 1024 * 1024;          // 16 MB
-        limits.max_message_size = 1024 * 1024 * 1024;       // 1 GB
+        limits.max_header_size = size_t{16} * 1024 * 1024;      // 16 MB
+        limits.max_header_field_size = size_t{1} * 1024 * 1024; // 1 MB
+        limits.max_line_length = size_t{16} * 1024 * 1024;      // 16 MB
+        limits.max_message_size = size_t{1024} * 1024 * 1024;   // 1 GB
         limits.max_boundary_length = 256;
         limits.max_filename_length = 4096;
         limits.max_encoded_word_length = 1024;
-        limits.max_parse_time = std::chrono::minutes(5);    // 5 minutes
+        limits.max_parse_time = std::chrono::minutes(5); // 5 minutes
         return limits;
     }
 
@@ -155,22 +155,36 @@ struct ParserLimits {
 
     /// Check if limits are reasonable (detect accidental misconfiguration)
     [[nodiscard]] bool validate() const {
-        if (max_nesting_depth == 0) return false;
-        if (max_total_parts == 0) return false;
-        if (max_headers_per_part == 0) return false;
-        if (max_header_size == 0) return false;
-        if (max_header_field_size == 0) return false;
-        if (max_line_length == 0) return false;
-        if (max_message_size == 0) return false;
-        if (max_boundary_length == 0) return false;
-        if (max_filename_length == 0) return false;
-        if (max_encoded_word_length == 0) return false;
-        if (max_parse_time.count() <= 0) return false;
+        if (max_nesting_depth == 0)
+            return false;
+        if (max_total_parts == 0)
+            return false;
+        if (max_headers_per_part == 0)
+            return false;
+        if (max_header_size == 0)
+            return false;
+        if (max_header_field_size == 0)
+            return false;
+        if (max_line_length == 0)
+            return false;
+        if (max_message_size == 0)
+            return false;
+        if (max_boundary_length == 0)
+            return false;
+        if (max_filename_length == 0)
+            return false;
+        if (max_encoded_word_length == 0)
+            return false;
+        if (max_parse_time.count() <= 0)
+            return false;
 
         // Sanity checks: field size should not exceed total size
-        if (max_header_field_size > max_header_size) return false;
-        if (max_header_size > max_message_size) return false;
-        if (max_line_length > max_message_size) return false;
+        if (max_header_field_size > max_header_size)
+            return false;
+        if (max_header_size > max_message_size)
+            return false;
+        if (max_line_length > max_message_size)
+            return false;
 
         return true;
     }
@@ -185,9 +199,7 @@ struct LimitTracker {
     std::chrono::steady_clock::time_point parse_start;
 
     /// Start tracking parse time
-    void start_parse() {
-        parse_start = std::chrono::steady_clock::now();
-    }
+    void start_parse() { parse_start = std::chrono::steady_clock::now(); }
 
     /// Check if parse time limit exceeded
     [[nodiscard]] bool time_limit_exceeded(const ParserLimits& limits) const {
@@ -215,11 +227,16 @@ struct LimitTracker {
 
     /// Check all limits
     [[nodiscard]] bool check_limits(const ParserLimits& limits) const {
-        if (current_nesting_depth > limits.max_nesting_depth) return false;
-        if (total_parts > limits.max_total_parts) return false;
-        if (current_headers > limits.max_headers_per_part) return false;
-        if (total_header_bytes > limits.max_header_size) return false;
-        if (time_limit_exceeded(limits)) return false;
+        if (current_nesting_depth > limits.max_nesting_depth)
+            return false;
+        if (total_parts > limits.max_total_parts)
+            return false;
+        if (current_headers > limits.max_headers_per_part)
+            return false;
+        if (total_header_bytes > limits.max_header_size)
+            return false;
+        if (time_limit_exceeded(limits))
+            return false;
         return true;
     }
 };

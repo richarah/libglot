@@ -1,244 +1,184 @@
+// Oracle hierarchical queries: START WITH / CONNECT BY [NOCYCLE] with the
+// PRIOR unary operator, LEVEL pseudo-column, and ORDER SIBLINGS BY.
+//
+// Design choice (documented in generator.h): only Oracle and Snowflake can
+// generate CONNECT BY. For every other dialect the generator throws
+// std::logic_error rather than emitting silently broken SQL - a correct,
+// fixpoint-clean recursive-CTE transpilation is not attempted here.
+
 #include <catch2/catch_test_macros.hpp>
-#include "libglot/sql/complete_features.h"
-#include "libglot/core/arena.h"
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
+#include <libglot/util/arena.h>
+
+#include <stdexcept>
+#include <string>
 
 using namespace libglot::sql;
-using namespace libglot;
-using TK = libsqlglot::TokenType;
 
-TEST_CASE("CONNECT BY - Basic hierarchical query", "[sql][connect_by][oracle]") {
-    const char* sql = "CONNECT BY PRIOR employee_id = manager_id";
+namespace {
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_connect_by();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->prior_left == true);
-    REQUIRE(stmt->nocycle == false);
-    REQUIRE(stmt->condition != nullptr);
+std::string transpile(const std::string& sql, SQLDialect parse_dialect, SQLDialect gen_dialect) {
+    libglot::Arena arena;
+    SQLParser parser(arena, sql, parse_dialect);
+    auto ast = parser.parse_top_level();
+    SQLGenerator gen(gen_dialect);
+    return gen.generate(ast);
 }
 
-TEST_CASE("CONNECT BY - With NOCYCLE", "[sql][connect_by][oracle]") {
-    const char* sql = "CONNECT BY NOCYCLE PRIOR emp_id = mgr_id";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_connect_by();
-
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->nocycle == true);
-    REQUIRE(stmt->prior_left == true);
+std::string oracle(const std::string& sql) {
+    return transpile(sql, SQLDialect::Oracle, SQLDialect::Oracle);
 }
 
-TEST_CASE("CONNECT BY - Without PRIOR on left", "[sql][connect_by][oracle]") {
-    const char* sql = "CONNECT BY parent_id = PRIOR child_id";
+} // namespace
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_connect_by();
+// ============================================================================
+// Basic START WITH ... CONNECT BY
+// ============================================================================
 
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->prior_left == false);
+TEST_CASE("CONNECT BY - basic hierarchy with PRIOR", "[connect-by][oracle]") {
+    REQUIRE(oracle("SELECT employee_id FROM employees "
+                   "START WITH manager_id IS NULL "
+                   "CONNECT BY PRIOR employee_id = manager_id") ==
+            "SELECT \"employee_id\" FROM \"employees\" "
+            "START WITH \"manager_id\" IS NULL "
+            "CONNECT BY PRIOR \"employee_id\" = \"manager_id\"");
 }
 
-TEST_CASE("CONNECT BY - START WITH clause", "[sql][start_with][oracle]") {
-    const char* sql = "START WITH manager_id IS NULL";
+TEST_CASE("CONNECT BY - both clause orders parse to the canonical form", "[connect-by][oracle]") {
+    const std::string canonical = "SELECT \"id\" FROM \"t\" "
+                                  "START WITH \"parent_id\" IS NULL "
+                                  "CONNECT BY PRIOR \"id\" = \"parent_id\"";
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_start_with();
+    // START WITH first (canonical Oracle order)
+    REQUIRE(oracle("SELECT id FROM t START WITH parent_id IS NULL "
+                   "CONNECT BY PRIOR id = parent_id") == canonical);
 
-    REQUIRE(stmt != nullptr);
-    REQUIRE(stmt->condition != nullptr);
+    // CONNECT BY first - also legal in Oracle, normalized on output
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id "
+                   "START WITH parent_id IS NULL") == canonical);
 }
 
-TEST_CASE("CONNECT BY - Complete hierarchical query", "[sql][connect_by][complete]") {
-    const char* sql = R"(
-        SELECT employee_id, manager_id, level
-        FROM employees
-        START WITH manager_id IS NULL
-        CONNECT BY PRIOR employee_id = manager_id
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("CONNECT BY - without START WITH", "[connect-by][oracle]") {
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\"");
 }
 
-TEST_CASE("CONNECT BY - With NOCYCLE and START WITH", "[sql][connect_by][complete]") {
-    const char* sql = R"(
-        SELECT id, parent_id, name
-        FROM categories
-        START WITH parent_id IS NULL
-        CONNECT BY NOCYCLE PRIOR id = parent_id
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("CONNECT BY - NOCYCLE", "[connect-by][oracle][nocycle]") {
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY NOCYCLE PRIOR id = parent_id") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY NOCYCLE PRIOR \"id\" = \"parent_id\"");
 }
 
-TEST_CASE("CONNECT BY - Generator output", "[sql][connect_by][generator]") {
-    const char* sql = "CONNECT BY NOCYCLE PRIOR emp_id = mgr_id";
+// ============================================================================
+// PRIOR operator placement
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_connect_by();
+TEST_CASE("PRIOR - on the right side of the comparison", "[connect-by][prior]") {
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY id = PRIOR parent_id") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY \"id\" = PRIOR \"parent_id\"");
+}
 
-    REQUIRE(stmt != nullptr);
+TEST_CASE("PRIOR - inside a compound CONNECT BY condition", "[connect-by][prior]") {
+    REQUIRE(oracle("SELECT id FROM t "
+                   "CONNECT BY PRIOR id = parent_id AND status = 'active'") ==
+            "SELECT \"id\" FROM \"t\" "
+            "CONNECT BY PRIOR \"id\" = \"parent_id\" AND \"status\" = 'active'");
+}
 
-    class TestGenerator : public CompleteSQLGenerator<TestGenerator> {
-    public:
-        using CompleteSQLGenerator::CompleteSQLGenerator;
-        std::string generate(ConnectByClause* cb) {
-            visit_connect_by(cb);
-            return get_output();
-        }
+// ============================================================================
+// LEVEL pseudo-column and WHERE interaction
+// ============================================================================
+
+TEST_CASE("LEVEL pseudo-column parses as an identifier", "[connect-by][level]") {
+    REQUIRE(oracle("SELECT LEVEL, id FROM t CONNECT BY PRIOR id = parent_id") ==
+            "SELECT \"LEVEL\", \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\"");
+    // LEVEL usable in conditions too
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id AND LEVEL < 5") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\" AND \"LEVEL\" < 5");
+}
+
+TEST_CASE("CONNECT BY - after a WHERE clause", "[connect-by][oracle]") {
+    REQUIRE(oracle("SELECT id FROM t WHERE active = 1 "
+                   "START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id") ==
+            "SELECT \"id\" FROM \"t\" WHERE \"active\" = 1 "
+            "START WITH \"parent_id\" IS NULL CONNECT BY PRIOR \"id\" = \"parent_id\"");
+}
+
+// ============================================================================
+// ORDER SIBLINGS BY
+// ============================================================================
+
+TEST_CASE("ORDER SIBLINGS BY", "[connect-by][siblings]") {
+    REQUIRE(oracle("SELECT id, name FROM t "
+                   "START WITH parent_id IS NULL "
+                   "CONNECT BY PRIOR id = parent_id "
+                   "ORDER SIBLINGS BY name") == "SELECT \"id\", \"name\" FROM \"t\" "
+                                                "START WITH \"parent_id\" IS NULL "
+                                                "CONNECT BY PRIOR \"id\" = \"parent_id\" "
+                                                "ORDER SIBLINGS BY \"name\"");
+
+    REQUIRE(oracle("SELECT id FROM t CONNECT BY PRIOR id = parent_id "
+                   "ORDER SIBLINGS BY name DESC") ==
+            "SELECT \"id\" FROM \"t\" CONNECT BY PRIOR \"id\" = \"parent_id\" "
+            "ORDER SIBLINGS BY \"name\" DESC");
+}
+
+TEST_CASE("Plain ORDER BY is unaffected", "[connect-by][siblings]") {
+    REQUIRE(oracle("SELECT id FROM t ORDER BY id") == "SELECT \"id\" FROM \"t\" ORDER BY \"id\"");
+}
+
+// ============================================================================
+// Fixed point of the generator's own output
+// ============================================================================
+
+TEST_CASE("CONNECT BY - generated Oracle SQL is a fixed point", "[connect-by][fixpoint]") {
+    const std::string queries[] = {
+        "SELECT id FROM t START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id",
+        "SELECT id FROM t CONNECT BY NOCYCLE PRIOR id = parent_id",
+        "SELECT LEVEL, id FROM t CONNECT BY PRIOR id = parent_id ORDER SIBLINGS BY id",
     };
-
-    TestGenerator gen(arena, SQLDialect::Oracle);
-    std::string result = gen.generate(stmt);
-
-    REQUIRE(result.find("CONNECT BY") != std::string::npos);
-    REQUIRE(result.find("NOCYCLE") != std::string::npos);
-    REQUIRE(result.find("PRIOR") != std::string::npos);
+    for (const auto& q : queries) {
+        const std::string g1 = oracle(q);
+        REQUIRE(oracle(g1) == g1);
+    }
 }
 
-TEST_CASE("CONNECT BY - START WITH generator", "[sql][start_with][generator]") {
-    const char* sql = "START WITH department_id = 10";
+// ============================================================================
+// Snowflake also supports CONNECT BY
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_start_with();
-
-    REQUIRE(stmt != nullptr);
-
-    class TestGenerator : public CompleteSQLGenerator<TestGenerator> {
-    public:
-        using CompleteSQLGenerator::CompleteSQLGenerator;
-        std::string generate(StartWithClause* sw) {
-            visit_start_with(sw);
-            return get_output();
-        }
-    };
-
-    TestGenerator gen(arena, SQLDialect::Oracle);
-    std::string result = gen.generate(stmt);
-
-    REQUIRE(result.find("START WITH") != std::string::npos);
+TEST_CASE("CONNECT BY - Snowflake generation", "[connect-by][snowflake]") {
+    REQUIRE(transpile("SELECT id FROM t START WITH parent_id IS NULL "
+                      "CONNECT BY PRIOR id = parent_id",
+                      SQLDialect::Snowflake, SQLDialect::Snowflake) ==
+            "SELECT \"id\" FROM \"t\" START WITH \"parent_id\" IS NULL "
+            "CONNECT BY PRIOR \"id\" = \"parent_id\"");
 }
 
-TEST_CASE("CONNECT BY - Multiple conditions", "[sql][connect_by][oracle]") {
-    const char* sql = R"(
-        SELECT *
-        FROM employees
-        START WITH job_id = 'CEO'
-        CONNECT BY PRIOR employee_id = manager_id AND department_id = 10
-    )";
+// ============================================================================
+// Unsupported dialects throw instead of emitting broken SQL
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("CONNECT BY - unsupported dialects throw std::logic_error", "[connect-by][error]") {
+    const std::string sql =
+        "SELECT id FROM t START WITH parent_id IS NULL CONNECT BY PRIOR id = parent_id";
+    for (auto d :
+         {SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::SQLServer, SQLDialect::ANSI}) {
+        libglot::Arena arena;
+        SQLParser parser(arena, sql, SQLDialect::Oracle);
+        auto ast = parser.parse_top_level();
+        SQLGenerator gen(d);
+        REQUIRE_THROWS_AS(gen.generate(ast), std::logic_error);
+    }
 }
 
-TEST_CASE("CONNECT BY - Using LEVEL pseudocolumn", "[sql][connect_by][oracle]") {
-    const char* sql = R"(
-        SELECT LPAD(' ', 2 * (LEVEL - 1)) || name AS hierarchy
-        FROM categories
-        START WITH parent_id IS NULL
-        CONNECT BY PRIOR id = parent_id
-        ORDER SIBLINGS BY name
-    )";
+// ============================================================================
+// Strictness: trailing input after hierarchical clauses is still an error
+// ============================================================================
 
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
-}
-
-TEST_CASE("CONNECT BY - Self-join alternative pattern", "[sql][connect_by][oracle]") {
-    const char* sql = R"(
-        SELECT node_id, parent_node_id
-        FROM tree_table
-        START WITH parent_node_id IS NULL
-        CONNECT BY PRIOR node_id = parent_node_id
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
-}
-
-TEST_CASE("CONNECT BY - With WHERE clause", "[sql][connect_by][oracle]") {
-    const char* sql = R"(
-        SELECT employee_id, manager_id, salary
-        FROM employees
-        WHERE salary > 50000
-        START WITH manager_id IS NULL
-        CONNECT BY PRIOR employee_id = manager_id
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
-}
-
-TEST_CASE("CONNECT BY - Complex START WITH condition", "[sql][start_with][oracle]") {
-    const char* sql = "START WITH (status = 'active' AND created_date > '2020-01-01')";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    parser.advance(); parser.advance();
-    auto* stmt = parser.parse_start_with();
-
-    REQUIRE(stmt != nullptr);
-}
-
-TEST_CASE("CONNECT BY - Reverse hierarchy", "[sql][connect_by][oracle]") {
-    const char* sql = R"(
-        SELECT employee_id, manager_id
-        FROM employees
-        START WITH employee_id = 100
-        CONNECT BY employee_id = PRIOR manager_id
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
-}
-
-TEST_CASE("CONNECT BY - File system hierarchy example", "[sql][connect_by][oracle]") {
-    const char* sql = R"(
-        SELECT file_id, parent_file_id, file_name
-        FROM file_system
-        START WITH parent_file_id IS NULL
-        CONNECT BY NOCYCLE PRIOR file_id = parent_file_id
-        ORDER BY file_name
-    )";
-
-    Arena arena;
-    CompleteSQLParser parser(arena, sql);
-    auto* stmt = parser.parse();
-
-    REQUIRE(stmt != nullptr);
+TEST_CASE("CONNECT BY does not relax trailing-input checking", "[connect-by][strict]") {
+    libglot::Arena arena;
+    SQLParser parser(arena, "SELECT id FROM t CONNECT BY PRIOR id = parent_id SELECT 2",
+                     SQLDialect::Oracle);
+    REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }

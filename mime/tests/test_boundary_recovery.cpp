@@ -1,5 +1,5 @@
-#include <catch2/catch_test_macros.hpp>
 #include "libglot/mime/complete_features.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -49,7 +49,8 @@ Part 2
     REQUIRE(detected == "boundary_actual");
 }
 
-TEST_CASE("Boundary Recovery - Split with recovery on missing final boundary", "[mime][boundary_recovery]") {
+TEST_CASE("Boundary Recovery - Split with recovery on missing final boundary",
+          "[mime][boundary_recovery]") {
     std::string_view body = R"(--boundary
 Content-Type: text/plain
 
@@ -183,7 +184,8 @@ More content
 
 TEST_CASE("Boundary Recovery - Long boundary string", "[mime][boundary_recovery]") {
     std::string boundary = "verylongboundarystringwithlotsofcharacters1234567890";
-    std::string body = "--" + boundary + "\nPart 1\n--" + boundary + "\nPart 2\n--" + boundary + "--";
+    std::string body =
+        "--" + boundary + "\nPart 1\n--" + boundary + "\nPart 2\n--" + boundary + "--";
 
     std::string detected = BoundaryRecovery::detect_boundary(body);
 
@@ -237,7 +239,7 @@ TEST_CASE("Boundary Recovery - Malformed final delimiter", "[mime][boundary_reco
 Part 1
 --boundary
 Part 2
---boundary-)";  // Only one dash instead of two
+--boundary-)"; // Only one dash instead of two
 
     auto parts = BoundaryRecovery::split_with_recovery(body, "boundary");
 

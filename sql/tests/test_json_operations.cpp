@@ -1,12 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 
 using namespace libglot::sql;
 
-static std::string test_round_trip(const std::string& sql, SQLDialect dialect = SQLDialect::PostgreSQL) {
+static std::string test_round_trip(const std::string& sql,
+                                   SQLDialect dialect = SQLDialect::PostgreSQL) {
     libglot::Arena arena;
-    SQLParser parser(arena, sql, dialect);  // Pass dialect to parser
+    SQLParser parser(arena, sql, dialect); // Pass dialect to parser
     auto ast = parser.parse_top_level();
     SQLGenerator gen(dialect);
     return gen.generate(ast);
@@ -54,7 +55,7 @@ TEST_CASE("JSON operations - PostgreSQL", "[json][postgresql]") {
     SECTION("JSON key exists (?)") {
         std::string sql = "SELECT * FROM users WHERE data ? 'name'";
         std::string result = test_round_trip(sql);
-        REQUIRE(result.find("?") != std::string::npos);
+        REQUIRE(result == "SELECT * FROM \"users\" WHERE \"data\" ? 'name'");
     }
 }
 
@@ -188,7 +189,7 @@ TEST_CASE("JSON operations - Snowflake", "[json][snowflake]") {
         std::string result = test_round_trip(sql, SQLDialect::Snowflake);
         INFO("Input: " << sql);
         INFO("Output: " << result);
-        REQUIRE(result.find("[0]") != std::string::npos);
+        REQUIRE(result == "SELECT \"data\":\"items\"[0] FROM \"orders\"");
     }
 
     SECTION("PARSE_JSON function") {
@@ -233,7 +234,8 @@ TEST_CASE("JSON in WHERE clauses", "[json][filtering]") {
 
 TEST_CASE("JSON in JOINs", "[json][joins]") {
     SECTION("Join using JSON field") {
-        std::string sql = "SELECT u.*, o.* FROM users u JOIN orders o ON u.data ->> 'id' = o.user_id";
+        std::string sql =
+            "SELECT u.*, o.* FROM users u JOIN orders o ON u.data ->> 'id' = o.user_id";
         std::string result = test_round_trip(sql);
         REQUIRE(result.find("JOIN") != std::string::npos);
         REQUIRE(result.find("->>") != std::string::npos);
@@ -254,7 +256,8 @@ TEST_CASE("Complex JSON queries", "[json][complex]") {
     }
 
     SECTION("JSON aggregation") {
-        std::string sql = "SELECT category, JSON_AGG(JSON_BUILD_OBJECT('id', id, 'name', name)) FROM products GROUP BY category";
+        std::string sql = "SELECT category, JSON_AGG(JSON_BUILD_OBJECT('id', id, 'name', name)) "
+                          "FROM products GROUP BY category";
         std::string result = test_round_trip(sql);
         REQUIRE(result.find("JSON_AGG") != std::string::npos);
         REQUIRE(result.find("GROUP BY") != std::string::npos);

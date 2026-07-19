@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -12,9 +12,8 @@ using namespace libglot::sql;
 
 TEST_CASE("CTE - Simple WITH clause", "[phase3][cte]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "WITH high_scorers AS (SELECT * FROM users WHERE score > 100) "
-        "SELECT * FROM high_scorers");
+    SQLParser parser(arena, "WITH high_scorers AS (SELECT * FROM users WHERE score > 100) "
+                            "SELECT * FROM high_scorers");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -32,10 +31,9 @@ TEST_CASE("CTE - Simple WITH clause", "[phase3][cte]") {
 
 TEST_CASE("CTE - Multiple CTEs", "[phase3][cte]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "WITH users_active AS (SELECT * FROM users WHERE active = 1), "
-        "users_premium AS (SELECT * FROM users_active WHERE premium = 1) "
-        "SELECT * FROM users_premium");
+    SQLParser parser(arena, "WITH users_active AS (SELECT * FROM users WHERE active = 1), "
+                            "users_premium AS (SELECT * FROM users_active WHERE premium = 1) "
+                            "SELECT * FROM users_premium");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -53,9 +51,9 @@ TEST_CASE("CTE - Multiple CTEs", "[phase3][cte]") {
 
 TEST_CASE("CTE - With column list", "[phase3][cte]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "WITH top_users (user_id, user_name, user_score) AS (SELECT id, name, score FROM users ORDER BY score DESC LIMIT 10) "
-        "SELECT * FROM top_users");
+    SQLParser parser(arena, "WITH top_users (user_id, user_name, user_score) AS (SELECT id, name, "
+                            "score FROM users ORDER BY score DESC LIMIT 10) "
+                            "SELECT * FROM top_users");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -77,7 +75,8 @@ TEST_CASE("CTE - With column list", "[phase3][cte]") {
 
 TEST_CASE("Window - ROW_NUMBER with PARTITION BY", "[phase3][window]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary) FROM employees");
+    SQLParser parser(
+        arena, "SELECT ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary) FROM employees");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -132,7 +131,8 @@ TEST_CASE("Window - LAG with arguments", "[phase3][window]") {
 
 TEST_CASE("Window - SUM with PARTITION BY and ORDER BY", "[phase3][window]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT SUM(amount) OVER (PARTITION BY user_id ORDER BY transaction_date) FROM transactions");
+    SQLParser parser(arena, "SELECT SUM(amount) OVER (PARTITION BY user_id ORDER BY "
+                            "transaction_date) FROM transactions");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -154,7 +154,8 @@ TEST_CASE("Window - SUM with PARTITION BY and ORDER BY", "[phase3][window]") {
 
 TEST_CASE("Subquery - In FROM clause", "[phase3][subquery]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "SELECT * FROM (SELECT id, name FROM users WHERE active = 1) AS active_users");
+    SQLParser parser(arena,
+                     "SELECT * FROM (SELECT id, name FROM users WHERE active = 1) AS active_users");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -168,8 +169,8 @@ TEST_CASE("Subquery - In FROM clause", "[phase3][subquery]") {
 
 TEST_CASE("Subquery - JOIN with subquery", "[phase3][subquery]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT * FROM users u INNER JOIN (SELECT user_id, COUNT(*) AS order_count FROM orders GROUP BY user_id) o ON u.id = o.user_id");
+    SQLParser parser(arena, "SELECT * FROM users u INNER JOIN (SELECT user_id, COUNT(*) AS "
+                            "order_count FROM orders GROUP BY user_id) o ON u.id = o.user_id");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -184,8 +185,8 @@ TEST_CASE("Subquery - JOIN with subquery", "[phase3][subquery]") {
 
 TEST_CASE("Subquery - Nested subqueries", "[phase3][subquery]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "SELECT * FROM (SELECT * FROM (SELECT id, name FROM users) AS inner_query WHERE id > 10) AS outer_query");
+    SQLParser parser(arena, "SELECT * FROM (SELECT * FROM (SELECT id, name FROM users) AS "
+                            "inner_query WHERE id > 10) AS outer_query");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -203,9 +204,9 @@ TEST_CASE("Subquery - Nested subqueries", "[phase3][subquery]") {
 
 TEST_CASE("Combined - CTE with window function", "[phase3][combined]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "WITH ranked_users AS (SELECT *, ROW_NUMBER() OVER (ORDER BY score DESC) AS rank FROM users) "
-        "SELECT * FROM ranked_users WHERE rank <= 10");
+    SQLParser parser(arena, "WITH ranked_users AS (SELECT *, ROW_NUMBER() OVER (ORDER BY score "
+                            "DESC) AS rank FROM users) "
+                            "SELECT * FROM ranked_users WHERE rank <= 10");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -221,9 +222,9 @@ TEST_CASE("Combined - CTE with window function", "[phase3][combined]") {
 
 TEST_CASE("Combined - CTE with subquery in FROM", "[phase3][combined]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "WITH active_users AS (SELECT * FROM users WHERE active = 1) "
-        "SELECT * FROM (SELECT * FROM active_users WHERE premium = 1) AS premium_users");
+    SQLParser parser(
+        arena, "WITH active_users AS (SELECT * FROM users WHERE active = 1) "
+               "SELECT * FROM (SELECT * FROM active_users WHERE premium = 1) AS premium_users");
 
     auto stmt = static_cast<SelectStmt*>(parser.parse_top_level());
 
@@ -237,8 +238,7 @@ TEST_CASE("Combined - CTE with subquery in FROM", "[phase3][combined]") {
 
 TEST_CASE("Combined - INSERT with SELECT", "[phase3][combined]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "INSERT INTO users_backup SELECT * FROM users WHERE active = 1");
+    SQLParser parser(arena, "INSERT INTO users_backup SELECT * FROM users WHERE active = 1");
 
     auto stmt = static_cast<InsertStmt*>(parser.parse_top_level());
 

@@ -1,10 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 
 using namespace libglot::sql;
 
-static std::string test_round_trip(const std::string& sql, SQLDialect dialect = SQLDialect::PostgreSQL) {
+static std::string test_round_trip(const std::string& sql,
+                                   SQLDialect dialect = SQLDialect::PostgreSQL) {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
     auto ast = parser.parse_top_level();

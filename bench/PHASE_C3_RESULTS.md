@@ -1,3 +1,7 @@
+> **Historical note (2026-03):** these are the original migration-era benchmark
+> results, kept for reference. They predate the Phase 0-4 overhaul; numbers and
+> file paths may no longer match the current tree.
+
 # Phase C3: Build Preset Validation Results
 
 **Date**: 2026-03-23

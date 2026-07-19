@@ -1,10 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
-#include <vector>
 #include <string>
+#include <vector>
 
 using namespace libglot::sql;
 
@@ -13,17 +13,16 @@ using namespace libglot::sql;
 // =============================================================================
 
 namespace {
-    // All supported dialects
-    std::vector<SQLDialect> all_dialects = {
-        SQLDialect::ANSI, SQLDialect::MySQL, SQLDialect::PostgreSQL, SQLDialect::SQLite,
-        SQLDialect::BigQuery, SQLDialect::Snowflake, SQLDialect::Redshift, SQLDialect::Oracle,
-        SQLDialect::SQLServer, SQLDialect::DuckDB, SQLDialect::ClickHouse, SQLDialect::Presto,
-        SQLDialect::Trino, SQLDialect::Hive, SQLDialect::SparkSQL, SQLDialect::Athena,
-        SQLDialect::Vertica, SQLDialect::Teradata, SQLDialect::Databricks, SQLDialect::MariaDB,
-        SQLDialect::CockroachDB, SQLDialect::TimescaleDB, SQLDialect::Greenplum, SQLDialect::Netezza,
-        SQLDialect::Impala, SQLDialect::Drill
-    };
-}
+// All supported dialects
+std::vector<SQLDialect> all_dialects = {
+    SQLDialect::ANSI,        SQLDialect::MySQL,       SQLDialect::PostgreSQL, SQLDialect::SQLite,
+    SQLDialect::BigQuery,    SQLDialect::Snowflake,   SQLDialect::Redshift,   SQLDialect::Oracle,
+    SQLDialect::SQLServer,   SQLDialect::DuckDB,      SQLDialect::ClickHouse, SQLDialect::Presto,
+    SQLDialect::Trino,       SQLDialect::Hive,        SQLDialect::SparkSQL,   SQLDialect::Athena,
+    SQLDialect::Vertica,     SQLDialect::Teradata,    SQLDialect::Databricks, SQLDialect::MariaDB,
+    SQLDialect::CockroachDB, SQLDialect::TimescaleDB, SQLDialect::Greenplum,  SQLDialect::Netezza,
+    SQLDialect::Impala,      SQLDialect::Drill};
+} // namespace
 
 // =============================================================================
 // Universal Query Tests - All Dialects Should Parse These
@@ -42,7 +41,8 @@ TEST_CASE("All dialects parse basic SELECT", "[dialects][universal]") {
 }
 
 TEST_CASE("All dialects parse INSERT", "[dialects][universal]") {
-    std::string sql = "INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com')";
+    std::string sql =
+        "INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com')";
 
     for (auto dialect : all_dialects) {
         INFO("Testing dialect: " << SQLDialectTraits::name(dialect));
@@ -189,8 +189,8 @@ TEST_CASE("Transpile simple query across all dialect pairs", "[dialects][transpi
     };
 
     for (const auto& [from_dialect, to_dialect] : dialect_pairs) {
-        INFO("Testing: " << SQLDialectTraits::name(from_dialect)
-             << " → " << SQLDialectTraits::name(to_dialect));
+        INFO("Testing: " << SQLDialectTraits::name(from_dialect) << " → "
+                         << SQLDialectTraits::name(to_dialect));
 
         libglot::Arena arena;
         SQLParser parser(arena, sql);
@@ -207,10 +207,9 @@ TEST_CASE("Round-trip transpilation preserves semantics", "[dialects][roundtrip]
     std::string original = "SELECT id, name FROM users WHERE age > 18 ORDER BY name LIMIT 10";
 
     // Test round-trip for major dialects
-    std::vector<SQLDialect> major_dialects = {
-        SQLDialect::MySQL, SQLDialect::PostgreSQL, SQLDialect::BigQuery,
-        SQLDialect::Snowflake, SQLDialect::DuckDB
-    };
+    std::vector<SQLDialect> major_dialects = {SQLDialect::MySQL, SQLDialect::PostgreSQL,
+                                              SQLDialect::BigQuery, SQLDialect::Snowflake,
+                                              SQLDialect::DuckDB};
 
     for (auto dialect : major_dialects) {
         INFO("Testing round-trip for: " << SQLDialectTraits::name(dialect));
@@ -251,10 +250,8 @@ TEST_CASE("CTE support across dialects", "[dialects][cte]") {
 
     // Dialects with CTE support
     std::vector<SQLDialect> cte_dialects = {
-        SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::BigQuery,
-        SQLDialect::Snowflake, SQLDialect::Redshift, SQLDialect::DuckDB,
-        SQLDialect::SQLServer, SQLDialect::Oracle
-    };
+        SQLDialect::PostgreSQL, SQLDialect::MySQL,  SQLDialect::BigQuery,  SQLDialect::Snowflake,
+        SQLDialect::Redshift,   SQLDialect::DuckDB, SQLDialect::SQLServer, SQLDialect::Oracle};
 
     for (auto dialect : cte_dialects) {
         INFO("Testing CTE for: " << SQLDialectTraits::name(dialect));
@@ -280,11 +277,9 @@ TEST_CASE("Window functions across dialects", "[dialects][window]") {
 
     // Most modern dialects support window functions
     std::vector<SQLDialect> window_dialects = {
-        SQLDialect::PostgreSQL, SQLDialect::MySQL, SQLDialect::BigQuery,
-        SQLDialect::Snowflake, SQLDialect::Redshift, SQLDialect::DuckDB,
-        SQLDialect::SQLServer, SQLDialect::Oracle, SQLDialect::Hive,
-        SQLDialect::SparkSQL, SQLDialect::Presto, SQLDialect::Trino
-    };
+        SQLDialect::PostgreSQL, SQLDialect::MySQL,    SQLDialect::BigQuery,  SQLDialect::Snowflake,
+        SQLDialect::Redshift,   SQLDialect::DuckDB,   SQLDialect::SQLServer, SQLDialect::Oracle,
+        SQLDialect::Hive,       SQLDialect::SparkSQL, SQLDialect::Presto,    SQLDialect::Trino};
 
     for (auto dialect : window_dialects) {
         INFO("Testing window functions for: " << SQLDialectTraits::name(dialect));
@@ -366,10 +361,9 @@ TEST_CASE("Real-world analytics query across dialects", "[dialects][realworld]")
     )";
 
     // Test on major analytics platforms
-    std::vector<SQLDialect> analytics_dialects = {
-        SQLDialect::PostgreSQL, SQLDialect::BigQuery, SQLDialect::Snowflake,
-        SQLDialect::Redshift, SQLDialect::DuckDB
-    };
+    std::vector<SQLDialect> analytics_dialects = {SQLDialect::PostgreSQL, SQLDialect::BigQuery,
+                                                  SQLDialect::Snowflake, SQLDialect::Redshift,
+                                                  SQLDialect::DuckDB};
 
     for (auto dialect : analytics_dialects) {
         INFO("Testing analytics query for: " << SQLDialectTraits::name(dialect));

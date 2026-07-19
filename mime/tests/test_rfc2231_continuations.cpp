@@ -1,13 +1,11 @@
-#include <catch2/catch_test_macros.hpp>
 #include "libglot/mime/complete_features.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
 TEST_CASE("RFC2231 - Basic parameter continuation", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"filename*0", "this_is_a_very_long_"},
-        {"filename*1", "filename.txt"}
-    };
+        {"filename*0", "this_is_a_very_long_"}, {"filename*1", "filename.txt"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -19,10 +17,7 @@ TEST_CASE("RFC2231 - Basic parameter continuation", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Three part continuation", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"title*0", "Introduction to "},
-        {"title*1", "Programming in "},
-        {"title*2", "C++.pdf"}
-    };
+        {"title*0", "Introduction to "}, {"title*1", "Programming in "}, {"title*2", "C++.pdf"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -32,9 +27,7 @@ TEST_CASE("RFC2231 - Three part continuation", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Encoded continuation with charset", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"filename*0*", "utf-8''Hello%20"},
-        {"filename*1*", "World%21.txt"}
-    };
+        {"filename*0*", "utf-8''Hello%20"}, {"filename*1*", "World%21.txt"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -46,9 +39,7 @@ TEST_CASE("RFC2231 - Encoded continuation with charset", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Charset and language in first fragment", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"title*0*", "iso-8859-1'en'This%20is%20"},
-        {"title*1*", "a%20test.doc"}
-    };
+        {"title*0*", "iso-8859-1'en'This%20is%20"}, {"title*1*", "a%20test.doc"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -60,10 +51,7 @@ TEST_CASE("RFC2231 - Charset and language in first fragment", "[mime][rfc2231]")
 
 TEST_CASE("RFC2231 - Mixed encoded and non-encoded fragments", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"name*0*", "utf-8''Test%20"},
-        {"name*1", "Document"},
-        {"name*2*", "%20File.pdf"}
-    };
+        {"name*0*", "utf-8''Test%20"}, {"name*1", "Document"}, {"name*2*", "%20File.pdf"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -73,10 +61,7 @@ TEST_CASE("RFC2231 - Mixed encoded and non-encoded fragments", "[mime][rfc2231]"
 
 TEST_CASE("RFC2231 - Out of order fragments", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"file*2", "end"},
-        {"file*0", "begin_"},
-        {"file*1", "middle_"}
-    };
+        {"file*2", "end"}, {"file*0", "begin_"}, {"file*1", "middle_"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -85,12 +70,10 @@ TEST_CASE("RFC2231 - Out of order fragments", "[mime][rfc2231]") {
 }
 
 TEST_CASE("RFC2231 - Multiple different parameters", "[mime][rfc2231]") {
-    std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"filename*0", "report_"},
-        {"filename*1", "2024.pdf"},
-        {"title*0", "Annual "},
-        {"title*1", "Report"}
-    };
+    std::vector<std::pair<std::string_view, std::string_view>> params = {{"filename*0", "report_"},
+                                                                         {"filename*1", "2024.pdf"},
+                                                                         {"title*0", "Annual "},
+                                                                         {"title*1", "Report"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -101,8 +84,7 @@ TEST_CASE("RFC2231 - Multiple different parameters", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Percent encoding special characters", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"name*0*", "utf-8''%E2%98%85%20Star.txt"}
-    };
+        {"name*0*", "utf-8''%E2%98%85%20Star.txt"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -113,8 +95,7 @@ TEST_CASE("RFC2231 - Percent encoding special characters", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Empty language field", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"file*0*", "utf-8''document.pdf"}
-    };
+        {"file*0*", "utf-8''document.pdf"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -125,8 +106,7 @@ TEST_CASE("RFC2231 - Empty language field", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Single fragment with encoding", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"filename*0*", "utf-8''test%2Efile.txt"}
-    };
+        {"filename*0*", "utf-8''test%2Efile.txt"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -135,13 +115,11 @@ TEST_CASE("RFC2231 - Single fragment with encoding", "[mime][rfc2231]") {
 }
 
 TEST_CASE("RFC2231 - Long continuation chain", "[mime][rfc2231]") {
-    std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"data*0", "part0_"},
-        {"data*1", "part1_"},
-        {"data*2", "part2_"},
-        {"data*3", "part3_"},
-        {"data*4", "part4"}
-    };
+    std::vector<std::pair<std::string_view, std::string_view>> params = {{"data*0", "part0_"},
+                                                                         {"data*1", "part1_"},
+                                                                         {"data*2", "part2_"},
+                                                                         {"data*3", "part3_"},
+                                                                         {"data*4", "part4"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -153,8 +131,7 @@ TEST_CASE("RFC2231 - Enron dataset pattern", "[mime][rfc2231][enron]") {
     // Real-world pattern from Enron emails
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"name*0*", "us-ascii'en-us'This%20is%20even%20more%20"},
-        {"name*1*", "***fun***%20isn't%20it!"}
-    };
+        {"name*1*", "***fun***%20isn't%20it!"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -165,8 +142,7 @@ TEST_CASE("RFC2231 - Enron dataset pattern", "[mime][rfc2231][enron]") {
 
 TEST_CASE("RFC2231 - Hex encoding case insensitive", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"file*0*", "utf-8''test%2Fpath%2Ffile.txt"}
-    };
+        {"file*0*", "utf-8''test%2Fpath%2Ffile.txt"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -175,10 +151,8 @@ TEST_CASE("RFC2231 - Hex encoding case insensitive", "[mime][rfc2231]") {
 }
 
 TEST_CASE("RFC2231 - No continuations present", "[mime][rfc2231]") {
-    std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"filename", "normal.txt"},
-        {"charset", "utf-8"}
-    };
+    std::vector<std::pair<std::string_view, std::string_view>> params = {{"filename", "normal.txt"},
+                                                                         {"charset", "utf-8"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
@@ -187,11 +161,57 @@ TEST_CASE("RFC2231 - No continuations present", "[mime][rfc2231]") {
 
 TEST_CASE("RFC2231 - Space encoding", "[mime][rfc2231]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"name*0*", "utf-8''My%20Document%20File.docx"}
-    };
+        {"name*0*", "utf-8''My%20Document%20File.docx"}};
 
     auto result = RFC2231Parser::parse_continued_parameters(params);
 
     REQUIRE(result.size() == 1);
     REQUIRE(result["name"].value == "My Document File.docx");
+}
+
+TEST_CASE("RFC2231 - Invalid percent-encoding does not throw", "[mime][rfc2231][security]") {
+    // Attacker-controlled '%ZZ' previously reached std::stoi and threw
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''bad%ZZvalue.txt"}};
+
+    std::unordered_map<std::string, RFC2231Parser::ContinuedParameter> result;
+    REQUIRE_NOTHROW(result = RFC2231Parser::parse_continued_parameters(params));
+
+    // Invalid sequence is kept literally instead of crashing
+    REQUIRE(result.size() == 1);
+    REQUIRE(result["filename"].value == "bad%ZZvalue.txt");
+}
+
+TEST_CASE("RFC2231 - Truncated percent-encoding does not throw", "[mime][rfc2231][security]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''truncated%2"}};
+
+    std::unordered_map<std::string, RFC2231Parser::ContinuedParameter> result;
+    REQUIRE_NOTHROW(result = RFC2231Parser::parse_continued_parameters(params));
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(result["filename"].value == "truncated%2");
+}
+
+TEST_CASE("RFC2231 - Invalid percent-encoding is recorded as anomaly", "[mime][rfc2231][anomaly]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''bad%ZZvalue.txt"}};
+
+    AnomalyReport report;
+    auto result = RFC2231Parser::parse_continued_parameters(params, &report);
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(report.size() == 1);
+    REQUIRE(report.records[0].kind == AnomalyKind::InvalidParameterSyntax);
+}
+
+TEST_CASE("RFC2231 - Valid percent-encoding records no anomaly", "[mime][rfc2231][anomaly]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"filename*0*", "utf-8''good%20value.txt"}};
+
+    AnomalyReport report;
+    auto result = RFC2231Parser::parse_continued_parameters(params, &report);
+
+    REQUIRE(result["filename"].value == "good value.txt");
+    REQUIRE(report.empty());
 }

@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
-#include <libglot/mime/parser_extended.h>
-#include <libglot/mime/encoding.h>
 #include <libglot/mime/charset.h>
+#include <libglot/mime/encoding.h>
+#include <libglot/mime/parser_extended.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::mime;
@@ -86,7 +86,7 @@ BENCHMARK(BM_ParseNestedMultipart);
 // ============================================================================
 
 static void BM_DecodeBase64_Small(benchmark::State& state) {
-    std::string_view encoded = "SGVsbG8gV29ybGQ=";  // "Hello World"
+    std::string_view encoded = "SGVsbG8gV29ybGQ="; // "Hello World"
 
     for (auto _ : state) {
         benchmark::DoNotOptimize(TransferEncoding::decode_base64(encoded));
@@ -133,14 +133,12 @@ BENCHMARK(BM_DecodeRFC2047);
 static void BM_CharsetConversion_ISO88591(benchmark::State& state) {
     std::string input;
     for (int i = 0; i < 100; i++) {
-        input += "Café résumé naïve";  // Characters in extended ASCII range
+        input += "Café résumé naïve"; // Characters in extended ASCII range
     }
     std::string_view input_view = input;
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(
-            CharsetConverter::iso88591_to_utf8(input_view)
-        );
+        benchmark::DoNotOptimize(CharsetConverter::iso88591_to_utf8(input_view));
     }
 }
 BENCHMARK(BM_CharsetConversion_ISO88591);
@@ -153,9 +151,7 @@ static void BM_CharsetConversion_Windows1252(benchmark::State& state) {
     std::string_view input_view = input;
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(
-            CharsetConverter::windows1252_to_utf8(input_view)
-        );
+        benchmark::DoNotOptimize(CharsetConverter::windows1252_to_utf8(input_view));
     }
 }
 BENCHMARK(BM_CharsetConversion_Windows1252);
@@ -164,9 +160,7 @@ static void BM_UTF8Validation(benchmark::State& state) {
     std::string utf8_text = "Hello 世界 こんにちは मनोविज्ञान";
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(
-            CharsetConverter::is_valid_utf8(utf8_text)
-        );
+        benchmark::DoNotOptimize(CharsetConverter::is_valid_utf8(utf8_text));
     }
 }
 BENCHMARK(BM_UTF8Validation);

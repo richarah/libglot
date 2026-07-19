@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -155,7 +155,8 @@ TEST_CASE("CALL - Procedure call with column reference", "[call][column]") {
 
 TEST_CASE("CALL - Procedure call with subquery argument", "[call][subquery]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "CALL process_batch((SELECT id FROM pending_orders WHERE status = 'new'))");
+    SQLParser parser(arena,
+                     "CALL process_batch((SELECT id FROM pending_orders WHERE status = 'new'))");
 
     auto expr = parser.parse();
     REQUIRE(expr != nullptr);

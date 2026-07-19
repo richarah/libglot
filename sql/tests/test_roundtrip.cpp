@@ -18,17 +18,18 @@
 /// - Dialect transpilation works (parse in ANSI, emit in MySQL with backticks)
 /// ============================================================================
 
-#include <catch2/catch_test_macros.hpp>
-#include "../include/libglot/sql/parser.h"
-#include "../include/libglot/sql/generator.h"
 #include "../include/libglot/sql/ast_nodes.h"
-#include <string_view>
+#include "../include/libglot/sql/generator.h"
+#include "../include/libglot/sql/parser.h"
+#include <catch2/catch_test_macros.hpp>
 #include <string>
+#include <string_view>
 
 using namespace libglot::sql;
 
 TEST_CASE("SQL Roundtrip: Parse and emit representative query", "[sql][roundtrip]") {
-    constexpr std::string_view query = "SELECT col AS alias FROM table WHERE col = 1 ORDER BY col LIMIT 10";
+    constexpr std::string_view query =
+        "SELECT col AS alias FROM table WHERE col = 1 ORDER BY col LIMIT 10";
 
     SECTION("Parse query successfully") {
         libglot::Arena arena;
@@ -64,7 +65,7 @@ TEST_CASE("SQL Roundtrip: Parse and emit representative query", "[sql][roundtrip
             REQUIRE(select->where->type == SQLNodeKind::BINARY_OP);
 
             auto* where_op = static_cast<BinaryOp*>(select->where);
-            REQUIRE(where_op->op == libsqlglot::TokenType::EQ);
+            REQUIRE(where_op->op == libglot::sql::lex::TokenType::EQ);
 
             // Verify ORDER BY
             REQUIRE(select->order_by.size() == 1);
@@ -90,7 +91,7 @@ TEST_CASE("SQL Roundtrip: Parse and emit representative query", "[sql][roundtrip
 
         // Verify output contains key elements (whitespace may differ)
         REQUIRE(output.find("SELECT") != std::string::npos);
-        REQUIRE(output.find("\"col\"") != std::string::npos);  // ANSI uses double quotes
+        REQUIRE(output.find("\"col\"") != std::string::npos); // ANSI uses double quotes
         REQUIRE(output.find("AS") != std::string::npos);
         REQUIRE(output.find("\"alias\"") != std::string::npos);
         REQUIRE(output.find("FROM") != std::string::npos);
@@ -193,15 +194,15 @@ TEST_CASE("SQL Dialect Features: TRUE/FALSE literals", "[sql][dialect]") {
         SQLGenerator gen(SQLDialect::MySQL);
         std::string output = gen.generate(stmt);
 
-        REQUIRE(output.find("1") != std::string::npos);  // TRUE → 1
-        REQUIRE(output.find("0") != std::string::npos);  // FALSE → 0
+        REQUIRE(output.find("1") != std::string::npos); // TRUE → 1
+        REQUIRE(output.find("0") != std::string::npos); // FALSE → 0
     }
 }
 
 TEST_CASE("SQL SQLParser: Error handling", "[sql][error]") {
     SECTION("Parse error on invalid syntax") {
         libglot::Arena arena;
-        std::string_view bad_query = "SELECT FROM WHERE";  // Missing column list
+        std::string_view bad_query = "SELECT FROM WHERE"; // Missing column list
 
         SQLParser parser(arena, bad_query);
 
@@ -211,7 +212,7 @@ TEST_CASE("SQL SQLParser: Error handling", "[sql][error]") {
 
     SECTION("Parse error on unexpected token") {
         libglot::Arena arena;
-        std::string_view bad_query = "SELECT col FROM";  // Missing table name
+        std::string_view bad_query = "SELECT col FROM"; // Missing table name
 
         SQLParser parser(arena, bad_query);
         REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
@@ -224,7 +225,8 @@ TEST_CASE("SQL SQLParser: Error handling", "[sql][error]") {
 
 TEST_CASE("INSERT - Simple VALUES", "[sql][dml][insert]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
+    SQLParser parser(arena,
+                     "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
 
     auto* stmt = parser.parse_top_level();
 
@@ -248,8 +250,8 @@ TEST_CASE("INSERT - Simple VALUES", "[sql][dml][insert]") {
 
 TEST_CASE("INSERT - Multiple rows", "[sql][dml][insert]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 30), ('Charlie', 35)");
+    SQLParser parser(
+        arena, "INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 30), ('Charlie', 35)");
 
     auto* stmt = static_cast<InsertStmt*>(parser.parse_top_level());
 
@@ -261,7 +263,8 @@ TEST_CASE("INSERT - Multiple rows", "[sql][dml][insert]") {
 
 TEST_CASE("INSERT - SELECT subquery", "[sql][dml][insert]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "INSERT INTO users_backup SELECT name, email FROM users WHERE active = 1");
+    SQLParser parser(arena,
+                     "INSERT INTO users_backup SELECT name, email FROM users WHERE active = 1");
 
     auto* stmt = static_cast<InsertStmt*>(parser.parse_top_level());
 

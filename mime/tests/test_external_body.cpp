@@ -1,5 +1,5 @@
-#include <catch2/catch_test_macros.hpp>
 #include "libglot/mime/complete_features.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace libglot::mime;
 
@@ -8,8 +8,7 @@ TEST_CASE("External Body - FTP access type", "[mime][external_body]") {
         {"access-type", "ftp"},
         {"name", "document.pdf"},
         {"site", "ftp.example.com"},
-        {"directory", "/pub/files"}
-    };
+        {"directory", "/pub/files"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -21,10 +20,7 @@ TEST_CASE("External Body - FTP access type", "[mime][external_body]") {
 
 TEST_CASE("External Body - HTTP access type", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "http"},
-        {"name", "image.jpg"},
-        {"site", "www.example.com"}
-    };
+        {"access-type", "http"}, {"name", "image.jpg"}, {"site", "www.example.com"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -37,8 +33,7 @@ TEST_CASE("External Body - Local file access", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"access-type", "local-file"},
         {"name", "report.docx"},
-        {"directory", "/home/user/documents"}
-    };
+        {"directory", "/home/user/documents"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -51,8 +46,7 @@ TEST_CASE("External Body - Mail server access", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"access-type", "mail-server"},
         {"server", "mailserv@example.com"},
-        {"subject", "send document"}
-    };
+        {"subject", "send document"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -66,8 +60,7 @@ TEST_CASE("External Body - With size parameter", "[mime][external_body]") {
         {"access-type", "ftp"},
         {"name", "largefile.zip"},
         {"site", "ftp.example.com"},
-        {"size", "1048576"}
-    };
+        {"size", "1048576"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -79,8 +72,7 @@ TEST_CASE("External Body - With expiration date", "[mime][external_body]") {
         {"access-type", "http"},
         {"name", "temp.txt"},
         {"site", "www.example.com"},
-        {"expiration", "2024-12-31"}
-    };
+        {"expiration", "2024-12-31"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -89,10 +81,7 @@ TEST_CASE("External Body - With expiration date", "[mime][external_body]") {
 
 TEST_CASE("External Body - Case insensitive parameter keys", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"Access-Type", "FTP"},
-        {"Name", "file.txt"},
-        {"Site", "ftp.example.com"}
-    };
+        {"Access-Type", "FTP"}, {"Name", "file.txt"}, {"Site", "ftp.example.com"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -103,13 +92,8 @@ TEST_CASE("External Body - Case insensitive parameter keys", "[mime][external_bo
 
 TEST_CASE("External Body - All parameters", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "ftp"},
-        {"name", "complete.pdf"},
-        {"site", "ftp.example.com"},
-        {"directory", "/pub/docs"},
-        {"size", "2097152"},
-        {"expiration", "2025-01-01"}
-    };
+        {"access-type", "ftp"},     {"name", "complete.pdf"}, {"site", "ftp.example.com"},
+        {"directory", "/pub/docs"}, {"size", "2097152"},      {"expiration", "2025-01-01"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -132,12 +116,10 @@ TEST_CASE("External Body - Empty parameters", "[mime][external_body]") {
 }
 
 TEST_CASE("External Body - RFC 2046 FTP example", "[mime][external_body]") {
-    std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "FTP"},
-        {"name", "ietf-spec.txt"},
-        {"site", "ftp.ietf.org"},
-        {"directory", "rfc"}
-    };
+    std::vector<std::pair<std::string_view, std::string_view>> params = {{"access-type", "FTP"},
+                                                                         {"name", "ietf-spec.txt"},
+                                                                         {"site", "ftp.ietf.org"},
+                                                                         {"directory", "rfc"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -152,8 +134,7 @@ TEST_CASE("External Body - Anon FTP pattern", "[mime][external_body]") {
         {"access-type", "anon-ftp"},
         {"name", "public.tar.gz"},
         {"site", "ftp.gnu.org"},
-        {"directory", "/pub/gnu"}
-    };
+        {"directory", "/pub/gnu"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -162,9 +143,7 @@ TEST_CASE("External Body - Anon FTP pattern", "[mime][external_body]") {
 
 TEST_CASE("External Body - URL in name", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "http"},
-        {"name", "https://example.com/file.pdf"}
-    };
+        {"access-type", "http"}, {"name", "https://example.com/file.pdf"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -173,9 +152,7 @@ TEST_CASE("External Body - URL in name", "[mime][external_body]") {
 
 TEST_CASE("External Body - Large file size", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "ftp"},
-        {"name", "bigdata.iso"},
-        {"size", "4294967296"}  // 4 GB
+        {"access-type", "ftp"}, {"name", "bigdata.iso"}, {"size", "4294967296"} // 4 GB
     };
 
     auto ref = ExternalBodyParser::parse(params);
@@ -185,10 +162,7 @@ TEST_CASE("External Body - Large file size", "[mime][external_body]") {
 
 TEST_CASE("External Body - TFTP access", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "tftp"},
-        {"name", "bootimage.bin"},
-        {"site", "tftp.local"}
-    };
+        {"access-type", "tftp"}, {"name", "bootimage.bin"}, {"site", "tftp.local"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -200,8 +174,7 @@ TEST_CASE("External Body - Unknown parameters ignored", "[mime][external_body]")
         {"access-type", "ftp"},
         {"name", "file.txt"},
         {"unknown-param", "value"},
-        {"another-unknown", "data"}
-    };
+        {"another-unknown", "data"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -213,8 +186,7 @@ TEST_CASE("External Body - Directory with spaces", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"access-type", "local-file"},
         {"name", "document.pdf"},
-        {"directory", "/home/user/My Documents"}
-    };
+        {"directory", "/home/user/My Documents"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -225,8 +197,7 @@ TEST_CASE("External Body - Subject with special characters", "[mime][external_bo
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"access-type", "mail-server"},
         {"server", "archive@example.com"},
-        {"subject", "GET /archive/file-2024.txt"}
-    };
+        {"subject", "GET /archive/file-2024.txt"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -235,10 +206,7 @@ TEST_CASE("External Body - Subject with special characters", "[mime][external_bo
 
 TEST_CASE("External Body - Zero size file", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
-        {"access-type", "ftp"},
-        {"name", "empty.txt"},
-        {"size", "0"}
-    };
+        {"access-type", "ftp"}, {"name", "empty.txt"}, {"size", "0"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
@@ -249,10 +217,43 @@ TEST_CASE("External Body - Windows path directory", "[mime][external_body]") {
     std::vector<std::pair<std::string_view, std::string_view>> params = {
         {"access-type", "local-file"},
         {"name", "data.csv"},
-        {"directory", "C:\\Users\\Public\\Documents"}
-    };
+        {"directory", "C:\\Users\\Public\\Documents"}};
 
     auto ref = ExternalBodyParser::parse(params);
 
     REQUIRE(ref.directory == "C:\\Users\\Public\\Documents");
+}
+
+TEST_CASE("External Body - Non-numeric size does not throw", "[mime][external_body][security]") {
+    // Attacker-controlled 'size=abc' previously reached std::stoull and threw
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"access-type", "ftp"}, {"name", "file.txt"}, {"size", "abc"}};
+
+    ExternalBodyRef ref;
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params));
+    REQUIRE(ref.size == 0);
+}
+
+TEST_CASE("External Body - Out-of-range size does not throw", "[mime][external_body][security]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {
+        {"access-type", "ftp"}, {"size", "99999999999999999999999999999999999999"}};
+
+    ExternalBodyRef ref;
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params));
+    REQUIRE(ref.size == 0);
+}
+
+TEST_CASE("External Body - Negative and mixed size values ignored",
+          "[mime][external_body][security]") {
+    std::vector<std::pair<std::string_view, std::string_view>> params = {{"access-type", "ftp"},
+                                                                         {"size", "-42"}};
+    ExternalBodyRef ref;
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params));
+    REQUIRE(ref.size == 0);
+
+    // Trailing garbage after digits is also rejected
+    std::vector<std::pair<std::string_view, std::string_view>> params2 = {{"access-type", "ftp"},
+                                                                          {"size", "123abc"}};
+    REQUIRE_NOTHROW(ref = ExternalBodyParser::parse(params2));
+    REQUIRE(ref.size == 0);
 }

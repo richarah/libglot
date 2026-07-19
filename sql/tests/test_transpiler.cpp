@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -19,8 +19,7 @@ TEST_CASE("Transpiler - Simple parse and generate", "[transpiler]") {
 
     SQLGenerator gen(SQLDialect::ANSI);
     std::string output = gen.generate(expr);
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("users") != std::string::npos);
+    REQUIRE(output == "SELECT * FROM \"users\"");
 }
 
 // TEST_CASE("Transpiler - Parse, optimize, generate", "[transpiler]") {
@@ -36,9 +35,7 @@ TEST_CASE("Transpiler - Full transpile API", "[transpiler]") {
     SQLGenerator gen(SQLDialect::ANSI);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
-    REQUIRE(output.find("FROM") != std::string::npos);
+    REQUIRE(output == "SELECT \"id\", \"name\" FROM \"users\" WHERE \"active\" = 1");
 }
 
 TEST_CASE("Transpiler - Complex query transpilation", "[transpiler]") {
@@ -50,8 +47,8 @@ TEST_CASE("Transpiler - Complex query transpilation", "[transpiler]") {
     SQLGenerator gen(SQLDialect::ANSI);
     std::string output = gen.generate(ast);
 
-    REQUIRE(!output.empty());
-    REQUIRE(output.find("SELECT") != std::string::npos);
+    REQUIRE(output ==
+            "SELECT \"u\".\"id\", \"u\".\"name\" FROM \"users\" AS \"u\" WHERE \"u\".\"age\" > 18");
 }
 
 // TEST_CASE("Optimizer - Qualify columns", "[optimizer]") {
@@ -71,10 +68,11 @@ TEST_CASE("Dialect - Feature support", "[dialect]") {
     auto& postgres = SQLDialectTraits::get_features(SQLDialect::PostgreSQL);
     auto& tsql = SQLDialectTraits::get_features(SQLDialect::SQLServer);
 
-    // ANSI and PostgreSQL support LIMIT/OFFSET
+    // ANSI and PostgreSQL support LIMIT/OFFSET; T-SQL does not
     REQUIRE(ansi.supports_limit_offset == true);
+    REQUIRE(tsql.supports_limit_offset == false);
     REQUIRE(postgres.supports_limit_offset == true);
-    REQUIRE(postgres.supports_ilike == true);  // PostgreSQL supports ILIKE
+    REQUIRE(postgres.supports_ilike == true); // PostgreSQL supports ILIKE
 }
 
 TEST_CASE("Dialect - Names", "[dialect]") {

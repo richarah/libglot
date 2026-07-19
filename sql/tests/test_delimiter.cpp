@@ -8,12 +8,12 @@ TEST_CASE("DELIMITER statement parsing and generation", "[delimiter][mysql]") {
     SECTION("Simple DELIMITER $$") {
         std::string sql = "DELIMITER $$";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result.find("DELIMITER $$") != std::string::npos);
     }
@@ -21,12 +21,12 @@ TEST_CASE("DELIMITER statement parsing and generation", "[delimiter][mysql]") {
     SECTION("DELIMITER with double slash //") {
         std::string sql = "DELIMITER //";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result.find("DELIMITER //") != std::string::npos);
     }
@@ -34,12 +34,12 @@ TEST_CASE("DELIMITER statement parsing and generation", "[delimiter][mysql]") {
     SECTION("DELIMITER with pipe |") {
         std::string sql = "DELIMITER |";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result.find("DELIMITER |") != std::string::npos);
     }
@@ -47,12 +47,12 @@ TEST_CASE("DELIMITER statement parsing and generation", "[delimiter][mysql]") {
     SECTION("DELIMITER back to semicolon") {
         std::string sql = "DELIMITER ;";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result.find("DELIMITER ;") != std::string::npos);
     }
@@ -62,12 +62,12 @@ TEST_CASE("DELIMITER with procedure definition", "[delimiter][mysql][integration
     SECTION("Full procedure with DELIMITER changes") {
         std::string sql = "CREATE PROCEDURE test() BEGIN SELECT 1; END";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result.find("CREATE PROCEDURE test") != std::string::npos);
         REQUIRE(result.find("BEGIN") != std::string::npos);
@@ -93,12 +93,12 @@ TEST_CASE("DELIMITER round-trip", "[delimiter][roundtrip]") {
     SECTION("Parse and regenerate DELIMITER $$") {
         std::string sql = "DELIMITER $$";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result == "DELIMITER $$");
     }
@@ -106,12 +106,12 @@ TEST_CASE("DELIMITER round-trip", "[delimiter][roundtrip]") {
     SECTION("Parse and regenerate DELIMITER //") {
         std::string sql = "DELIMITER //";
         auto result = [&]() {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::MySQL);
-        return gen.generate(ast);
-    }();
+            libglot::Arena arena;
+            SQLParser parser(arena, sql);
+            auto ast = parser.parse_top_level();
+            SQLGenerator gen(SQLDialect::MySQL);
+            return gen.generate(ast);
+        }();
 
         REQUIRE(result == "DELIMITER //");
     }

@@ -1,0 +1,20 @@
+The .msg files in this directory are RFC 5322/2045/2046 conformance test
+messages vendored unmodified from Apache James Mime4j's test resources
+(core/src/test/resources/testmsgs/), used here to exercise libglot's MIME
+parser against a hand-crafted edge-case suite independent of the
+SpamAssassin/Enron real-mail corpora already used elsewhere in this repo.
+
+Source: https://github.com/apache/james-mime4j
+        core/src/test/resources/testmsgs/*.msg
+License: Apache License, Version 2.0 (see the upstream project's LICENSE
+and NOTICE files at the path above; not the mimetools-testmsgs/ subtree,
+which is separately licensed under the Artistic License and is NOT used
+here).
+
+Copyright 2004-2021 The Apache Software Foundation.
+
+These messages are used in mime/tests/test_rfc_conformance_mime4j.cpp,
+which asserts libglot's own verified parsing behavior for each fixture
+(not a byte-for-byte reproduction of mime4j's own expected-output XML,
+since mime4j's internal tree model and leniency choices sometimes differ
+from libglot's by design -- see that file's comments for specifics).

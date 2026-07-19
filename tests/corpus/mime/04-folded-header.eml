@@ -1,0 +1,6 @@
+From: Folder <f@example.com>
+Subject: A very long subject line that has been
+ folded across multiple physical lines per RFC 5322
+Content-Type: text/plain
+
+Body after folded header.

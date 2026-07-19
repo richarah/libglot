@@ -1,117 +1,40 @@
-cmake_minimum_required(VERSION 3.28)
+# libglot-mime test suite. Each source file is one Catch2 executable;
+# individual TEST_CASEs are registered with CTest via catch_discover_tests.
 
-# ============================================================================
-# libglot-mime Tests (Phase B)
-# ============================================================================
-
-add_executable(test_mime_parser test_mime_parser.cpp)
-
-target_link_libraries(test_mime_parser
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
+set(MIME_TESTS
+    test_address_groups
+    test_boundary_recovery
+    test_charset_latin9
+    test_charset_regional
+    test_charset_utf16
+    test_date_parsing
+    test_external_body
+    test_header_comments
+    test_message_partial
+    test_message_rfc822
+    test_mime_anomalies
+    test_mime_encoding
+    test_mime_multipart
+    test_mime_parser
+    test_multipart_report
+    test_multipart_signed
+    test_pipeline
+    test_related_content_headers
+    test_rfc2231_continuations
+    test_rfc_conformance_mime4j
+    test_security_corpus
+    test_threading_headers
+    test_utf8_headers
 )
 
-# Add test to CTest
-add_test(NAME test_mime_parser COMMAND test_mime_parser)
+foreach(test_name IN LISTS MIME_TESTS)
+    add_executable(${test_name} ${test_name}.cpp)
+    target_link_libraries(${test_name} PRIVATE libglot::mime Catch2::Catch2WithMain)
+    catch_discover_tests(${test_name} TEST_PREFIX "mime.")
+endforeach()
 
-# ============================================================================
-# MIME Multipart Tests
-# ============================================================================
-
-add_executable(test_mime_multipart test_mime_multipart.cpp)
-
-target_link_libraries(test_mime_multipart
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_mime_multipart COMMAND test_mime_multipart)
-
-# ============================================================================
-# MIME Encoding Tests
-# ============================================================================
-
-add_executable(test_mime_encoding test_mime_encoding.cpp)
-
-target_link_libraries(test_mime_encoding
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_mime_encoding COMMAND test_mime_encoding)
-
-# ============================================================================
-# 100% Feature Coverage - RFC 2231, Comments, Groups, Recovery
-# ============================================================================
-
-add_executable(test_rfc2231_continuations test_rfc2231_continuations.cpp)
-
-target_link_libraries(test_rfc2231_continuations
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_rfc2231_continuations COMMAND test_rfc2231_continuations)
-
-add_executable(test_header_comments test_header_comments.cpp)
-
-target_link_libraries(test_header_comments
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_header_comments COMMAND test_header_comments)
-
-add_executable(test_address_groups test_address_groups.cpp)
-
-target_link_libraries(test_address_groups
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_address_groups COMMAND test_address_groups)
-
-add_executable(test_boundary_recovery test_boundary_recovery.cpp)
-
-target_link_libraries(test_boundary_recovery
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_boundary_recovery COMMAND test_boundary_recovery)
-
-add_executable(test_external_body test_external_body.cpp)
-
-target_link_libraries(test_external_body
-    PRIVATE
-        libglot::mime
-        libglot::core
-        Catch2::Catch2WithMain
-)
-
-add_test(NAME test_external_body COMMAND test_external_body)
-
-message(STATUS "libglot-mime tests configured:")
-message(STATUS "  - test_mime_parser: Parse MIME headers (26 assertions)")
-message(STATUS "  - test_mime_multipart: Multipart parsing (44 assertions)")
-message(STATUS "  - test_mime_encoding: Transfer encodings (30+ assertions)")
-message(STATUS "  - test_rfc2231_continuations: RFC 2231 parameter continuations (16 assertions)")
-message(STATUS "  - test_header_comments: Comment parsing (20 assertions)")
-message(STATUS "  - test_address_groups: Address group syntax (20 assertions)")
-message(STATUS "  - test_boundary_recovery: Boundary error recovery (20 assertions)")
-message(STATUS "  - test_external_body: message/external-body (20 assertions)")
-message(STATUS "  TOTAL: 8 test executables, 196+ assertions (100% MIME coverage)")
+# Vendored mime4j fixtures (mime/tests/data/mime4j/) are read from disk at
+# test time rather than embedded as string literals, so the exact bytes
+# (CRLFs, long boundary strings) are never retyped by hand.
+target_compile_definitions(test_rfc_conformance_mime4j PRIVATE
+    MIME4J_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mime4j")

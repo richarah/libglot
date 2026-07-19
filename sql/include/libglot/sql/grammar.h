@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../../../../core/include/libglot/parse/grammar.h"
-#include "token_spec.h"
 #include "ast_nodes.h"
+#include "token_spec.h"
+#include <libglot/parse/grammar.h>
 #include <span>
 
 namespace libglot::sql {
@@ -34,7 +34,8 @@ struct SQLGrammarSpec {
     // ========================================================================
     ///
     /// Precedence levels (higher number = higher precedence):
-    /// 15: Unary +, -, NOT
+    /// 16: Unary +, -, NOT
+    /// 15: ^ (exponentiation / bitwise xor, dialect-dependent)
     /// 14: *, /, %
     /// 13: +, -, || (concat), JSON operators (->, ->>, #>, #>>)
     /// 12: =, <>, <, <=, >, >=, LIKE, ILIKE, IN, BETWEEN, @>, <@, ?
@@ -46,53 +47,64 @@ struct SQLGrammarSpec {
     /// This follows PostgreSQL precedence with JSON operator extensions.
     /// ========================================================================
 
-    static constexpr std::span<const libglot::OperatorInfo<TokenKind>> operator_precedence() noexcept {
-        using libglot::OperatorInfo;
-        using libglot::Associativity;
-        using TK = libsqlglot::TokenType;
+private:
+    using OpInfo = libglot::OperatorInfo<TokenKind>;
+    using Associativity = libglot::Associativity;
+    using TK = libglot::sql::lex::TokenType;
 
-        static constexpr OperatorInfo<TokenKind> table[] = {
-            // Arithmetic (precedence 13-14)
-            {TK::STAR, 14, Associativity::LEFT},       // *
-            {TK::SLASH, 14, Associativity::LEFT},      // /
-            {TK::PERCENT, 14, Associativity::LEFT},    // %
-            {TK::PLUS, 13, Associativity::LEFT},       // +
-            {TK::MINUS, 13, Associativity::LEFT},      // -
-            {TK::CONCAT, 13, Associativity::LEFT},     // ||
+    static constexpr OpInfo kOperatorTable[] = {
+        // Exponentiation / bitwise xor (precedence 15): binds tighter
+        // than * / % but looser than unary +/- (PostgreSQL rules).
+        {TK::CARET, 15, Associativity::LEFT}, // ^
 
-            // JSON access operators (precedence 13 - same as concat)
-            {TK::ARROW, 13, Associativity::LEFT},           // -> (JSON field access)
-            {TK::LONG_ARROW, 13, Associativity::LEFT},      // ->> (JSON field as text)
-            {TK::HASH_ARROW, 13, Associativity::LEFT},      // #> (JSON path)
-            {TK::HASH_LONG_ARROW, 13, Associativity::LEFT}, // #>> (JSON path as text)
+        // Arithmetic (precedence 13-14)
+        {TK::STAR, 14, Associativity::LEFT},    // *
+        {TK::SLASH, 14, Associativity::LEFT},   // /
+        {TK::PERCENT, 14, Associativity::LEFT}, // %
+        {TK::PLUS, 13, Associativity::LEFT},    // +
+        {TK::MINUS, 13, Associativity::LEFT},   // -
+        {TK::CONCAT, 13, Associativity::LEFT},  // ||
 
-            // Comparison (precedence 12)
-            {TK::EQ, 12, Associativity::LEFT},         // =
-            {TK::NEQ, 12, Associativity::LEFT},        // <>, !=
-            {TK::LT, 12, Associativity::LEFT},         // <
-            {TK::LTE, 12, Associativity::LEFT},        // <=
-            {TK::GT, 12, Associativity::LEFT},         // >
-            {TK::GTE, 12, Associativity::LEFT},        // >=
-            {TK::LIKE, 12, Associativity::LEFT},       // LIKE
-            {TK::ILIKE, 12, Associativity::LEFT},      // ILIKE
-            // NOTE: IN is handled in parse_postfix(), not as binary operator
-            {TK::BETWEEN, 12, Associativity::LEFT},    // BETWEEN
+        // JSON access operators (precedence 13 - same as concat)
+        {TK::ARROW, 13, Associativity::LEFT},           // -> (JSON field access)
+        {TK::LONG_ARROW, 13, Associativity::LEFT},      // ->> (JSON field as text)
+        {TK::HASH_ARROW, 13, Associativity::LEFT},      // #> (JSON path)
+        {TK::HASH_LONG_ARROW, 13, Associativity::LEFT}, // #>> (JSON path as text)
 
-            // JSON containment operators (precedence 12 - same as comparison)
-            {TK::AT_GT, 12, Associativity::LEFT},      // @> (contains)
-            {TK::LT_AT, 12, Associativity::LEFT},      // <@ (contained by)
-            {TK::QUESTION, 12, Associativity::LEFT},   // ? (key exists)
+        // Comparison (precedence 12)
+        {TK::EQ, 12, Associativity::LEFT},           // =
+        {TK::NULL_SAFE_EQ, 12, Associativity::LEFT}, // <=> (MySQL/Spark null-safe equality)
+        {TK::NEQ, 12, Associativity::LEFT},          // <>, !=
+        {TK::LT, 12, Associativity::LEFT},           // <
+        {TK::LTE, 12, Associativity::LEFT},          // <=
+        {TK::GT, 12, Associativity::LEFT},           // >
+        {TK::GTE, 12, Associativity::LEFT},          // >=
+        {TK::LIKE, 12, Associativity::LEFT},         // LIKE
+        {TK::ILIKE, 12, Associativity::LEFT},        // ILIKE
+        // NOTE: IN and BETWEEN are handled in parse_postfix(), not as
+        // binary operators. BETWEEN needs a special-form parse (low AND
+        // high bounds) - treating it as an ordinary binary operator made
+        // `x BETWEEN 1 AND 10` parse as `(x BETWEEN 1) AND 10`.
 
-            // IS NULL / IS NOT NULL (precedence 11)
-            {TK::IS, 11, Associativity::LEFT},         // IS
+        // JSON containment operators (precedence 12 - same as comparison)
+        {TK::AT_GT, 12, Associativity::LEFT},    // @> (contains)
+        {TK::LT_AT, 12, Associativity::LEFT},    // <@ (contained by)
+        {TK::QUESTION, 12, Associativity::LEFT}, // ? (key exists)
 
-            // Boolean (precedence 8-10)
-            {TK::NOT, 10, Associativity::RIGHT},       // NOT
-            {TK::AND, 9, Associativity::LEFT},         // AND
-            {TK::OR, 8, Associativity::LEFT},          // OR
-        };
+        // IS NULL / IS NOT NULL (precedence 11)
+        {TK::IS, 11, Associativity::LEFT}, // IS
 
-        return std::span{table};
+        // Boolean (precedence 8-9)
+        // NOTE: NOT is not a binary operator. Prefix NOT is handled in
+        // parse_prefix(); the infix forms (NOT LIKE / NOT IN /
+        // NOT BETWEEN) are handled in parse_postfix().
+        {TK::AND, 9, Associativity::LEFT}, // AND
+        {TK::OR, 8, Associativity::LEFT},  // OR
+    };
+
+public:
+    static constexpr std::span<const OpInfo> operator_precedence() noexcept {
+        return std::span{kOperatorTable};
     }
 };
 
@@ -101,6 +113,6 @@ struct SQLGrammarSpec {
 /// ============================================================================
 
 static_assert(libglot::GrammarSpec<SQLGrammarSpec>,
-    "SQLGrammarSpec must satisfy libglot::GrammarSpec concept");
+              "SQLGrammarSpec must satisfy libglot::GrammarSpec concept");
 
 } // namespace libglot::sql

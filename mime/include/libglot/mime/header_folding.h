@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string_view>
-#include <string>
 #include <cctype>
+#include <string>
+#include <string_view>
 
 namespace libglot::mime {
 
@@ -37,11 +37,12 @@ public:
             if (c == '\r' || c == '\n') {
                 // Check if next char is newline (for CRLF)
                 if (c == '\r' && i + 1 < header_value.size() && header_value[i + 1] == '\n') {
-                    ++i;  // Skip the LF in CRLF
+                    ++i; // Skip the LF in CRLF
                 }
 
                 // Check if this is a folding point (followed by whitespace)
-                if (i + 1 < header_value.size() && (header_value[i + 1] == ' ' || header_value[i + 1] == '\t')) {
+                if (i + 1 < header_value.size() &&
+                    (header_value[i + 1] == ' ' || header_value[i + 1] == '\t')) {
                     // This is a folding point - replace with single space
                     if (!result.empty() && !in_whitespace_run) {
                         result.push_back(' ');
@@ -81,6 +82,66 @@ public:
         // Trim trailing whitespace
         while (!result.empty() && std::isspace(result.back())) {
             result.pop_back();
+        }
+
+        return result;
+    }
+
+    /// Unfold all folded header lines in the header section of a message
+    /// (RFC 5322 §2.2.3): a line break followed by SP/HTAB is a folding
+    /// point; the break is removed and the whitespace kept, so every header
+    /// ends up on exactly one line. The header section ends at the first
+    /// empty line; everything from that line onwards (the body) is copied
+    /// verbatim. Handles CRLF, LF, and (lenient) bare CR line breaks.
+    ///
+    /// If `whitespace_only_fold_seen` is non-null, it is set to true when a
+    /// continuation line turns out to contain nothing but whitespace (RFC
+    /// 5322's obs-fold: a fold point with zero real content before the
+    /// next break -- real mail does this, see mime4j's obsolete.msg). A
+    /// plain bool rather than an AnomalyReport* so this header stays
+    /// decoupled from anomalies.h; callers translate it into
+    /// AnomalyKind::WhitespaceOnlyFoldLine via their own record_anomaly.
+    /// The unfolding itself is unaffected either way (it already joins
+    /// the line correctly).
+    static std::string unfold_headers(std::string_view message,
+                                      bool* whitespace_only_fold_seen = nullptr) {
+        std::string result;
+        result.reserve(message.size());
+
+        size_t i = 0;
+        while (i < message.size()) {
+            char c = message[i];
+
+            if (c == '\r' || c == '\n') {
+                const size_t break_len =
+                    (c == '\r' && i + 1 < message.size() && message[i + 1] == '\n') ? 2 : 1;
+                const size_t after = i + break_len;
+
+                // Folding point: line break followed by SP/HTAB.
+                // Drop the break, keep the whitespace (RFC 5322 unfolding).
+                if (after < message.size() && (message[after] == ' ' || message[after] == '\t')) {
+                    if (whitespace_only_fold_seen != nullptr &&
+                        is_whitespace_only_line(message, after)) {
+                        *whitespace_only_fold_seen = true;
+                    }
+                    i = after;
+                    continue;
+                }
+
+                // Blank line: end of header section; copy the rest verbatim.
+                if (after < message.size() && (message[after] == '\r' || message[after] == '\n')) {
+                    result.append(message.substr(i));
+                    return result;
+                }
+
+                // Ordinary end of a header line: keep the break as-is.
+                result.append(message.substr(i, break_len));
+                i = after;
+                continue;
+            }
+
+            result.push_back(c);
+            ++i;
         }
 
         return result;
@@ -132,6 +193,23 @@ public:
             }
         }
         return false;
+    }
+
+private:
+    /// True when the line starting at `start` (already known to be
+    /// SP/HTAB, i.e. a recognized fold continuation) contains nothing
+    /// else before the next line break or end of input.
+    static bool is_whitespace_only_line(std::string_view message, size_t start) {
+        for (size_t j = start; j < message.size(); ++j) {
+            char c = message[j];
+            if (c == '\r' || c == '\n') {
+                return true;
+            }
+            if (c != ' ' && c != '\t') {
+                return false;
+            }
+        }
+        return true;
     }
 };
 

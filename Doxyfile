@@ -1,0 +1,22 @@
+# Doxygen configuration for libglot public headers.
+# Run: doxygen Doxyfile   (output in docs/api/)
+
+PROJECT_NAME           = libglot
+PROJECT_BRIEF          = "Header-only C++20 parser/transpiler framework (SQL, MIME)"
+OUTPUT_DIRECTORY       = docs/api
+INPUT                  = core/include mime/include sql/include README.md
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.md
+EXCLUDE_PATTERNS       = */lex/keywords.h
+EXTRACT_ALL            = YES
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+JAVADOC_AUTOBRIEF      = YES
+MARKDOWN_SUPPORT       = YES
+SOURCE_BROWSER         = YES
+STRIP_CODE_COMMENTS    = NO
+PREDEFINED             = __cplusplus=202002L

@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
-#include <libglot/sql/generator.h>
 #include <libglot/sql/dialect_traits.h>
+#include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 
 using namespace libglot::sql;
@@ -12,7 +12,8 @@ using namespace libglot::sql;
 
 TEST_CASE("INSERT - Simple VALUES", "[dml][insert]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
+    SQLParser parser(arena,
+                     "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
 
     auto stmt = static_cast<InsertStmt*>(parser.parse_top_level());
 
@@ -33,8 +34,8 @@ TEST_CASE("INSERT - Simple VALUES", "[dml][insert]") {
 
 TEST_CASE("INSERT - Multiple rows", "[dml][insert]") {
     libglot::Arena arena;
-    SQLParser parser(arena,
-        "INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 30), ('Charlie', 35)");
+    SQLParser parser(
+        arena, "INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 30), ('Charlie', 35)");
 
     auto stmt = static_cast<InsertStmt*>(parser.parse_top_level());
 
@@ -116,7 +117,8 @@ TEST_CASE("UPDATE - Without WHERE", "[dml][update]") {
 
 TEST_CASE("UPDATE - With FROM clause (PostgreSQL)", "[dml][update]") {
     libglot::Arena arena;
-    SQLParser parser(arena, "UPDATE orders SET status = 'shipped' FROM users WHERE orders.user_id = users.id");
+    SQLParser parser(
+        arena, "UPDATE orders SET status = 'shipped' FROM users WHERE orders.user_id = users.id");
 
     auto stmt = static_cast<UpdateStmt*>(parser.parse_top_level());
 

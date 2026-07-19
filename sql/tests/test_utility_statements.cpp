@@ -8,23 +8,23 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
-#include <libglot/sql/parser.h>
 #include <libglot/sql/generator.h>
+#include <libglot/sql/parser.h>
 #include <libglot/util/arena.h>
 #include <string>
 
 using namespace libglot::sql;
 
 namespace {
-    // Helper function to test parse → generate round-trip
-    std::string test_round_trip(const std::string& sql) {
-        libglot::Arena arena;
-        SQLParser parser(arena, sql);
-        auto ast = parser.parse_top_level();
-        SQLGenerator gen(SQLDialect::PostgreSQL);
-        return gen.generate(ast);
-    }
+// Helper function to test parse → generate round-trip
+std::string test_round_trip(const std::string& sql) {
+    libglot::Arena arena;
+    SQLParser parser(arena, sql);
+    auto ast = parser.parse_top_level();
+    SQLGenerator gen(SQLDialect::PostgreSQL);
+    return gen.generate(ast);
 }
+} // namespace
 
 // ============================================================================
 // DO Statement Tests (PostgreSQL)
@@ -37,21 +37,28 @@ TEST_CASE("DO - Simple anonymous block", "[do][postgresql]") {
 }
 
 TEST_CASE("DO - With variable declarations", "[do][postgresql]") {
-    std::string sql = "DO $$ DECLARE v_count INTEGER; BEGIN SELECT COUNT(*) INTO v_count FROM users; END $$";
+    std::string sql =
+        "DO $$ DECLARE v_count INTEGER; BEGIN SELECT COUNT(*) INTO v_count FROM users; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ DECLARE v_count INTEGER; BEGIN SELECT COUNT(*) INTO v_count FROM users; END $$");
+    REQUIRE(result ==
+            "DO $$ DECLARE v_count INTEGER; BEGIN SELECT COUNT(*) INTO v_count FROM users; END $$");
 }
 
 TEST_CASE("DO - With IF statement", "[do][postgresql]") {
-    std::string sql = "DO $$ BEGIN IF EXISTS (SELECT 1 FROM users WHERE id = 1) THEN RAISE NOTICE 'Found'; END IF; END $$";
+    std::string sql = "DO $$ BEGIN IF EXISTS (SELECT 1 FROM users WHERE id = 1) THEN RAISE NOTICE "
+                      "'Found'; END IF; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ BEGIN IF EXISTS (SELECT 1 FROM users WHERE id = 1) THEN RAISE NOTICE 'Found'; END IF; END $$");
+    REQUIRE(result == "DO $$ BEGIN IF EXISTS (SELECT 1 FROM users WHERE id = 1) THEN RAISE NOTICE "
+                      "'Found'; END IF; END $$");
 }
 
 TEST_CASE("DO - With LOOP", "[do][postgresql]") {
-    std::string sql = "DO $$ DECLARE i INTEGER := 0; BEGIN LOOP i := i + 1; EXIT WHEN i > 10; END LOOP; END $$";
+    std::string sql =
+        "DO $$ DECLARE i INTEGER := 0; BEGIN LOOP i := i + 1; EXIT WHEN i > 10; END LOOP; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ DECLARE i INTEGER := 0; BEGIN LOOP i := i + 1; EXIT WHEN i > 10; END LOOP; END $$");
+    REQUIRE(
+        result ==
+        "DO $$ DECLARE i INTEGER := 0; BEGIN LOOP i := i + 1; EXIT WHEN i > 10; END LOOP; END $$");
 }
 
 TEST_CASE("DO - With FOR loop", "[do][postgresql]") {
@@ -61,27 +68,35 @@ TEST_CASE("DO - With FOR loop", "[do][postgresql]") {
 }
 
 TEST_CASE("DO - With WHILE loop", "[do][postgresql]") {
-    std::string sql = "DO $$ DECLARE i INTEGER := 0; BEGIN WHILE i < 10 LOOP i := i + 1; END LOOP; END $$";
+    std::string sql =
+        "DO $$ DECLARE i INTEGER := 0; BEGIN WHILE i < 10 LOOP i := i + 1; END LOOP; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ DECLARE i INTEGER := 0; BEGIN WHILE i < 10 LOOP i := i + 1; END LOOP; END $$");
+    REQUIRE(result ==
+            "DO $$ DECLARE i INTEGER := 0; BEGIN WHILE i < 10 LOOP i := i + 1; END LOOP; END $$");
 }
 
 TEST_CASE("DO - With exception handling", "[do][postgresql]") {
-    std::string sql = "DO $$ BEGIN INSERT INTO users VALUES (1, 'test'); EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'Duplicate'; END $$";
+    std::string sql = "DO $$ BEGIN INSERT INTO users VALUES (1, 'test'); EXCEPTION WHEN "
+                      "unique_violation THEN RAISE NOTICE 'Duplicate'; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ BEGIN INSERT INTO users VALUES (1, 'test'); EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'Duplicate'; END $$");
+    REQUIRE(result == "DO $$ BEGIN INSERT INTO users VALUES (1, 'test'); EXCEPTION WHEN "
+                      "unique_violation THEN RAISE NOTICE 'Duplicate'; END $$");
 }
 
 TEST_CASE("DO - With multiple statements", "[do][postgresql]") {
-    std::string sql = "DO $$ BEGIN UPDATE users SET active = true; DELETE FROM sessions WHERE expired = true; COMMIT; END $$";
+    std::string sql = "DO $$ BEGIN UPDATE users SET active = true; DELETE FROM sessions WHERE "
+                      "expired = true; COMMIT; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ BEGIN UPDATE users SET active = true; DELETE FROM sessions WHERE expired = true; COMMIT; END $$");
+    REQUIRE(result == "DO $$ BEGIN UPDATE users SET active = true; DELETE FROM sessions WHERE "
+                      "expired = true; COMMIT; END $$");
 }
 
 TEST_CASE("DO - With dynamic SQL (EXECUTE)", "[do][postgresql]") {
-    std::string sql = "DO $$ BEGIN EXECUTE 'CREATE TABLE IF NOT EXISTS temp_table (id INT)'; END $$";
+    std::string sql =
+        "DO $$ BEGIN EXECUTE 'CREATE TABLE IF NOT EXISTS temp_table (id INT)'; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ BEGIN EXECUTE 'CREATE TABLE IF NOT EXISTS temp_table (id INT)'; END $$");
+    REQUIRE(result ==
+            "DO $$ BEGIN EXECUTE 'CREATE TABLE IF NOT EXISTS temp_table (id INT)'; END $$");
 }
 
 TEST_CASE("DO - Nested blocks", "[do][postgresql]") {
@@ -263,15 +278,23 @@ TEST_CASE("VACUUM - Parenthesized options with values", "[vacuum][postgresql]") 
 // ============================================================================
 
 TEST_CASE("DO - Real-world: Conditional table creation", "[do][real-world]") {
-    std::string sql = "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'audit_log') THEN CREATE TABLE audit_log (id SERIAL, action TEXT, created_at TIMESTAMP DEFAULT NOW()); END IF; END $$";
+    std::string sql = "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = "
+                      "'audit_log') THEN CREATE TABLE audit_log (id SERIAL, action TEXT, "
+                      "created_at TIMESTAMP DEFAULT NOW()); END IF; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'audit_log') THEN CREATE TABLE audit_log (id SERIAL, action TEXT, created_at TIMESTAMP DEFAULT NOW()); END IF; END $$");
+    REQUIRE(result == "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = "
+                      "'audit_log') THEN CREATE TABLE audit_log (id SERIAL, action TEXT, "
+                      "created_at TIMESTAMP DEFAULT NOW()); END IF; END $$");
 }
 
 TEST_CASE("DO - Real-world: Bulk update with logging", "[do][real-world]") {
-    std::string sql = "DO $$ DECLARE affected INTEGER; BEGIN UPDATE users SET active = false WHERE last_login < NOW() - INTERVAL '90 days'; GET DIAGNOSTICS affected = ROW_COUNT; RAISE NOTICE 'Deactivated % users', affected; END $$";
+    std::string sql = "DO $$ DECLARE affected INTEGER; BEGIN UPDATE users SET active = false WHERE "
+                      "last_login < NOW() - INTERVAL '90 days'; GET DIAGNOSTICS affected = "
+                      "ROW_COUNT; RAISE NOTICE 'Deactivated % users', affected; END $$";
     std::string result = test_round_trip(sql);
-    REQUIRE(result == "DO $$ DECLARE affected INTEGER; BEGIN UPDATE users SET active = false WHERE last_login < NOW() - INTERVAL '90 days'; GET DIAGNOSTICS affected = ROW_COUNT; RAISE NOTICE 'Deactivated % users', affected; END $$");
+    REQUIRE(result == "DO $$ DECLARE affected INTEGER; BEGIN UPDATE users SET active = false WHERE "
+                      "last_login < NOW() - INTERVAL '90 days'; GET DIAGNOSTICS affected = "
+                      "ROW_COUNT; RAISE NOTICE 'Deactivated % users', affected; END $$");
 }
 
 TEST_CASE("ANALYZE - Real-world: Maintenance after bulk load", "[analyze][real-world]") {
@@ -343,18 +366,17 @@ TEST_CASE("DO - SQL injection via delimiter", "[do][security]") {
     libglot::Arena arena;
     SQLParser parser(arena, sql);
 
-    // Should parse only the DO statement, treating the rest as error or second statement
-    auto expr = parser.parse_top_level();
-    REQUIRE(expr != nullptr);
-    // TODO: Verify node kind is DO_BLOCK
-    // REQUIRE(expr->kind == SQLNodeKind::DO_BLOCK);
+    // The DROP after the DO block is trailing input; the parser rejects it
+    // as an error rather than silently dropping the injected statement.
+    REQUIRE_THROWS_AS(parser.parse_top_level(), libglot::ParseError);
 }
 
 TEST_CASE("ANALYZE - Very long table list", "[analyze][security]") {
     // Stress test with many tables
     std::string tables;
     for (int i = 0; i < 100; ++i) {
-        if (i > 0) tables += ", ";
+        if (i > 0)
+            tables += ", ";
         tables += "table" + std::to_string(i);
     }
 
@@ -370,7 +392,8 @@ TEST_CASE("VACUUM - Very long table list", "[vacuum][security]") {
     // Stress test with many tables
     std::string tables;
     for (int i = 0; i < 100; ++i) {
-        if (i > 0) tables += ", ";
+        if (i > 0)
+            tables += ", ";
         tables += "table" + std::to_string(i);
     }
 

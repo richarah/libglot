@@ -1,9 +1,10 @@
 #pragma once
 
-#include "../../../../core/include/libglot/parse/parser.h"
-#include "grammar.h"
 #include "ast_nodes.h"
+#include "grammar.h"
+#include "header_folding.h"
 #include "tokens.h"
+#include <libglot/parse/parser.h>
 
 namespace libglot::mime {
 
@@ -29,16 +30,13 @@ public:
     // ========================================================================
 
     explicit MimeParser(libglot::Arena& arena, std::string_view source)
-        : MimeParser(arena, tokenize_and_copy(arena, source))
-    {}
+        : MimeParser(arena, tokenize_and_copy(arena, source)) {}
 
     // ========================================================================
     // Top-Level Parsing Entry Point (Required by Base)
     // ========================================================================
 
-    Message* parse_top_level() {
-        return parse_message();
-    }
+    Message* parse_top_level() { return parse_message(); }
 
     // ========================================================================
     // CRTP Customization Points (Required by ParserBase)
@@ -51,9 +49,7 @@ public:
     }
 
     /// Parse postfix expression (not used for MIME)
-    [[nodiscard]] MimeNode* parse_postfix(MimeNode* base) {
-        return base;
-    }
+    [[nodiscard]] MimeNode* parse_postfix(MimeNode* base) { return base; }
 
     /// Create binary operator node (not used for MIME)
     [[nodiscard]] MimeNode* make_binary_operator(TK, MimeNode*, MimeNode*) {
@@ -120,8 +116,8 @@ public:
         return this->template create_node<Header>(field_tok.text, value);
     }
 
-    /// Override token_name for better error messages
-    [[nodiscard]] std::string token_name(TK type) const override {
+    /// Shadow token_name for better error messages (CRTP customization point)
+    [[nodiscard]] std::string token_name(TK type) const {
         return std::string(mime_token_type_name(type));
     }
 
@@ -133,21 +129,42 @@ protected:
     struct TokenizeResult {
         std::vector<TokenType> tokens;
         std::string_view source;
+        // See MimeParser::pending_whitespace_only_fold_: set during
+        // unfolding, consumed once by MimeParserExtended's constructor
+        // body (the earliest point where record_anomaly is callable --
+        // this base class constructs before any derived-class anomaly
+        // machinery exists).
+        bool whitespace_only_fold_seen = false;
     };
 
-    /// Delegating constructor that receives pre-tokenized result
+    /// Delegating constructor that receives pre-tokenized result.
+    /// (Base is listed first to match actual initialization order; moving
+    /// the token vector does not touch result.source.)
     MimeParser(libglot::Arena& arena, TokenizeResult&& result)
-        : source_(result.source)
-        , Base(arena, std::move(result.tokens))
-    {}
+        : Base(arena, std::move(result.tokens)),
+          pending_whitespace_only_fold_(result.whitespace_only_fold_seen),
+          source_(result.source) {}
 
     /// Copy source into arena and tokenize the arena-owned copy
-    /// This ensures all token string_views point to arena memory
+    /// This ensures all token string_views point to arena memory.
+    /// Folded (continuation) header lines are unfolded first (RFC 5322
+    /// §2.2.3) so each header occupies exactly one line; the body bytes
+    /// are left untouched.
     static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source) {
-        auto arena_source = arena.copy_source(source);
+        bool whitespace_only_fold_seen = false;
+        auto arena_source =
+            arena.copy_source(HeaderFolding::unfold_headers(source, &whitespace_only_fold_seen));
         auto tokens = tokenize(arena_source);
-        return {std::move(tokens), arena_source};
+        return {std::move(tokens), arena_source, whitespace_only_fold_seen};
     }
+
+    /// Set by tokenize_and_copy when unfolding the top-level message finds
+    /// a whitespace-only fold continuation line; consumed exactly once by
+    /// MimeParserExtended's constructor body via record_anomaly (see that
+    /// class). Not touched for multipart parts -- parse_part calls
+    /// unfold_headers directly and records the anomaly immediately, since
+    /// record_anomaly is already available there.
+    bool pending_whitespace_only_fold_ = false;
 
     // ========================================================================
     // Tokenization
@@ -163,13 +180,8 @@ protected:
 
         for (const auto& tok : mime_tokens) {
             result.push_back(TokenType{
-                tok.type,
-                static_cast<uint32_t>(tok.start),
-                static_cast<uint32_t>(tok.end),
-                static_cast<uint16_t>(tok.line),
-                static_cast<uint16_t>(tok.col),
-                tok.text
-            });
+                tok.type, static_cast<uint32_t>(tok.start), static_cast<uint32_t>(tok.end),
+                static_cast<uint16_t>(tok.line), static_cast<uint16_t>(tok.col), tok.text});
         }
 
         return result;

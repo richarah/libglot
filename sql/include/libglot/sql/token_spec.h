@@ -1,9 +1,8 @@
 #pragma once
 
-#include "../../../../core/include/libglot/lex/spec.h"
-#include "../../../../core/include/libglot/hash/perfect_hash.h"
-#include "../../../../libsqlglot/include/libsqlglot/tokens.h"
-#include "../../../../libsqlglot/include/libsqlglot/keywords.h"
+#include "lex/keywords.h"
+#include "lex/tokens.h"
+#include <libglot/lex/spec.h>
 #include <optional>
 #include <string_view>
 
@@ -27,13 +26,13 @@ struct SQLTokenSpec {
     // ========================================================================
 
     /// Reuse libsqlglot's existing token type enum
-    using TokenKind = libsqlglot::TokenType;
+    using TokenKind = libglot::sql::lex::TokenType;
 
     /// Keyword lookup table (perfect hash over SQL keywords)
     struct KeywordTable {
         static TokenKind lookup(std::string_view text) noexcept {
             // Delegate to libsqlglot's existing perfect hash implementation
-            return libsqlglot::KeywordLookup::lookup(text);
+            return libglot::sql::lex::KeywordLookup::lookup(text);
         }
     };
 
@@ -52,9 +51,7 @@ struct SQLTokenSpec {
     }
 
     /// Check if character is a digit (0-9)
-    static constexpr bool is_digit(char c) noexcept {
-        return c >= '0' && c <= '9';
-    }
+    static constexpr bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
 
     /// Check if character is hex digit (0-9, a-f, A-F)
     static constexpr bool is_hex_digit(char c) noexcept {
@@ -74,11 +71,13 @@ struct SQLTokenSpec {
     /// SQL supports: -- (line comment), # (MySQL line comment), /* (block comment)
     static constexpr std::optional<size_t> comment_start(std::string_view text) noexcept {
         if (text.size() >= 2) {
-            if (text[0] == '-' && text[1] == '-') return 2;  // -- comment
-            if (text[0] == '/' && text[1] == '*') return 2;  // /* comment
+            if (text[0] == '-' && text[1] == '-')
+                return 2; // -- comment
+            if (text[0] == '/' && text[1] == '*')
+                return 2; // /* comment
         }
         if (text.size() >= 1 && text[0] == '#') {
-            return 1;  // # comment (MySQL)
+            return 1; // # comment (MySQL)
         }
         return std::nullopt;
     }
@@ -96,17 +95,18 @@ struct SQLTokenSpec {
     // ========================================================================
 
     /// Get the primary string quote character (SQL uses single quotes)
-    static constexpr char string_quote_char() noexcept {
-        return '\'';
-    }
+    static constexpr char string_quote_char() noexcept { return '\''; }
 
     /// Check if character can quote identifiers
     /// SQL: " (standard), ` (MySQL), [ (SQL Server)
     /// Returns closing quote if c is opening quote
     static constexpr std::optional<char> identifier_quote_char(char c) noexcept {
-        if (c == '"') return '"';   // Standard SQL
-        if (c == '`') return '`';   // MySQL backtick
-        if (c == '[') return ']';   // SQL Server bracket
+        if (c == '"')
+            return '"'; // Standard SQL
+        if (c == '`')
+            return '`'; // MySQL backtick
+        if (c == '[')
+            return ']'; // SQL Server bracket
         return std::nullopt;
     }
 };
@@ -116,6 +116,6 @@ struct SQLTokenSpec {
 /// ============================================================================
 
 static_assert(libglot::TokenSpec<SQLTokenSpec>,
-    "SQLTokenSpec must satisfy libglot::TokenSpec concept");
+              "SQLTokenSpec must satisfy libglot::TokenSpec concept");
 
 } // namespace libglot::sql

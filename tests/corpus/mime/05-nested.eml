@@ -1,0 +1,12 @@
+From: N <n@example.com>
+Content-Type: multipart/mixed; boundary="OUT"
+
+--OUT
+Content-Type: multipart/mixed; boundary="IN"
+
+--IN
+Content-Type: text/plain
+
+Nested part.
+--IN--
+--OUT--

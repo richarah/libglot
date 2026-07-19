@@ -303,9 +303,15 @@ TEST_CASE("Real-world loop patterns", "[loop][patterns][integration]") {
         )";
         libglot::Arena arena;
         SQLParser parser(arena, sql);
-        auto expr = parser.parse_top_level();
-
-        REQUIRE(expr != nullptr);
+        // Two top-level statements (DECLARE; LOOP..END LOOP): consume them
+        // sequentially with parse_statement (parse_top_level is strict about
+        // trailing input).
+        auto* declare_stmt = parser.parse_statement();
+        REQUIRE(declare_stmt != nullptr);
+        REQUIRE(declare_stmt->type == SQLNodeKind::DECLARE_VAR_STMT);
+        auto* loop_stmt = parser.parse_statement();
+        REQUIRE(loop_stmt != nullptr);
+        REQUIRE(loop_stmt->type == SQLNodeKind::LOOP_STMT);
     }
 
     SECTION("Poll until ready pattern") {

@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.compiler.name }} ${{ matrix.build_type }}${{ matrix.sanitize && ' + sanitizers' || '' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - { name: GCC, cc: gcc-14, cxx: g++-14 }
+          - { name: Clang, cc: clang-18, cxx: clang++-18 }
+        build_type: [Debug, Release]
+        sanitize: [false]
+        include:
+          - compiler: { name: GCC, cc: gcc-14, cxx: g++-14 }
+            build_type: Debug
+            sanitize: true
+          - compiler: { name: Clang, cc: clang-18, cxx: clang++-18 }
+            build_type: Debug
+            sanitize: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ${{ matrix.compiler.cc == 'gcc-14' && 'gcc-14 g++-14' || 'clang-18' }}
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} \
+            -DLIBGLOT_WERROR=ON \
+            -DLIBGLOT_ENABLE_ASAN=${{ matrix.sanitize && 'ON' || 'OFF' }}
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j"$(nproc)"
+
+  fuzz-smoke:
+    name: fuzzers (60s smoke per target)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-18
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DBUILD_TESTING=OFF -DLIBGLOT_BUILD_FUZZERS=ON
+      - name: Build fuzzers
+        run: cmake --build build -j"$(nproc)"
+      - name: Run fuzzers
+        run: |
+          mkdir -p corpus/sql corpus/mime
+          printf 'SELECT a, b FROM t WHERE x BETWEEN 1 AND 10 ORDER BY a LIMIT 5' > corpus/sql/seed1
+          printf 'WITH c AS (SELECT 1) INSERT INTO t (a) SELECT * FROM c' > corpus/sql/seed2
+          printf 'Content-Type: multipart/mixed; boundary="b"\r\n\r\n--b\r\n\r\nhi\r\n--b--\r\n' > corpus/mime/seed1
+          ./build/fuzz/fuzz_sql_parser    -max_total_time=60 -timeout=10 corpus/sql
+          ./build/fuzz/fuzz_sql_roundtrip -max_total_time=60 -timeout=10 corpus/sql
+          ./build/fuzz/fuzz_mime_parser   -max_total_time=60 -timeout=10 corpus/mime
+
+  coverage:
+    name: coverage report
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14 gcovr
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+      - name: Build and test
+        run: |
+          cmake --build build -j"$(nproc)"
+          ctest --test-dir build -j"$(nproc)" --output-on-failure
+      - name: Report
+        run: |
+          gcovr --root . --filter 'core/include/' --filter 'sql/include/' --filter 'mime/include/' \
+            --exclude '.*/_deps/.*' --gcov-ignore-errors=no_working_dir_found \
+            --gcov-executable gcov-14 --print-summary --xml coverage.xml
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  mime-corpus:
+    name: MIME corpus gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14
+      - name: Build corpus runner
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_TESTING=OFF \
+            -DLIBGLOT_BUILD_EXAMPLES=OFF -DLIBGLOT_BUILD_SQL=OFF
+          cmake --build build -j"$(nproc)" --target mime_corpus
+      - name: Committed sample corpus (must be 100%)
+        run: ./build/tools/mime_corpus --min-success 1.0 tests/corpus/mime
+      - name: SpamAssassin public corpus (best effort, reported not gated)
+        continue-on-error: true
+        run: |
+          mkdir -p sa && cd sa
+          for f in 20021010_easy_ham 20030228_hard_ham 20050311_spam_2; do
+            curl -fsSL "https://spamassassin.apache.org/old/publiccorpus/${f}.tar.bz2" -o "$f.tar.bz2" \
+              && tar xjf "$f.tar.bz2" || echo "skip $f (download failed)"
+          done
+          cd ..
+          ./build/tools/mime_corpus --min-success 0.0 --quiet sa || true
+
+  mime-differential:
+    name: MIME differential vs Python email
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14
+      - name: Build mime_dump
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_TESTING=OFF \
+            -DLIBGLOT_BUILD_EXAMPLES=OFF -DLIBGLOT_BUILD_SQL=OFF
+          cmake --build build -j"$(nproc)" --target mime_dump
+      - name: Committed corpus must agree 100% with Python's email module
+        run: |
+          python3 scripts/mime_diff.py --tool build/tools/mime_dump \
+            --corpus tests/corpus/mime --fail-under 1.0 --verbose
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy-18
+      - name: Run clang-tidy over first-party TUs
+        run: |
+          # Each example/tool/fuzz TU transitively includes the whole public
+          # header surface; HeaderFilterRegex in .clang-tidy scopes the checks
+          # to first-party headers, and any warning fails the job.
+          INC="-std=c++20 -Icore/include -Isql/include -Imime/include"
+          status=0
+          for f in $(git ls-files 'examples/*.cpp' 'tools/*.cpp' 'fuzz/*.cpp'); do
+            echo "::group::clang-tidy $f"
+            clang-tidy-18 --warnings-as-errors='*' "$f" -- $INC || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+  install-package:
+    name: install + find_package smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14
+      - name: Build and install
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install"
+          cmake --build build -j"$(nproc)"
+          cmake --install build
+      - name: Consume via find_package
+        run: |
+          mkdir consumer && cd consumer
+          cat > CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.28)
+          project(consumer CXX)
+          find_package(libglot REQUIRED)
+          add_executable(smoke smoke.cpp)
+          target_link_libraries(smoke PRIVATE libglot::sql libglot::mime)
+          EOF
+          cat > smoke.cpp <<'EOF'
+          #include <libglot/sql/parser.h>
+          #include <libglot/sql/generator.h>
+          #include <libglot/mime/parser.h>
+          #include <cassert>
+          int main() {
+              libglot::Arena arena;
+              libglot::sql::SQLParser parser(arena, "SELECT 1");
+              assert(parser.parse_top_level() != nullptr);
+              return 0;
+          }
+          EOF
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install"
+          cmake --build build
+          ./build/smoke

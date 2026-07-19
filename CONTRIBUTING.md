@@ -8,16 +8,23 @@ cmake --build build
 ctest --test-dir build
 ```
 
-Run specific test:
+Or use the presets: `cmake --preset debug && cmake --build --preset debug && ctest --preset debug`.
+
+Run a specific test binary:
 ```
 ./build/sql/tests/test_parser
 ```
 
-Run with sanitizers:
+Run with sanitizers (ASan+UBSan):
 ```
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined"
-cmake --build build
-./build/sql/tests/test_parser
+cmake --preset debug-asan && cmake --build --preset debug-asan && ctest --preset debug-asan
+```
+
+Fuzzers (requires Clang):
+```
+cmake -B build-fuzz -DCMAKE_CXX_COMPILER=clang++ -DLIBGLOT_BUILD_FUZZERS=ON -DBUILD_TESTING=OFF
+cmake --build build-fuzz
+./build-fuzz/fuzz/fuzz_sql_parser -max_total_time=60
 ```
 
 ## Adding a new parser domain
@@ -99,7 +106,7 @@ nm build/your_test | grep vtable
 Should produce no output (CRTP eliminates virtual dispatch).
 
 Reference implementations:
-- TokenSpec: `sql/include/libglot/sql/tokens.h`
+- TokenSpec: `sql/include/libglot/sql/token_spec.h` (tokenizer: `sql/include/libglot/sql/lex/`)
 - AST nodes: `sql/include/libglot/sql/ast_nodes.h`
 - GrammarSpec: `sql/include/libglot/sql/grammar.h`
 - Parser: `sql/include/libglot/sql/parser.h`
@@ -107,8 +114,21 @@ Reference implementations:
 
 ## Code style
 
-C++20 minimum. Concepts over SFINAE. CRTP over virtual on hot paths. Header-only for templated code, .cpp for non-templated. Arena allocator for AST nodes. string_view over string where lifetime permits.
+C++20. Concepts over SFINAE. CRTP over virtual on hot paths. Header-only for
+templated code. Arena allocator for AST nodes; every `string_view` stored in
+a token or node must point into arena-owned memory (see
+`core/include/libglot/LIFETIME.md`). `clang-format` config is committed —
+format your changes.
+
+## Test expectations
+
+- Assertions are exact strings or AST-shape checks, never substring `find()`.
+- New parser/generator behavior needs a roundtrip test; consider adding the
+  construct to `sql/tests/test_roundtrip_property.cpp`'s corpus.
+- Never commit a placeholder (`REQUIRE(true)`) test.
 
 ## PR expectations
 
-Tests must pass. ASan must be clean. No performance regressions on existing benchmarks.
+CI must be green: all tests on GCC and Clang, ASan/UBSan clean,
+warnings-as-errors, fuzz smoke. No performance regressions on existing
+benchmarks.

@@ -25,13 +25,16 @@ TEST_CASE("EXTRACT function parsing", "[parser][extract]") {
 
     SECTION("EXTRACT in CAST") {
         libglot::Arena arena;
-        SQLParser parser(arena, "SELECT CAST(EXTRACT(YEAR FROM order_date) AS VARCHAR(10)) FROM orders");
+        SQLParser parser(arena,
+                         "SELECT CAST(EXTRACT(YEAR FROM order_date) AS VARCHAR(10)) FROM orders");
         REQUIRE_NOTHROW(parser.parse_top_level());
     }
 
     SECTION("Multiple EXTRACT calls") {
         libglot::Arena arena;
-        SQLParser parser(arena, "SELECT EXTRACT(YEAR FROM order_date), EXTRACT(MONTH FROM order_date) FROM orders");
+        SQLParser parser(
+            arena,
+            "SELECT EXTRACT(YEAR FROM order_date), EXTRACT(MONTH FROM order_date) FROM orders");
         REQUIRE_NOTHROW(parser.parse_top_level());
     }
 

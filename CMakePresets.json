@@ -16,158 +16,94 @@
       }
     },
     {
-      "name": "fast-debug",
-      "displayName": "Fast Debug (O1, minimal debug info)",
-      "description": "Optimized for fast edit-compile-debug cycles",
+      "name": "debug",
+      "displayName": "Debug",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS_DEBUG": "-O1 -g1 -fno-omit-frame-pointer -fno-inline-functions -gsplit-dwarf"
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "fast-debug-asan",
-      "displayName": "Fast Debug + AddressSanitizer",
-      "description": "Memory error detection (use-after-free, buffer overflows, leaks)",
-      "inherits": "fast-debug",
+      "name": "debug-asan",
+      "displayName": "Debug + ASan/UBSan",
+      "description": "Memory error and undefined behavior detection",
+      "inherits": "debug",
       "cacheVariables": {
         "LIBGLOT_ENABLE_ASAN": "ON"
       }
     },
     {
-      "name": "fast-debug-tsan",
-      "displayName": "Fast Debug + ThreadSanitizer",
-      "description": "Data race detection for multithreaded code",
-      "inherits": "fast-debug",
+      "name": "debug-tsan",
+      "displayName": "Debug + ThreadSanitizer",
+      "inherits": "debug",
       "cacheVariables": {
         "LIBGLOT_ENABLE_TSAN": "ON"
       }
     },
     {
-      "name": "fast-debug-ubsan",
-      "displayName": "Fast Debug + UndefinedBehaviorSanitizer",
-      "description": "Undefined behavior detection (null deref, signed overflow, etc.)",
-      "inherits": "fast-debug",
-      "cacheVariables": {
-        "LIBGLOT_ENABLE_UBSAN": "ON"
-      }
-    },
-    {
       "name": "release",
       "displayName": "Release (O2 + LTO)",
-      "description": "Production build with Link-Time Optimization",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
         "LIBGLOT_ENABLE_LTO": "ON"
       }
     },
     {
-      "name": "release-o3",
-      "displayName": "Release (O3 + LTO)",
-      "description": "Maximum optimization (may increase binary size)",
+      "name": "bench",
+      "displayName": "Release + benchmarks",
       "inherits": "release",
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG"
-      }
-    },
-    {
-      "name": "release-pgo-generate",
-      "displayName": "Release PGO Profile Generation",
-      "description": "Build instrumented binary for profile generation",
-      "inherits": "release",
-      "cacheVariables": {
-        "LIBGLOT_ENABLE_PGO_GENERATE": "ON",
-        "LIBGLOT_ENABLE_LTO": "OFF"
-      }
-    },
-    {
-      "name": "release-pgo-use",
-      "displayName": "Release PGO Profile Use",
-      "description": "Build with profile-guided optimizations",
-      "inherits": "release",
-      "cacheVariables": {
-        "LIBGLOT_ENABLE_PGO_USE": "ON"
+        "LIBGLOT_BUILD_BENCHMARKS": "ON"
       }
     },
     {
       "name": "ci",
       "displayName": "CI Build",
-      "description": "For continuous integration (all warnings as errors)",
-      "inherits": "release",
+      "description": "Warnings as errors, tests on",
+      "inherits": "debug",
       "cacheVariables": {
-        "LIBGLOT_BUILD_TESTS": "ON",
-        "LIBGLOT_BUILD_BENCHMARKS": "ON"
+        "LIBGLOT_WERROR": "ON"
       }
     }
   ],
   "buildPresets": [
-    {
-      "name": "fast-debug",
-      "configurePreset": "fast-debug",
-      "jobs": 0
-    },
-    {
-      "name": "fast-debug-asan",
-      "configurePreset": "fast-debug-asan",
-      "jobs": 0
-    },
-    {
-      "name": "fast-debug-tsan",
-      "configurePreset": "fast-debug-tsan",
-      "jobs": 0
-    },
-    {
-      "name": "release",
-      "configurePreset": "release",
-      "jobs": 0
-    },
-    {
-      "name": "release-pgo-generate",
-      "configurePreset": "release-pgo-generate",
-      "jobs": 0
-    },
-    {
-      "name": "release-pgo-use",
-      "configurePreset": "release-pgo-use",
-      "jobs": 0
-    }
+    { "name": "debug", "configurePreset": "debug", "jobs": 0 },
+    { "name": "debug-asan", "configurePreset": "debug-asan", "jobs": 0 },
+    { "name": "debug-tsan", "configurePreset": "debug-tsan", "jobs": 0 },
+    { "name": "release", "configurePreset": "release", "jobs": 0 },
+    { "name": "bench", "configurePreset": "bench", "jobs": 0 },
+    { "name": "ci", "configurePreset": "ci", "jobs": 0 }
   ],
   "testPresets": [
     {
-      "name": "fast-debug",
-      "configurePreset": "fast-debug",
-      "output": {
-        "outputOnFailure": true
-      }
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
     },
     {
-      "name": "fast-debug-asan",
-      "configurePreset": "fast-debug-asan",
+      "name": "debug-asan",
+      "configurePreset": "debug-asan",
       "environment": {
         "ASAN_OPTIONS": "detect_leaks=1:check_initialization_order=1:strict_init_order=1"
       },
-      "output": {
-        "outputOnFailure": true
-      }
+      "output": { "outputOnFailure": true }
     },
     {
-      "name": "fast-debug-tsan",
-      "configurePreset": "fast-debug-tsan",
-      "environment": {
-        "TSAN_OPTIONS": "second_deadlock_stack=1"
-      },
-      "output": {
-        "outputOnFailure": true
-      }
+      "name": "debug-tsan",
+      "configurePreset": "debug-tsan",
+      "environment": { "TSAN_OPTIONS": "second_deadlock_stack=1" },
+      "output": { "outputOnFailure": true }
     },
     {
       "name": "release",
       "configurePreset": "release",
-      "output": {
-        "outputOnFailure": true
-      }
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "output": { "outputOnFailure": true }
     }
   ]
 }
