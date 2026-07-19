@@ -93,7 +93,18 @@ public:
     /// ends up on exactly one line. The header section ends at the first
     /// empty line; everything from that line onwards (the body) is copied
     /// verbatim. Handles CRLF, LF, and (lenient) bare CR line breaks.
-    static std::string unfold_headers(std::string_view message) {
+    ///
+    /// If `whitespace_only_fold_seen` is non-null, it is set to true when a
+    /// continuation line turns out to contain nothing but whitespace (RFC
+    /// 5322's obs-fold: a fold point with zero real content before the
+    /// next break -- real mail does this, see mime4j's obsolete.msg). A
+    /// plain bool rather than an AnomalyReport* so this header stays
+    /// decoupled from anomalies.h; callers translate it into
+    /// AnomalyKind::WhitespaceOnlyFoldLine via their own record_anomaly.
+    /// The unfolding itself is unaffected either way (it already joins
+    /// the line correctly).
+    static std::string unfold_headers(std::string_view message,
+                                      bool* whitespace_only_fold_seen = nullptr) {
         std::string result;
         result.reserve(message.size());
 
@@ -109,6 +120,10 @@ public:
                 // Folding point: line break followed by SP/HTAB.
                 // Drop the break, keep the whitespace (RFC 5322 unfolding).
                 if (after < message.size() && (message[after] == ' ' || message[after] == '\t')) {
+                    if (whitespace_only_fold_seen != nullptr &&
+                        is_whitespace_only_line(message, after)) {
+                        *whitespace_only_fold_seen = true;
+                    }
                     i = after;
                     continue;
                 }
@@ -178,6 +193,23 @@ public:
             }
         }
         return false;
+    }
+
+private:
+    /// True when the line starting at `start` (already known to be
+    /// SP/HTAB, i.e. a recognized fold continuation) contains nothing
+    /// else before the next line break or end of input.
+    static bool is_whitespace_only_line(std::string_view message, size_t start) {
+        for (size_t j = start; j < message.size(); ++j) {
+            char c = message[j];
+            if (c == '\r' || c == '\n') {
+                return true;
+            }
+            if (c != ' ' && c != '\t') {
+                return false;
+            }
+        }
+        return true;
     }
 };
 

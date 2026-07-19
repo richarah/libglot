@@ -83,6 +83,14 @@ public:
                                 AnomalyConfig config = AnomalyConfig::standard())
         : MimeParser(arena, source), limits_(limits), config_(config) {
         tracker_.start_parse();
+        // Unfolding the top-level header section (base class construction,
+        // already complete at this point) may have found a whitespace-only
+        // fold continuation line; record_anomaly is only callable now that
+        // config_/report_ exist, hence the flag round-trip through the base.
+        if (pending_whitespace_only_fold_) {
+            record_anomaly(AnomalyKind::WhitespaceOnlyFoldLine,
+                           "folded header continuation line contains only whitespace");
+        }
     }
 
     /// Anomalies recorded while parsing (limits exceeded, missing final
@@ -270,13 +278,25 @@ private:
         // RFC 6532: headers may carry raw UTF-8 directly, not just RFC 2047
         // encoded-words. Bytes >= 0x80 are legal here; the header value is
         // never modified either way (it is always a plain slice of the
-        // arena-owned source) -- only genuinely invalid UTF-8 is flagged.
+        // arena-owned source) -- only genuinely invalid UTF-8 is flagged
+        // (Security severity). Valid raw UTF-8 in a field RFC 5322 itself
+        // defines as "unstructured" free text (Subject, Comments, or any
+        // field not in is_structured_field's list -- there being no
+        // grammar at all for an unrecognized field is the same
+        // "unstructured" situation) is legal but purely informational:
+        // AnomalyKind::NonAsciiInUnstructuredHeader records that this
+        // message relies on RFC 6532 rather than RFC 2047 encoded-words,
+        // never actionable on its own.
         for (unsigned char c : header->value) {
             if (c >= 0x80) {
                 if (!CharsetConverter::is_valid_utf8(header->value)) {
                     record_anomaly(AnomalyKind::InvalidUtf8Header,
                                    "header value contains bytes >= 0x80 that are not valid "
                                    "UTF-8 (RFC 6532)");
+                } else if (!is_structured_field(header->field)) {
+                    record_anomaly(AnomalyKind::NonAsciiInUnstructuredHeader,
+                                   "unstructured header field carries raw UTF-8 (RFC 6532) "
+                                   "rather than RFC 2047 encoded-words");
                 }
                 break;
             }
@@ -909,7 +929,13 @@ private:
 
         // Unfold folded (continuation) header lines before splitting
         if (HeaderFolding::is_folded(headers_text)) {
-            headers_text = this->arena().copy_source(HeaderFolding::unfold_headers(headers_text));
+            bool whitespace_only_fold_seen = false;
+            headers_text = this->arena().copy_source(
+                HeaderFolding::unfold_headers(headers_text, &whitespace_only_fold_seen));
+            if (whitespace_only_fold_seen) {
+                record_anomaly(AnomalyKind::WhitespaceOnlyFoldLine,
+                               "folded header continuation line contains only whitespace");
+            }
         }
 
         // Parse headers (simple line-by-line)

@@ -458,14 +458,46 @@ All four items from the stage-5 follow-up list (differential-residual
 classification, mime4j suite import, security corpus, and this) are now
 closed.
 
-### Remaining
+### Last two dead anomaly kinds (2026-07-19) - DONE
 
-The security/parser-differential corpus's own follow-up items:
-`DuplicateFilenameParameter` and `max_filename_length` enforcement were
-closed alongside it (see above), but `WhitespaceOnlyFoldLine` and
-`NonAsciiInUnstructuredHeader` (anomalies.h) are two more Degraded-severity
-kinds found dead by the same "found while testing" pattern and not yet
-wired up - noted here rather than chased further in this pass.
+`WhitespaceOnlyFoldLine` and `NonAsciiInUnstructuredHeader` (Degraded
+severity), the two dead kinds noted above, are now implemented too.
+
+**`WhitespaceOnlyFoldLine`**: the behavior was already correct -
+`HeaderFolding::unfold_headers` already joins a whitespace-only fold
+continuation line into its parent header (verified when fixing the
+obsolete-header-grammar gap) - this was purely a missing observability
+anomaly. The only real difficulty was structural, not logical:
+`unfold_headers` runs during tokenization, inside the base-class
+constructor, before any derived-class `record_anomaly` machinery exists.
+Threaded a plain `bool` flag through `TokenizeResult` /
+`MimeParser::pending_whitespace_only_fold_`, consumed once by
+`MimeParserExtended`'s constructor body (the earliest point
+`record_anomaly` is callable) for the top-level message; multipart parts
+go through `parse_part`, which already has `record_anomaly` available
+directly, so no threading was needed there.
+
+**`NonAsciiInUnstructuredHeader`**: distinct from `InvalidUtf8Header`
+(Security severity, genuinely invalid bytes) - this flags *valid* raw
+UTF-8 (RFC 6532-legal) appearing in a field RFC 5322 treats as
+unstructured free text (Subject, or any field with no defined grammar,
+including unrecognized custom headers). Purely informational: RFC 6532
+explicitly permits this, so it is never actionable on its own. Implemented
+in `enhance_header` alongside the existing check, gated on
+`!is_structured_field(header->field)` so structured fields (From's
+display-name portion, say) are unaffected.
+
+Both verified with zero false positives over the full Enron and raw
+SpamAssassin corpora - neither anomaly fires on either corpus at all
+(both are 2002-era mail, and RFC 6532 didn't exist until 2012, so no
+message actually uses raw-UTF-8 unstructured headers; the SpamAssassin
+corpus does have a genuine whitespace-only-fold example, but it came from
+the mime4j fixture, not real mail). 1367/1367 tests, committed corpus
+still 100%.
+
+Every anomaly kind found dead by this session's "write an adversarial
+test, see if it actually fires" method is now implemented. None remain
+identified as open in this repo as of this writing.
 
 ## Non-goals (unchanged)
 

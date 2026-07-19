@@ -142,6 +142,74 @@ TEST_CASE("Anomalies: Invalid RFC 2231 percent-encoding is reported by the pipel
     REQUIRE(result.has_anomaly(AnomalyKind::InvalidParameterSyntax));
 }
 
+TEST_CASE("Anomalies: a whitespace-only fold continuation line is reported "
+          "(RFC 5322 obs-fold; found via the mime4j conformance suite's obsolete.msg)",
+          "[mime][anomalies]") {
+    // The continuation line between "Subject:" and "continued" is nothing
+    // but spaces -- a legal but obsolete fold RFC 5322 §4.2 still permits.
+    // unfold_headers already joins it correctly either way; this only
+    // checks that the anomaly is now recorded, not that the join works
+    // (test_rfc_conformance_mime4j.cpp's obsolete.msg test covers that).
+    libglot::Arena arena;
+    std::string_view source = "Subject: folded\n"
+                              "   \n"
+                              " continuation\n"
+                              "\n"
+                              "Body\n";
+
+    auto result = parse_message(arena, source);
+
+    REQUIRE(result.message != nullptr);
+    REQUIRE(!result.rejected);
+    REQUIRE(find_header(*result.message, "Subject")->value == "folded    continuation");
+    REQUIRE(result.has_anomaly(AnomalyKind::WhitespaceOnlyFoldLine));
+}
+
+TEST_CASE("Anomalies: an ordinary (non-blank) fold continuation line is NOT reported "
+          "as whitespace-only",
+          "[mime][anomalies]") {
+    libglot::Arena arena;
+    std::string_view source = "Subject: folded\n"
+                              " continuation\n"
+                              "\n"
+                              "Body\n";
+
+    auto result = parse_message(arena, source);
+
+    REQUIRE(result.message != nullptr);
+    REQUIRE(find_header(*result.message, "Subject")->value == "folded continuation");
+    REQUIRE(!result.has_anomaly(AnomalyKind::WhitespaceOnlyFoldLine));
+}
+
+TEST_CASE("Anomalies: a whitespace-only fold line inside a multipart part header "
+          "is reported too",
+          "[mime][anomalies]") {
+    // The base-class flag round-trip that makes this work at the top level
+    // (MimeParser::pending_whitespace_only_fold_) doesn't apply inside a
+    // part -- parse_part calls unfold_headers directly and records the
+    // anomaly immediately. Exercise that path specifically.
+    libglot::Arena arena;
+    std::string_view source = "MIME-Version: 1.0\n"
+                              "Content-Type: multipart/mixed; boundary=b\n"
+                              "\n"
+                              "--b\n"
+                              "Subject: folded\n"
+                              "   \n"
+                              " continuation\n"
+                              "Content-Type: text/plain\n"
+                              "\n"
+                              "part body\n"
+                              "--b--\n";
+
+    auto result = parse_message(arena, source);
+
+    REQUIRE(result.message != nullptr);
+    REQUIRE(result.message->parts.size() == 1);
+    REQUIRE(find_header(*result.message->parts[0], "Subject")->value ==
+            "folded    continuation");
+    REQUIRE(result.has_anomaly(AnomalyKind::WhitespaceOnlyFoldLine));
+}
+
 TEST_CASE("Anomalies: Severity lookup is exposed via AnomalyConfig", "[mime][anomalies]") {
     // Regression check for the previous compile error: get_severity is a
     // static member of AnomalyConfig and must be called qualified.
@@ -151,4 +219,6 @@ TEST_CASE("Anomalies: Severity lookup is exposed via AnomalyConfig", "[mime][ano
             AnomalySeverity::DoS);
     REQUIRE(AnomalyConfig::get_severity(AnomalyKind::MissingFinalBoundary) ==
             AnomalySeverity::Structural);
+    REQUIRE(AnomalyConfig::get_severity(AnomalyKind::WhitespaceOnlyFoldLine) ==
+            AnomalySeverity::Degraded);
 }

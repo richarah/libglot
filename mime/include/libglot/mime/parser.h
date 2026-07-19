@@ -129,13 +129,21 @@ protected:
     struct TokenizeResult {
         std::vector<TokenType> tokens;
         std::string_view source;
+        // See MimeParser::pending_whitespace_only_fold_: set during
+        // unfolding, consumed once by MimeParserExtended's constructor
+        // body (the earliest point where record_anomaly is callable --
+        // this base class constructs before any derived-class anomaly
+        // machinery exists).
+        bool whitespace_only_fold_seen = false;
     };
 
     /// Delegating constructor that receives pre-tokenized result.
     /// (Base is listed first to match actual initialization order; moving
     /// the token vector does not touch result.source.)
     MimeParser(libglot::Arena& arena, TokenizeResult&& result)
-        : Base(arena, std::move(result.tokens)), source_(result.source) {}
+        : Base(arena, std::move(result.tokens)),
+          pending_whitespace_only_fold_(result.whitespace_only_fold_seen),
+          source_(result.source) {}
 
     /// Copy source into arena and tokenize the arena-owned copy
     /// This ensures all token string_views point to arena memory.
@@ -143,10 +151,20 @@ protected:
     /// §2.2.3) so each header occupies exactly one line; the body bytes
     /// are left untouched.
     static TokenizeResult tokenize_and_copy(libglot::Arena& arena, std::string_view source) {
-        auto arena_source = arena.copy_source(HeaderFolding::unfold_headers(source));
+        bool whitespace_only_fold_seen = false;
+        auto arena_source =
+            arena.copy_source(HeaderFolding::unfold_headers(source, &whitespace_only_fold_seen));
         auto tokens = tokenize(arena_source);
-        return {std::move(tokens), arena_source};
+        return {std::move(tokens), arena_source, whitespace_only_fold_seen};
     }
+
+    /// Set by tokenize_and_copy when unfolding the top-level message finds
+    /// a whitespace-only fold continuation line; consumed exactly once by
+    /// MimeParserExtended's constructor body via record_anomaly (see that
+    /// class). Not touched for multipart parts -- parse_part calls
+    /// unfold_headers directly and records the anomaly immediately, since
+    /// record_anomaly is already available there.
+    bool pending_whitespace_only_fold_ = false;
 
     // ========================================================================
     // Tokenization
