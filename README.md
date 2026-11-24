@@ -8,7 +8,7 @@ Parses SQL across 45 dialects (PostgreSQL, MySQL, SQL Server, BigQuery, Snowflak
 
 SQL parser supports SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, MERGE, and procedural SQL (IF/WHILE/FOR/procedures/functions/cursors/exceptions). 100 AST node types. JSON operators for PostgreSQL and Snowflake. Dialect-specific transformations (LIMIT→TOP for SQL Server, ILIKE→LOWER+LIKE for MySQL).
 
-51 passing test suites covering core SQL, procedural SQL, dialect transpilation, JSON operations, GRANT/REVOKE, CTEs, window functions, and joins.
+52 SQL test suites covering core SQL, procedural SQL, dialect transpilation, JSON operations, GRANT/REVOKE, CTEs, window functions, and joins.
 
 ## Building
 
