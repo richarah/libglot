@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include "libglot/sql/complete_features.h"
-#include "libglot/core/arena.h"
+#include "libglot/util/arena.h"
 
 using namespace libglot::sql;
 using namespace libglot;

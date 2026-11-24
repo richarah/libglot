@@ -13,7 +13,7 @@ SQL parser supports SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, MERGE, 
 ## Building
 
 ```
-git clone https://github.com/richarah/libglot
+git clone --recurse-submodules https://github.com/richarah/libglot
 cd libglot
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
@@ -42,7 +42,7 @@ std::string output = gen.generate(ast);  // SELECT TOP 10 * FROM [users]
 ```
 core/           Generic parser framework (CRTP-based ParserBase, GeneratorBase)
 sql/            SQL parser and generator implementation
-libsqlglot/     Tokenizer (from Python sqlglot project)
+libsqlglot/     Tokenizer (git submodule: github.com/richarah/libsqlglot)
 ```
 
 ## Current status

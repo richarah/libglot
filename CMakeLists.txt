@@ -143,6 +143,11 @@ endif()
 # ============================================================================
 # Subdirectories
 # ============================================================================
+# Register tests at the top level so ctest --test-dir build finds them.
+if(LIBGLOT_BUILD_TESTS)
+    enable_testing()
+endif()
+
 # libglot-core (header-only, no dependencies)
 add_subdirectory(core)
 

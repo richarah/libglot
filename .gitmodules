@@ -1,0 +1,3 @@
+[submodule "libsqlglot"]
+	path = libsqlglot
+	url = https://github.com/richarah/libsqlglot.git
