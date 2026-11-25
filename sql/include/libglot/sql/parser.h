@@ -6,6 +6,7 @@
 #include "ast_nodes.h"
 #include "dialect_traits.h"
 #include <memory>
+#include <optional>
 #include <algorithm>
 #include <iostream>
 
@@ -602,12 +603,15 @@ public:
         // TOP n (SQL Server, Access)
         if (match(TK::TOP)) {
             stmt->limit = parse_expression();
-            // Optional: PERCENT, WITH TIES
-            if (match(TK::PERCENT)) {
-                // Store that this is a percentage (we'd need to track this in AST)
+            if (is_word(current(), "PERCENT")) {
+                (void)advance();
+                stmt->limit_percent = true;
             }
-            // WITH TIES would require tracking in AST as well
-            // For now, we'll skip these modifiers and just parse the TOP value
+            if (check(TK::WITH) && is_word(peek(1), "TIES")) {
+                (void)advance();
+                (void)advance();
+                stmt->limit_with_ties = true;
+            }
         }
 
         // FIRST n [SKIP m] (Firebird, Informix)
@@ -639,12 +643,25 @@ public:
             stmt->where = parse_expression();
         }
 
-        // GROUP BY
+        // GROUP BY: plain expressions, ROLLUP (...), CUBE (...), GROUPING SETS (...), and MySQL's
+        // trailing WITH ROLLUP, which is read as ROLLUP over the whole list.
         if (match(TK::GROUP)) {
             expect(TK::BY);
             do {
-                stmt->group_by.push_back(parse_expression());
+                stmt->group_by.push_back(parse_grouping_element());
             } while (match(TK::COMMA));
+            if (check(TK::WITH) && is_word(peek(1), "ROLLUP")) {
+                (void)advance();
+                (void)advance();
+                auto* rollup = this->template create_node<RollupClause>();
+                for (auto* item : stmt->group_by) {
+                    if (is_grouping_construct(item)) {
+                        error("WITH ROLLUP cannot be combined with ROLLUP, CUBE or GROUPING SETS");
+                    }
+                    rollup->expressions.push_back(item);
+                }
+                stmt->group_by.assign(1, rollup);
+            }
         }
 
         // HAVING
@@ -664,15 +681,9 @@ public:
             stmt->order_by = parse_order_by_list();
         }
 
-        // LIMIT
-        if (match(TK::LIMIT)) {
-            stmt->limit = parse_expression();
-        }
-
-        // OFFSET
-        if (match(TK::OFFSET)) {
-            stmt->offset = parse_expression();
-        }
+        // Row limit: LIMIT n, OFFSET m [ROW | ROWS] and FETCH { FIRST | NEXT } [n] { ROW | ROWS } ONLY
+        // all set the same limit and offset.
+        parse_row_limit(stmt);
 
         // Set operations: UNION, INTERSECT, EXCEPT
         if (check(TK::UNION) || check(TK::INTERSECT) || check(TK::EXCEPT)) {
@@ -681,6 +692,161 @@ public:
 
         return stmt;
     }
+
+    /// Case-insensitive check of a token's text against an upper-case word.
+    [[nodiscard]] static bool is_word(const auto& tok, std::string_view word) noexcept {
+        if (tok.text.size() != word.size()) return false;
+        for (size_t i = 0; i < word.size(); ++i) {
+            char c = tok.text[i];
+            if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+            if (c != word[i]) return false;
+        }
+        return true;
+    }
+
+    [[nodiscard]] static bool is_grouping_construct(SQLNode* node) noexcept {
+        return node && (node->type == SQLNodeKind::ROLLUP_CLAUSE || node->type == SQLNodeKind::CUBE_CLAUSE ||
+                        node->type == SQLNodeKind::GROUPING_SETS);
+    }
+
+    /// One element of GROUP BY: ROLLUP (...), CUBE (...), GROUPING SETS (...) or an expression.
+    SQLNode* parse_grouping_element() {
+        if (is_word(current(), "ROLLUP") && peek(1).type == TK::LPAREN) {
+            (void)advance();
+            auto* rollup = this->template create_node<RollupClause>();
+            rollup->expressions = parse_grouping_columns();
+            return rollup;
+        }
+        if (is_word(current(), "CUBE") && peek(1).type == TK::LPAREN) {
+            (void)advance();
+            auto* cube = this->template create_node<CubeClause>();
+            cube->expressions = parse_grouping_columns();
+            return cube;
+        }
+        if (is_word(current(), "GROUPING") && is_word(peek(1), "SETS")) {
+            (void)advance();
+            (void)advance();
+            expect(TK::LPAREN);
+            auto* sets = this->template create_node<GroupingSets>();
+            do {
+                sets->sets.push_back(parse_grouping_set());
+            } while (match(TK::COMMA));
+            expect(TK::RPAREN);
+            return sets;
+        }
+        return parse_expression();
+    }
+
+    /// The list inside ROLLUP (...) or CUBE (...): expressions, or (a, b) for a composite column.
+    std::vector<SQLNode*> parse_grouping_columns() {
+        expect(TK::LPAREN);
+        std::vector<SQLNode*> cols;
+        do {
+            if (auto composite = try_parse_parenthesised_list(); composite && composite->size() != 1) {
+                if (composite->empty()) {
+                    error("() is only allowed inside GROUPING SETS");
+                }
+                cols.push_back(this->template create_node<GroupingSet>(std::move(*composite)));
+            } else if (composite) {
+                cols.push_back((*composite)[0]);
+            } else {
+                cols.push_back(parse_expression());
+            }
+        } while (match(TK::COMMA));
+        expect(TK::RPAREN);
+        return cols;
+    }
+
+    /// One set inside GROUPING SETS (...): (a, b), (), a bare expression, or a nested ROLLUP, CUBE or
+    /// GROUPING SETS.
+    std::vector<SQLNode*> parse_grouping_set() {
+        if (auto list = try_parse_parenthesised_list()) {
+            return std::move(*list);
+        }
+        return {parse_grouping_element()};
+    }
+
+    /// Parse "(e1, e2, ...)" or "()" when it stands alone as a grouping item, that is when it is
+    /// followed by a comma or a closing parenthesis. Otherwise leave the position alone (it is a
+    /// parenthesised expression such as (a + b) * 2) and return nothing.
+    std::optional<std::vector<SQLNode*>> try_parse_parenthesised_list() {
+        if (!check(TK::LPAREN)) return std::nullopt;
+        const size_t start = pos_;
+        try {
+            (void)advance();
+            std::vector<SQLNode*> exprs;
+            if (!check(TK::RPAREN)) {
+                do {
+                    exprs.push_back(parse_expression());
+                } while (match(TK::COMMA));
+            }
+            if (match(TK::RPAREN) && (check(TK::COMMA) || check(TK::RPAREN))) {
+                return exprs;
+            }
+        } catch (const ParseError&) {
+        }
+        pos_ = start;
+        return std::nullopt;
+    }
+
+    /// LIMIT, OFFSET and FETCH, in any order, each at most once. LIMIT and FETCH both set the limit,
+    /// so only one of them may appear.
+    void parse_row_limit(SelectStmt* stmt) {
+        bool seen_limit = stmt->limit != nullptr, seen_offset = stmt->offset != nullptr;
+        while (true) {
+            if (check(TK::LIMIT)) {
+                if (seen_limit) error("Only one LIMIT, FETCH or TOP is allowed");
+                (void)advance();
+                seen_limit = true;
+                if (match(TK::ALL)) {
+                    stmt->limit = nullptr;  // LIMIT ALL: no limit
+                    continue;
+                }
+                SQLNode* first = parse_expression();
+                if (match(TK::COMMA)) {
+                    // MySQL LIMIT offset, count
+                    if (seen_offset) error("Only one OFFSET is allowed");
+                    seen_offset = true;
+                    stmt->offset = first;
+                    stmt->limit = parse_expression();
+                } else {
+                    stmt->limit = first;
+                }
+            } else if (check(TK::OFFSET)) {
+                if (seen_offset) error("Only one OFFSET is allowed");
+                (void)advance();
+                seen_offset = true;
+                stmt->offset = parse_expression();
+                if (check(TK::ROW) || check(TK::ROWS)) (void)advance();
+            } else if (check(TK::FETCH) && (check_word_at(1, TK::FIRST) || check_word_at(1, TK::NEXT))) {
+                if (seen_limit) error("Only one LIMIT, FETCH or TOP is allowed");
+                (void)advance();
+                (void)advance();
+                seen_limit = true;
+                if (check(TK::ROW) || check(TK::ROWS)) {
+                    stmt->limit = this->template create_node<Literal>("1");
+                } else {
+                    stmt->limit = parse_expression();
+                }
+                if (is_word(current(), "PERCENT")) {
+                    (void)advance();
+                    stmt->limit_percent = true;
+                }
+                if (!(match(TK::ROW) || match(TK::ROWS))) error("Expected ROW or ROWS after FETCH count");
+                if (check(TK::WITH) && is_word(peek(1), "TIES")) {
+                    (void)advance();
+                    (void)advance();
+                    stmt->limit_with_ties = true;
+                } else if (!match(TK::ONLY)) {
+                    error("Expected ONLY or WITH TIES after FETCH ... ROWS");
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    [[nodiscard]] bool check_word_at(size_t offset, TK type) const noexcept { return peek(offset).type == type; }
 
     /// Parse SELECT list (comma-separated expressions, possibly aliased)
     std::vector<SQLNode*> parse_select_list() {

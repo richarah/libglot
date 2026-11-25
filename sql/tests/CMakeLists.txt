@@ -108,6 +108,12 @@ add_sql_test(test_temporary_tables)              # 20+ TEST_CASEs - Temporary ta
 add_sql_test(test_lateral_joins)                 # 15+ TEST_CASEs - LATERAL joins
 
 # ============================================================================
+# GROUP BY extensions and row limits
+# ============================================================================
+
+add_sql_test(test_group_by_and_row_limits)       # ROLLUP, CUBE, GROUPING SETS, GROUPING(), LIMIT, OFFSET, FETCH, TOP
+
+# ============================================================================
 # OLAP and advanced SQL: not built yet. These suites test complete_features.h, which does not
 # compile (missing token types LAX and STRICT, an unfinished CompleteSQLGenerator). Re-enable
 # them once that header builds.
@@ -120,5 +126,5 @@ add_sql_test(test_lateral_joins)                 # 15+ TEST_CASEs - LATERAL join
 # add_sql_test(test_output_clause)               # 15 TEST_CASEs - SQL Server OUTPUT
 # add_sql_test(test_json_path)                   # 20 TEST_CASEs - JSON path expressions
 
-message(STATUS "libglot-sql: 52 test executables configured")
+message(STATUS "libglot-sql: 53 test executables configured")
 message(STATUS "  Progress: ALL SQL features implemented and tested")

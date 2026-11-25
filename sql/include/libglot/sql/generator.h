@@ -5,8 +5,18 @@
 #include "ast_nodes.h"
 #include "grammar.h"
 #include <sstream>
+#include <cctype>
+#include <stdexcept>
+#include <string>
 
 namespace libglot::sql {
+
+/// Thrown when the target dialect has no way to write a construct, so that no SQL with a different
+/// meaning is produced.
+class GenerateError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 /// ============================================================================
 /// SQL Generator Specification (for GeneratorBase template)
@@ -186,6 +196,22 @@ public:
 
             case SQLNodeKind::ORDER_BY_ITEM:
                 visit_order_by_item(static_cast<OrderByItem*>(node));
+                break;
+
+            case SQLNodeKind::ROLLUP_CLAUSE:
+                visit_rollup(static_cast<RollupClause*>(node));
+                break;
+
+            case SQLNodeKind::CUBE_CLAUSE:
+                visit_cube(static_cast<CubeClause*>(node));
+                break;
+
+            case SQLNodeKind::GROUPING_SETS:
+                visit_grouping_sets(static_cast<GroupingSets*>(node));
+                break;
+
+            case SQLNodeKind::GROUPING_SET:
+                visit_grouping_set(static_cast<GroupingSet*>(node));
                 break;
 
             // ================================================================
@@ -635,27 +661,7 @@ private:
             this->write("DISTINCT");
         }
 
-        // TOP n (SQL Server) - output before column list
-        if (stmt->limit && this->dialect() == SQLDialect::SQLServer) {
-            this->space();
-            this->write("TOP");
-            this->space();
-            visit(stmt->limit);
-        }
-
-        // FIRST n [SKIP m] (Firebird, Informix) - output before column list
-        if (stmt->limit && (this->dialect() == SQLDialect::Firebird || this->dialect() == SQLDialect::Informix)) {
-            this->space();
-            this->write("FIRST");
-            this->space();
-            visit(stmt->limit);
-            if (stmt->offset) {
-                this->space();
-                this->write("SKIP");
-                this->space();
-                visit(stmt->offset);
-            }
-        }
+        write_row_limit_prefix(stmt);
 
         this->space();
 
@@ -685,9 +691,7 @@ private:
             this->space();
             this->write("GROUP BY");
             this->space();
-            this->write_list(stmt->group_by, [this](SQLNode* expr) {
-                visit(expr);
-            });
+            write_group_by(stmt->group_by);
         }
 
         // HAVING clause
@@ -708,22 +712,225 @@ private:
             });
         }
 
-        // LIMIT clause (but skip for SQL Server, Firebird, Informix since we already output TOP/FIRST)
-        if (stmt->limit && this->dialect() != SQLDialect::SQLServer &&
-            this->dialect() != SQLDialect::Firebird && this->dialect() != SQLDialect::Informix) {
+        write_row_limit(stmt);
+    }
+
+    // ========================================================================
+    // GROUP BY extensions and row limits
+    //
+    // What each dialect can write comes from grouping_syntax() and row_limit_syntax()
+    // in dialect_traits.h. Nothing here looks at the dialect by name.
+    // ========================================================================
+
+    [[noreturn]] void unsupported(const std::string& what) const {
+        throw GenerateError(std::string(SQLDialectTraits::name(this->dialect())) + " has no " + what);
+    }
+
+    void write_group_by(const std::vector<SQLNode*>& items) {
+        const auto g = grouping_syntax(this->dialect());
+        if (g.rollup_as_with_rollup) {
+            // GROUP BY a, b WITH ROLLUP is ROLLUP (a, b), so it can only stand for one ROLLUP over
+            // plain columns that is the whole GROUP BY.
+            for (auto* item : items) {
+                if (item->type == SQLNodeKind::CUBE_CLAUSE) unsupported("CUBE");
+                if (item->type == SQLNodeKind::GROUPING_SETS) unsupported("GROUPING SETS");
+            }
+            if (items.size() == 1 && items[0]->type == SQLNodeKind::ROLLUP_CLAUSE) {
+                auto* rollup = static_cast<RollupClause*>(items[0]);
+                for (auto* col : rollup->expressions) {
+                    if (col->type == SQLNodeKind::GROUPING_SET) {
+                        unsupported("composite columns in WITH ROLLUP");
+                    }
+                }
+                this->write_list(rollup->expressions, [this](SQLNode* expr) { visit(expr); });
+                this->space();
+                this->write("WITH ROLLUP");
+                return;
+            }
+            for (auto* item : items) {
+                if (item->type == SQLNodeKind::ROLLUP_CLAUSE) {
+                    unsupported("ROLLUP that is not over the whole GROUP BY (only GROUP BY ... WITH ROLLUP)");
+                }
+            }
+        }
+        this->write_list(items, [this](SQLNode* expr) { visit(expr); });
+    }
+
+    void write_grouping_columns(const std::vector<SQLNode*>& cols) {
+        this->write('(');
+        this->write_list(cols, [this](SQLNode* expr) { visit(expr); });
+        this->write(')');
+    }
+
+    void visit_rollup(RollupClause* rollup) {
+        const auto g = grouping_syntax(this->dialect());
+        if (!g.rollup) unsupported("ROLLUP");
+        if (g.rollup_as_with_rollup) {
+            unsupported("ROLLUP that is not over the whole GROUP BY (only GROUP BY ... WITH ROLLUP)");
+        }
+        this->write("ROLLUP");
+        write_grouping_columns(rollup->expressions);
+    }
+
+    void visit_cube(CubeClause* cube) {
+        if (!grouping_syntax(this->dialect()).cube) unsupported("CUBE");
+        this->write("CUBE");
+        write_grouping_columns(cube->expressions);
+    }
+
+    void visit_grouping_sets(GroupingSets* sets) {
+        if (!grouping_syntax(this->dialect()).grouping_sets) unsupported("GROUPING SETS");
+        this->write("GROUPING SETS");
+        this->space();
+        this->write('(');
+        this->write_list(sets->sets, [this](const std::vector<SQLNode*>& set) {
+            if (set.size() == 1 && (set[0]->type == SQLNodeKind::ROLLUP_CLAUSE ||
+                                    set[0]->type == SQLNodeKind::CUBE_CLAUSE ||
+                                    set[0]->type == SQLNodeKind::GROUPING_SETS)) {
+                visit(set[0]);
+            } else {
+                write_grouping_columns(set);
+            }
+        });
+        this->write(')');
+    }
+
+    void visit_grouping_set(GroupingSet* set) {
+        write_grouping_columns(set->exprs);
+    }
+
+    /// Fail before anything is written if the dialect cannot say what the query asks for.
+    void check_row_limit(SelectStmt* stmt) const {
+        const auto rl = row_limit_syntax(this->dialect());
+        if (stmt->limit_percent && !rl.percent) unsupported("PERCENT row limit");
+        if (stmt->limit_with_ties) {
+            if (!rl.with_ties) unsupported("WITH TIES");
+            if (rl.ties_needs_order_by && stmt->order_by.empty()) unsupported("WITH TIES without ORDER BY");
+        }
+        if (rl.style == RowLimitStyle::Top && stmt->offset) {
+            // TOP cannot be combined with an offset, so SQL Server gets OFFSET ... FETCH, which needs ORDER BY
+            // and has neither PERCENT nor WITH TIES.
+            if (stmt->order_by.empty()) unsupported("OFFSET without ORDER BY");
+            if (stmt->limit_percent) unsupported("PERCENT row limit together with OFFSET");
+            if (stmt->limit_with_ties) unsupported("WITH TIES together with OFFSET");
+        }
+    }
+
+    /// The part of a row limit that goes before the column list: TOP n, or FIRST n SKIP m.
+    void write_row_limit_prefix(SelectStmt* stmt) {
+        check_row_limit(stmt);
+        switch (row_limit_syntax(this->dialect()).style) {
+            case RowLimitStyle::Top:
+                if (stmt->limit && !stmt->offset) {
+                    this->space();
+                    this->write("TOP");
+                    this->space();
+                    write_count(stmt->limit);
+                    if (stmt->limit_percent) this->write(" PERCENT");
+                    if (stmt->limit_with_ties) this->write(" WITH TIES");
+                }
+                break;
+            case RowLimitStyle::FirstSkip:
+                if (stmt->limit) {
+                    this->space();
+                    this->write("FIRST");
+                    this->space();
+                    visit(stmt->limit);
+                }
+                if (stmt->offset) {
+                    this->space();
+                    this->write("SKIP");
+                    this->space();
+                    visit(stmt->offset);
+                }
+                break;
+            case RowLimitStyle::LimitOffset:
+            case RowLimitStyle::OffsetFetch:
+                break;
+        }
+    }
+
+    /// The part of a row limit that goes after ORDER BY: LIMIT, OFFSET and FETCH.
+    void write_row_limit(SelectStmt* stmt) {
+        SQLNode* limit = stmt->limit;
+        SQLNode* offset = stmt->offset;
+        if (!limit && !offset) return;
+        const auto rl = row_limit_syntax(this->dialect());
+
+        switch (rl.style) {
+            case RowLimitStyle::FirstSkip:
+                return;  // already written before the column list
+            case RowLimitStyle::Top:
+                if (!offset) return;  // already written as TOP
+                write_offset_rows(offset);
+                if (limit) write_fetch(stmt, "NEXT");
+                return;
+            case RowLimitStyle::OffsetFetch:
+                if (offset) write_offset_rows(offset);
+                if (limit) write_fetch(stmt, offset ? "NEXT" : "FIRST");
+                return;
+            case RowLimitStyle::LimitOffset:
+                break;
+        }
+
+        if (stmt->limit_with_ties) {
+            // WITH TIES only exists in the standard FETCH form.
+            if (offset) write_offset_rows(offset);
+            write_fetch(stmt, offset ? "NEXT" : "FIRST");
+            return;
+        }
+
+        if (limit) {
             this->space();
             this->write("LIMIT");
             this->space();
-            visit(stmt->limit);
+            visit(limit);
+        } else if (rl.offset_only == OffsetOnly::MaxLimit) {
+            // MySQL has no OFFSET without LIMIT; its manual gives the largest LIMIT for "all rows".
+            this->space();
+            this->write("LIMIT 18446744073709551615");
+        } else if (rl.offset_only == OffsetOnly::NegativeLimit) {
+            // SQLite has no OFFSET without LIMIT; a negative LIMIT means no limit.
+            this->space();
+            this->write("LIMIT -1");
         }
-
-        // OFFSET clause (but skip for Firebird, Informix since we already output SKIP)
-        if (stmt->offset && this->dialect() != SQLDialect::Firebird && this->dialect() != SQLDialect::Informix) {
+        if (offset) {
             this->space();
             this->write("OFFSET");
             this->space();
-            visit(stmt->offset);
+            visit(offset);
         }
+    }
+
+    void write_offset_rows(SQLNode* offset) {
+        this->space();
+        this->write("OFFSET");
+        this->space();
+        visit(offset);
+        this->space();
+        this->write("ROWS");
+    }
+
+    void write_fetch(SelectStmt* stmt, const char* first_or_next) {
+        this->space();
+        this->write("FETCH");
+        this->space();
+        this->write(first_or_next);
+        this->space();
+        write_count(stmt->limit);
+        if (stmt->limit_percent) this->write(" PERCENT");
+        this->write(stmt->limit_with_ties ? " ROWS WITH TIES" : " ROWS ONLY");
+    }
+
+    /// A TOP or FETCH count: a literal or parameter as is, anything else in parentheses.
+    void write_count(SQLNode* count) {
+        if (count->type == SQLNodeKind::LITERAL || count->type == SQLNodeKind::PARAMETER) {
+            visit(count);
+            return;
+        }
+        this->write('(');
+        visit(count);
+        this->write(')');
     }
 
     // ========================================================================
@@ -751,8 +958,23 @@ private:
         visit(op->operand);
     }
 
+    [[nodiscard]] static bool is_grouping_function(std::string_view name) noexcept {
+        constexpr std::string_view word = "GROUPING";
+        if (name.size() != word.size()) return false;
+        for (size_t i = 0; i < word.size(); ++i) {
+            if (std::toupper(static_cast<unsigned char>(name[i])) != word[i]) return false;
+        }
+        return true;
+    }
+
     void visit_function_call(FunctionCall* func) {
-        this->write(func->name);
+        bool grouping_id = false;
+        if (is_grouping_function(func->name)) {
+            const auto g = grouping_syntax(this->dialect());
+            if (!g.grouping_function) unsupported("GROUPING() function");
+            grouping_id = g.grouping_id_for_many_args && func->args.size() > 1;
+        }
+        this->write(grouping_id ? std::string_view("GROUPING_ID") : func->name);
         this->write('(');
 
         if (func->distinct) {

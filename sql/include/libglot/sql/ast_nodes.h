@@ -87,6 +87,7 @@ enum class SQLNodeKind : uint16_t {
     ORDER_BY_ITEM,    // ORDER BY item (expr ASC/DESC)
     LIMIT_CLAUSE,     // LIMIT/OFFSET clause
     QUALIFY_CLAUSE,   // QUALIFY (window function filter)
+    GROUPING_SET,     // A composite column (a, b) inside ROLLUP or CUBE
 
     // ========================================================================
     // Set Operations
@@ -673,6 +674,8 @@ struct SelectStmt : SQLNode {
     SQLNode* limit;                       // LIMIT
     SQLNode* offset;                      // OFFSET
     bool distinct;
+    bool limit_percent = false;           // TOP n PERCENT, FETCH FIRST n PERCENT ROWS
+    bool limit_with_ties = false;         // TOP n WITH TIES, FETCH FIRST n ROWS WITH TIES
 
     SelectStmt()
         : SQLNode(SQLNodeKind::SELECT_STMT), with(nullptr), from(nullptr), where(nullptr),
@@ -711,6 +714,14 @@ struct LimitClause : SQLNode {
 
     LimitClause(SQLNode* l, SQLNode* o = nullptr)
         : SQLNode(SQLNodeKind::LIMIT_CLAUSE), limit(l), offset(o) {}
+};
+
+/// A composite column inside ROLLUP or CUBE, written (a, b). It is grouped on as one unit.
+struct GroupingSet : SQLNode {
+    std::vector<SQLNode*> exprs;
+
+    explicit GroupingSet(std::vector<SQLNode*> e)
+        : SQLNode(SQLNodeKind::GROUPING_SET), exprs(std::move(e)) {}
 };
 
 struct QualifyClause : SQLNode {
@@ -1280,21 +1291,22 @@ struct UnpivotClause : SQLNode {
 /// ============================================================================
 
 struct GroupingSets : SQLNode {
-    std::vector<std::vector<SQLNode*>> sets;  // List of grouping sets
+    std::vector<std::vector<SQLNode*>> sets;  // List of grouping sets; {} is the grand total ().
+                                              // A set that is one RollupClause or CubeClause is written bare.
 
     GroupingSets()
         : SQLNode(SQLNodeKind::GROUPING_SETS) {}
 };
 
 struct RollupClause : SQLNode {
-    std::vector<SQLNode*> expressions;  // Columns for ROLLUP
+    std::vector<SQLNode*> expressions;  // Columns for ROLLUP (a GroupingSet for a composite column)
 
     RollupClause()
         : SQLNode(SQLNodeKind::ROLLUP_CLAUSE) {}
 };
 
 struct CubeClause : SQLNode {
-    std::vector<SQLNode*> expressions;  // Columns for CUBE
+    std::vector<SQLNode*> expressions;  // Columns for CUBE (a GroupingSet for a composite column)
 
     CubeClause()
         : SQLNode(SQLNodeKind::CUBE_CLAUSE) {}
