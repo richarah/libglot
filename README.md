@@ -1,6 +1,6 @@
 # libglot
 
-Generic parser and transpiler framework using CRTP, with SQL parser implementation.
+Generic parser and transpiler framework using CRTP, with SQL parser implementation. Work in progress.
 
 ## What it does
 
