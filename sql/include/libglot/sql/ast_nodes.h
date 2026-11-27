@@ -445,9 +445,10 @@ struct CaseExpr : SQLNode {
 struct CastExpr : SQLNode {
     SQLNode* expr;
     std::string_view target_type;
+    bool safe = false;  // SAFE_CAST: NULL instead of an error when the value does not convert
 
-    CastExpr(SQLNode* e, std::string_view type)
-        : SQLNode(SQLNodeKind::CAST_EXPR), expr(e), target_type(type) {}
+    CastExpr(SQLNode* e, std::string_view type, bool is_safe = false)
+        : SQLNode(SQLNodeKind::CAST_EXPR), expr(e), target_type(type), safe(is_safe) {}
 };
 
 struct CoalesceExpr : SQLNode {

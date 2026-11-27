@@ -581,6 +581,70 @@ private:
         }
     }
 
+    // ========================================================================
+    // Operator precedence: parentheses are written only where the tree needs them
+    // ========================================================================
+    // The parser drops parentheses and keeps the tree. These levels match the
+    // table in grammar.h. A child that binds more loosely than its parent gets
+    // parentheses, so the new query means what the old one meant.
+
+    static constexpr int kPrecOr = 8;
+    static constexpr int kPrecAnd = 9;
+    static constexpr int kPrecNot = 10;
+    static constexpr int kPrecIs = 11;
+    static constexpr int kPrecComparison = 12;
+    static constexpr int kPrecAdditive = 13;
+    static constexpr int kPrecMultiplicative = 14;
+    static constexpr int kPrecSign = 15;
+    static constexpr int kPrecAtom = 100;  // literals, columns, calls, subqueries
+
+    /// Precedence of a binary operator, or kPrecAtom for one that has no entry
+    [[nodiscard]] static int binary_precedence(TK op) noexcept {
+        switch (op) {
+            case TK::OR: return kPrecOr;
+            case TK::AND: return kPrecAnd;
+            case TK::IS: return kPrecIs;
+            case TK::EQ: case TK::NEQ: case TK::LT: case TK::LTE: case TK::GT: case TK::GTE:
+            case TK::LIKE: case TK::ILIKE: case TK::AT_GT: case TK::LT_AT: case TK::QUESTION:
+                return kPrecComparison;
+            case TK::PLUS: case TK::MINUS: case TK::CONCAT:
+                return kPrecAdditive;
+            case TK::STAR: case TK::SLASH: case TK::PERCENT:
+                return kPrecMultiplicative;
+            default:
+                return kPrecAtom;
+        }
+    }
+
+    [[nodiscard]] static int precedence_of(const SQLNode* node) noexcept {
+        if (!node) return kPrecAtom;
+        switch (node->type) {
+            case SQLNodeKind::BINARY_OP:
+                return binary_precedence(static_cast<const BinaryOp*>(node)->op);
+            case SQLNodeKind::UNARY_OP:
+                return static_cast<const UnaryOp*>(node)->op == TK::NOT ? kPrecNot : kPrecSign;
+            case SQLNodeKind::BETWEEN_EXPR:
+            case SQLNodeKind::IN_EXPR:
+            case SQLNodeKind::REGEX_MATCH:
+            case SQLNodeKind::ANY_EXPR:
+            case SQLNodeKind::ALL_EXPR:
+                return kPrecComparison;
+            default:
+                return kPrecAtom;
+        }
+    }
+
+    /// Write child, in parentheses when it binds more loosely than min_precedence
+    void write_operand(SQLNode* child, int min_precedence) {
+        if (precedence_of(child) < min_precedence) {
+            this->write('(');
+            visit(child);
+            this->write(')');
+        } else {
+            visit(child);
+        }
+    }
+
     void visit_binary_op(BinaryOp* op) {
         // ILIKE polyfill for MySQL: transform ILIKE to LOWER(col) LIKE LOWER(pattern)
         if (op->op == TK::ILIKE && this->dialect() == SQLDialect::MySQL) {
@@ -597,11 +661,27 @@ private:
             this->write(')');
         } else {
             // Standard binary operator
-            visit(op->left);
+            const int prec = binary_precedence(op->op);
+            int left_min = 0;   // operators without an entry keep their operands as they are
+            int right_min = 0;
+            if (prec != kPrecAtom) {
+                // Comparisons do not chain, so both sides need parentheses at the same level.
+                // AND and OR can regroup freely. For - / % and the rest the right side
+                // needs them at the same level: a - (b - c).
+                const bool comparison = prec == kPrecComparison;
+                left_min = comparison ? prec + 1 : prec;
+                right_min = (prec == kPrecAnd || prec == kPrecOr) ? prec : prec + 1;
+            }
+            write_operand(op->left, left_min);
             this->space();
             this->write(operator_string(op->op));
             this->space();
-            visit(op->right);
+            if (op->op == TK::IS && op->right && op->right->type == SQLNodeKind::UNARY_OP &&
+                static_cast<UnaryOp*>(op->right)->op == TK::NOT) {
+                visit(op->right);  // IS NOT NULL stays as it is
+            } else {
+                write_operand(op->right, right_min);
+            }
         }
     }
 
@@ -622,11 +702,32 @@ private:
 
         // Output alias if present
         if (!tbl->alias.empty()) {
-            this->space();
+            write_table_alias(tbl->alias);
+        }
+    }
+
+    /// SAFE_CAST gives NULL when a value does not convert, where CAST gives an error.
+    /// Databases that have the same thing as TRY_CAST get that. The rest keep SAFE_CAST,
+    /// so the query is rejected instead of quietly changing meaning.
+    [[nodiscard]] static constexpr std::string_view safe_cast_keyword(SQLDialect d) noexcept {
+        switch (d) {
+            case SQLDialect::SQLServer: case SQLDialect::AzureSynapse: case SQLDialect::Snowflake:
+            case SQLDialect::DuckDB: case SQLDialect::Presto: case SQLDialect::Trino:
+            case SQLDialect::Athena: case SQLDialect::SparkSQL: case SQLDialect::Databricks:
+                return "TRY_CAST";
+            default:
+                return "SAFE_CAST";
+        }
+    }
+
+    /// Alias of a table or subquery in FROM or JOIN. Oracle does not accept AS here.
+    void write_table_alias(std::string_view alias) {
+        this->space();
+        if (this->dialect() != SQLDialect::Oracle) {
             this->write("AS");
             this->space();
-            write_identifier(tbl->alias);
         }
+        write_identifier(alias);
     }
 
     void visit_order_by_item(OrderByItem* item) {
@@ -955,7 +1056,7 @@ private:
         // Always use prefix notation
         this->write(op_str);
         this->space();
-        visit(op->operand);
+        write_operand(op->operand, op->op == TK::NOT ? kPrecNot : kPrecSign);
     }
 
     [[nodiscard]] static bool is_grouping_function(std::string_view name) noexcept {
@@ -967,7 +1068,28 @@ private:
         return true;
     }
 
+    /// EXTRACT(field FROM expr): the parser keeps the field as the first argument
+    [[nodiscard]] static bool is_extract_call(const FunctionCall* func) noexcept {
+        constexpr std::string_view word = "EXTRACT";
+        if (func->name.size() != word.size() || func->args.size() != 2) return false;
+        for (size_t i = 0; i < word.size(); ++i) {
+            if (std::toupper(static_cast<unsigned char>(func->name[i])) != word[i]) return false;
+        }
+        return func->args[0] && func->args[0]->type == SQLNodeKind::LITERAL;
+    }
+
     void visit_function_call(FunctionCall* func) {
+        if (is_extract_call(func)) {
+            this->write("EXTRACT");
+            this->write('(');
+            this->write(static_cast<Literal*>(func->args[0])->value);  // the field is a keyword
+            this->space();
+            this->write("FROM");
+            this->space();
+            visit(func->args[1]);
+            this->write(')');
+            return;
+        }
         bool grouping_id = false;
         if (is_grouping_function(func->name)) {
             const auto g = grouping_syntax(this->dialect());
@@ -1021,7 +1143,7 @@ private:
     }
 
     void visit_cast_expr(CastExpr* cast) {
-        this->write("CAST");
+        this->write(cast->safe ? safe_cast_keyword(this->dialect()) : "CAST");
         this->write('(');
         visit(cast->expr);
         this->space();
@@ -1051,7 +1173,7 @@ private:
     }
 
     void visit_between_expr(BetweenExpr* between) {
-        visit(between->expr);
+        write_operand(between->expr, kPrecAdditive);
         this->space();
         if (between->not_between) {
             this->write("NOT");
@@ -1059,15 +1181,15 @@ private:
         }
         this->write("BETWEEN");
         this->space();
-        visit(between->lower);
+        write_operand(between->lower, kPrecAdditive);
         this->space();
         this->write("AND");
         this->space();
-        visit(between->upper);
+        write_operand(between->upper, kPrecAdditive);
     }
 
     void visit_in_expr(InExpr* in_expr) {
-        visit(in_expr->expr);
+        write_operand(in_expr->expr, kPrecAdditive);
         this->space();
         if (in_expr->not_in) {
             this->write("NOT");
@@ -1097,6 +1219,10 @@ private:
         this->write('(');
         visit(subquery->query);
         this->write(')');
+        // A subquery in FROM or JOIN keeps its alias, or x.a points at nothing
+        if (!subquery->alias.empty()) {
+            write_table_alias(subquery->alias);
+        }
     }
 
     void visit_window_function(WindowFunction* wf) {
@@ -1658,7 +1784,7 @@ private:
     // ========================================================================
 
     void visit_any_expr(AnyExpr* expr) {
-        visit(expr->left);
+        write_operand(expr->left, kPrecAdditive);
         this->space();
         this->write(operator_string(expr->comparison_op));
         this->space();
@@ -1670,7 +1796,7 @@ private:
     }
 
     void visit_all_expr(AllExpr* expr) {
-        visit(expr->left);
+        write_operand(expr->left, kPrecAdditive);
         this->space();
         this->write(operator_string(expr->comparison_op));
         this->space();
@@ -1690,7 +1816,7 @@ private:
     }
 
     void visit_array_index(ArrayIndex* idx) {
-        visit(idx->array);
+        write_operand(idx->array, kPrecAtom);
         this->write('[');
         visit(idx->index);
         this->write(']');
@@ -1716,7 +1842,7 @@ private:
     }
 
     void visit_regex_match(RegexMatch* regex) {
-        visit(regex->expr);
+        write_operand(regex->expr, kPrecAdditive);
         this->space();
         if (regex->similar_to) {
             this->write("SIMILAR TO");
@@ -1724,7 +1850,7 @@ private:
             this->write("REGEXP");
         }
         this->space();
-        visit(regex->pattern);
+        write_operand(regex->pattern, kPrecAdditive);
     }
 
     // ========================================================================

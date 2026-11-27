@@ -335,8 +335,9 @@ public:
         // INTERVAL expressions: INTERVAL <value> <unit>
         // Example: INTERVAL 7 DAY, INTERVAL '2 days' DAY TO SECOND
         if (match(TK::INTERVAL)) {
-            // Parse the value (can be number or string)
-            SQLNode* value = parse_expression();
+            // Parse the value (can be number or string). It binds tighter than any
+            // operator, so INTERVAL '1 day' AND x = 1 does not pull AND x = 1 inside.
+            SQLNode* value = parse_expression(kSignOperandPrecedence);
             // Parse the unit (DAY, HOUR, MINUTE, SECOND, YEAR, MONTH, etc.)
             // The unit is typically an identifier
             std::string_view unit = "";
@@ -357,17 +358,9 @@ public:
             auto expr = parse_expression();
             expect(TK::AS);
 
-            // Parse type name
-            std::string type_str;
-            while (!check(TK::RPAREN) && !this->is_eof()) {
-                if (!current().text.empty()) {
-                    if (!type_str.empty()) type_str += " ";
-                    type_str += std::string(current().text);
-                }
-                (void)advance();  // Acknowledge nodiscard warning
-            }
+            std::string_view type_name = parse_cast_type();
             expect(TK::RPAREN);
-            return this->template create_node<CastExpr>(expr, type_str);
+            return this->template create_node<CastExpr>(expr, type_name);
         }
 
         if (check(TK::SAFE_CAST)) {
@@ -376,17 +369,9 @@ public:
             auto expr = parse_expression();
             expect(TK::AS);
 
-            // Parse type name
-            std::string type_str;
-            while (!check(TK::RPAREN) && !this->is_eof()) {
-                if (!current().text.empty()) {
-                    if (!type_str.empty()) type_str += " ";
-                    type_str += std::string(current().text);
-                }
-                (void)advance();
-            }
+            std::string_view type_name = parse_cast_type();
             expect(TK::RPAREN);
-            return this->template create_node<CastExpr>(expr, type_str);
+            return this->template create_node<CastExpr>(expr, type_name, true);
         }
 
         if (check(TK::STRUCT_KW)) {
@@ -431,7 +416,8 @@ public:
             if (current().type != TK::IDENTIFIER) {
                 error("Expected date/time field name (YEAR, MONTH, DAY, etc.) after EXTRACT(");
             }
-            std::string field(current().text);
+            // The field name must outlive this function, so keep it in the arena
+            std::string_view field = this->arena().copy_source(current().text);
             (void)advance();  // Acknowledge nodiscard warning
             expect(TK::FROM);
             auto expr = parse_expression();
@@ -441,18 +427,20 @@ public:
         }
 
         // Unary operators (NOT, -, +)
+        // NOT covers comparisons and IS but not AND or OR. Unary - and + cover
+        // only the next operand, so -a + b is (-a) + b and not -(a + b).
         if (match(TK::NOT)) {
-            auto operand = parse_expression();
+            auto operand = parse_expression(kNotOperandPrecedence);
             return this->template create_node<UnaryOp>(TK::NOT, operand);
         }
 
         if (match(TK::MINUS)) {
-            auto operand = parse_expression();
+            auto operand = parse_expression(kSignOperandPrecedence);
             return this->template create_node<UnaryOp>(TK::MINUS, operand);
         }
 
         if (match(TK::PLUS)) {
-            auto operand = parse_expression();
+            auto operand = parse_expression(kSignOperandPrecedence);
             return this->template create_node<UnaryOp>(TK::PLUS, operand);
         }
 
@@ -497,41 +485,101 @@ public:
         error("Expected expression");
     }
 
+    /// Type name of CAST and SAFE_CAST, up to the closing parenthesis of the call.
+    /// Parentheses inside the type are kept, so DECIMAL(10, 2) and VARCHAR(10) stay whole.
+    /// The text is copied into the arena because the parser's tokens do not outlive it.
+    [[nodiscard]] std::string_view parse_cast_type() {
+        std::string type_str;
+        int depth = 0;
+        while (!this->is_eof() && !(depth == 0 && check(TK::RPAREN))) {
+            const TK kind = current().type;
+            const std::string text(current().text);
+            if (kind == TK::LPAREN) {
+                ++depth;
+                type_str += "(";
+            } else if (kind == TK::RPAREN) {
+                --depth;
+                type_str += ")";
+            } else if (kind == TK::COMMA) {
+                type_str += ", ";
+            } else if (!text.empty()) {
+                if (!type_str.empty() && type_str.back() != '(' && type_str.back() != ' ') type_str += " ";
+                type_str += text;
+            }
+            (void)advance();
+        }
+        return this->arena().copy_source(type_str);
+    }
+
     /// Check if we're at a ".." range operator
     [[nodiscard]] bool check_double_dot() const noexcept {
         return check(TK::DOT) && peek(1).type == TK::DOT;
     }
 
+    /// Precedence levels used for operands of unary operators (see grammar.h)
+    static constexpr int kNotOperandPrecedence = 11;   // above AND and OR
+    static constexpr int kSignOperandPrecedence = 15;  // above * / %
+    static constexpr int kComparisonPrecedence = 12;
+    static constexpr int kBetweenBoundPrecedence = 13; // above comparisons
+
+    /// Operators that are not in the precedence table: expr IN (...)
+    /// IN ranks with the comparisons, so a + b IN (1, 2) is (a + b) IN (1, 2) and
+    /// x IN (1, 2) AND y = 1 keeps everything after the list.
+    /// NOT IN, NOT BETWEEN, NOT LIKE and NOT ILIKE rank the same way.
+    [[nodiscard]] bool parse_infix_extension(SQLNode*& left, int min_precedence) {
+        if (kComparisonPrecedence < min_precedence) {
+            return false;
+        }
+        const bool negated = check(TK::NOT) &&
+            (peek(1).type == TK::IN || peek(1).type == TK::BETWEEN ||
+             peek(1).type == TK::LIKE || peek(1).type == TK::ILIKE);
+        if (!negated && !check(TK::IN)) {
+            return false;
+        }
+        if (negated) {
+            (void)advance();  // Consume NOT
+            const TK pred = current().type;
+            if (pred == TK::BETWEEN) {
+                (void)advance();
+                SQLNode* lower = parse_expression(kBetweenBoundPrecedence);
+                expect(TK::AND);
+                SQLNode* upper = parse_expression(kBetweenBoundPrecedence);
+                left = this->template create_node<BetweenExpr>(left, lower, upper, true);
+                return true;
+            }
+            if (pred == TK::LIKE || pred == TK::ILIKE) {
+                (void)advance();
+                SQLNode* right = parse_expression(kComparisonPrecedence + 1);
+                left = this->template create_node<UnaryOp>(
+                    TK::NOT, this->template create_node<BinaryOp>(pred, left, right));
+                return true;
+            }
+        }
+        (void)advance();  // Consume IN
+        expect(TK::LPAREN);
+
+        if (check(TK::SELECT)) {
+            // IN (SELECT ...) - subquery form
+            auto subquery = parse_select();
+            expect(TK::RPAREN);
+            left = this->template create_node<InExpr>(left, std::vector<SQLNode*>{subquery}, negated);
+        } else {
+            // IN (value1, value2, ...) - value list form
+            std::vector<SQLNode*> values;
+            if (!check(TK::RPAREN)) {
+                do {
+                    values.push_back(parse_expression());
+                } while (match(TK::COMMA));
+            }
+            expect(TK::RPAREN);
+            left = this->template create_node<InExpr>(left, values, negated);
+        }
+        return true;
+    }
+
     /// Parse postfix expression (array indexing, JSON operators, etc.)
     [[nodiscard]] SQLNode* parse_postfix(SQLNode* base) {
         while (true) {
-            // IN operator: expr IN (value1, value2, ...) or expr IN (SELECT ...)
-            if (check(TK::IN)) {
-                (void)advance();  // Consume IN
-                expect(TK::LPAREN);
-
-                // Check if it's a subquery or a list of values
-                if (check(TK::SELECT)) {
-                    // IN (SELECT ...) - subquery form
-                    auto subquery = parse_select();
-                    expect(TK::RPAREN);
-                    auto in_expr = this->template create_node<InExpr>(base, std::vector<SQLNode*>{subquery});
-                    base = in_expr;
-                } else {
-                    // IN (value1, value2, ...) - value list form
-                    std::vector<SQLNode*> values;
-                    if (!check(TK::RPAREN)) {
-                        do {
-                            values.push_back(parse_expression());
-                        } while (match(TK::COMMA));
-                    }
-                    expect(TK::RPAREN);
-                    auto in_expr = this->template create_node<InExpr>(base, values);
-                    base = in_expr;
-                }
-                continue;
-            }
-
             // Array indexing: expr[index]
             if (match(TK::LBRACKET)) {
                 auto index = parse_expression();
@@ -577,6 +625,13 @@ public:
 
     /// Create binary operator node (required for precedence climbing)
     [[nodiscard]] SQLNode* make_binary_operator(TK op, SQLNode* left, SQLNode* right) {
+        if (op == TK::BETWEEN) {
+            // right is the lower bound. The upper bound follows AND and stops before
+            // any further AND or OR, so x BETWEEN 1 AND 10 AND y = 2 has two parts.
+            expect(TK::AND);
+            SQLNode* upper = parse_expression(kBetweenBoundPrecedence);
+            return this->template create_node<BetweenExpr>(left, right, upper);
+        }
         return this->template create_node<BinaryOp>(op, left, right);
     }
 
@@ -1322,12 +1377,15 @@ public:
                 }
             }
 
-            auto lateral_node = this->template create_node<LateralJoin>(lateral_expr);
-            if (!alias.empty()) {
-                // Wrap in a table-like structure with alias
-                // For now, we'll just create a LateralJoin node
-                // The generator will need to handle the alias
+            // A subquery keeps its parentheses and its alias, a function keeps its alias
+            if (lateral_expr && (lateral_expr->type == SQLNodeKind::SELECT_STMT ||
+                                 lateral_expr->type == SQLNodeKind::UNION_STMT ||
+                                 lateral_expr->type == SQLNodeKind::WITH_CLAUSE)) {
+                lateral_expr = this->template create_node<SubqueryExpr>(lateral_expr, alias);
+            } else if (!alias.empty()) {
+                lateral_expr = this->template create_node<Alias>(lateral_expr, alias);
             }
+            auto lateral_node = this->template create_node<LateralJoin>(lateral_expr);
             return lateral_node;
         }
 

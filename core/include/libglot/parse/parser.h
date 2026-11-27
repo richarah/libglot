@@ -225,6 +225,13 @@ protected:
     // Expression Parsing (Precedence Climbing)
     // ========================================================================
 
+    /// Customization point: consume an operator that is not in the precedence table.
+    /// Return true when something was consumed and left was updated. The default
+    /// consumes nothing.
+    [[nodiscard]] bool parse_infix_extension(AstNodeType*& /*left*/, int /*min_precedence*/) {
+        return false;
+    }
+
     /// Parse expression with precedence climbing algorithm
     ///
     /// This is the core of operator precedence parsing.
@@ -240,6 +247,12 @@ protected:
 
         // Parse binary operators using precedence climbing
         while (!is_eof()) {
+            // Operators that are not plain binary operators (such as IN) but still
+            // take part in precedence, so what follows them is parsed too
+            if (derived().parse_infix_extension(left, min_precedence)) {
+                continue;
+            }
+
             const TokenKind op = current().type;
             const int prec = get_precedence<Spec>(op);
 

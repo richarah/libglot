@@ -112,6 +112,8 @@ add_sql_test(test_lateral_joins)                 # 15+ TEST_CASEs - LATERAL join
 # ============================================================================
 
 add_sql_test(test_group_by_and_row_limits)       # ROLLUP, CUBE, GROUPING SETS, GROUPING(), LIMIT, OFFSET, FETCH, TOP
+add_sql_test(test_same_meaning)                  # output SQL means what the input meant, in every dialect
+target_compile_definitions(test_same_meaning PRIVATE SAME_MEANING_CHECK_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/check_same_rows.py")
 
 # ============================================================================
 # OLAP and advanced SQL: not built yet. These suites test complete_features.h, which does not
@@ -126,5 +128,5 @@ add_sql_test(test_group_by_and_row_limits)       # ROLLUP, CUBE, GROUPING SETS, 
 # add_sql_test(test_output_clause)               # 15 TEST_CASEs - SQL Server OUTPUT
 # add_sql_test(test_json_path)                   # 20 TEST_CASEs - JSON path expressions
 
-message(STATUS "libglot-sql: 53 test executables configured")
+message(STATUS "libglot-sql: 54 test executables configured")
 message(STATUS "  Progress: ALL SQL features implemented and tested")
